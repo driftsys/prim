@@ -1,2 +1,58 @@
 # prim
-Opinionated, zero-config formatter for a repository's connective tissue — Markdown, JSON/JSONC, YAML, TOML.
+
+Opinionated, near-zero-config formatter for a repository's _connective tissue_ —
+Markdown, JSON/JSONC, YAML, TOML — plus whitespace hygiene on a curated set of
+un-owned text files.
+
+prim is **not** a source-code formatter and has **no plugin system**. It is the
+single static binary that tidies the files no other formatter owns.
+
+- **One canonical style** — honors `.editorconfig`, nothing else. No
+  `prim.toml`.
+- **Semantics-preserving** — never reorders keys, entries, or array elements.
+- **Safe by default** — unparseable or non-UTF-8 files are left untouched and
+  reported; writes are atomic.
+
+> **Status:** walking skeleton. The command-line surface is wired end-to-end
+> through the [`prim-fmt`](crates/prim-fmt) engine, but the engine is currently
+> a no-op — it returns its input unchanged. The structured parsers and the
+> whitespace-hygiene pass land in later milestones. See
+> [docs/SPEC.md](docs/SPEC.md).
+
+## Install
+
+```bash
+# Prebuilt binary (verifies SHA-256, installs to ~/.local/bin, sets up completions)
+curl -sSfL https://raw.githubusercontent.com/driftsys/prim/main/install.sh | bash
+
+# …or from crates.io (crate is prim-cli; binary is prim)
+cargo install prim-cli
+```
+
+## Usage
+
+```bash
+prim README.md config.yaml     # format files in place
+prim --check .                 # CI gate: non-zero if anything would change
+prim --diff config.toml        # preview pending changes
+prim --stdin-filepath x.md     # editor format-on-save (stdin → stdout)
+```
+
+See the [user guide](https://driftsys.github.io/prim/) and
+[docs/USAGE.md](docs/USAGE.md) for the full command reference.
+
+## Development
+
+```bash
+git clone https://github.com/driftsys/prim.git
+cd prim
+./bootstrap     # installs git-std, configures git hooks
+just build      # compile + test + lint
+just verify     # full pre-PR gate
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
+
+## License
+
+[MIT](LICENSE) © driftsys

@@ -1,0 +1,12 @@
+#:schema https://driftsys.github.io/schemas/project/v1.json
+
+name = "io.driftsys.prim"
+version = "0.1.0"
+category = ["tool", "binary"]
+description = "Opinionated, near-zero-config formatter for a repository's connective tissue."
+license = "MIT"
+keywords = ["formatter", "markdown", "json", "yaml", "toml"]
+authors = ["driftsys"]
+homepage = "https://github.com/driftsys/prim"
+bugs = "https://github.com/driftsys/prim/issues"
+repository = "https://github.com/driftsys/prim"

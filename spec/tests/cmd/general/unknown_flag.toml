@@ -1,0 +1,3 @@
+bin.name = "prim"
+args = ["--definitely-not-a-flag"]
+status.code = 2

@@ -1,0 +1,11 @@
+# git-std hooks — pre-commit.hooks
+#
+# Commands run during the pre-commit hook. $@ contains staged files.
+# Prefix controls behavior:
+#
+#   ~  fix        stash unstaged changes, run, re-stage result, restore
+#   !  required   abort commit on failure
+#   ?  advisory   warn on failure, never abort
+#
+~ cargo fmt
+! cargo clippy --workspace --all-targets -- -D warnings

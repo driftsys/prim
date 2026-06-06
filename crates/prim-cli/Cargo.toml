@@ -1,0 +1,32 @@
+[package]
+name = "prim-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+description = "prim — opinionated, near-zero-config formatter for a repository's connective tissue."
+documentation = "https://driftsys.github.io/prim/"
+homepage = "https://github.com/driftsys/prim"
+keywords = ["formatter", "markdown", "json", "yaml", "toml"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "prim"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4"
+prim-fmt.workspace = true
+yansi = "1"
+
+[build-dependencies]
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.3"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

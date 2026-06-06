@@ -13,6 +13,12 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# MarkSpec LSP artifact (no .markspec.yaml in this repo — see driftsys/markspec#609)
+.markspec/
+
+# Superpowers working memory (specs/plans) — private/local working memory
+docs/wip/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

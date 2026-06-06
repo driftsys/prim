@@ -1,0 +1,8 @@
+# git-std hooks — pre-push.hooks
+#
+# Commands run during the pre-push hook.
+#
+#   !  required   abort push on failure
+#   ?  advisory   warn on failure, never abort
+#
+! cargo test --workspace

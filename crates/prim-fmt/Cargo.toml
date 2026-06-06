@@ -1,0 +1,15 @@
+[package]
+name = "prim-fmt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme = "README.md"
+repository.workspace = true
+description = "The prim formatting engine — Markdown/JSON/JSONC/YAML/TOML plus whitespace hygiene (library)."
+documentation = "https://docs.rs/prim-fmt"
+homepage = "https://github.com/driftsys/prim"
+keywords = ["formatter", "markdown", "json", "yaml", "toml"]
+categories = ["development-tools", "text-processing"]
+
+[lib]
+name = "prim_fmt"
