@@ -21,13 +21,19 @@ pub fn run(cli: &Cli) -> i32 {
 }
 
 /// Read stdin, format it, and write the result to stdout (format-on-save).
-fn run_stdin(_path: &Path) -> i32 {
+///
+/// The path selects the formatter; if prim does not own that file type, the
+/// input is passed through unchanged.
+fn run_stdin(path: &Path) -> i32 {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         ui::error("could not read stdin as UTF-8");
         return EXIT_ERROR;
     }
-    print!("{}", prim_fmt::format(&input));
+    match prim_fmt::classify(path) {
+        Some(kind) => print!("{}", prim_fmt::format(kind, &input)),
+        None => print!("{input}"),
+    }
     EXIT_OK
 }
 
@@ -37,10 +43,16 @@ fn run_paths(cli: &Cli) -> i32 {
     let mut any_would_change = false;
 
     for file in discover::collect(&cli.paths, &cli.exclude) {
+        let Some(kind) = prim_fmt::classify(&file.path) else {
+            // A file prim does not own — left byte-for-byte unchanged (FR-2.4),
+            // even when named explicitly.
+            continue;
+        };
+
         let original = match std::fs::read_to_string(&file.path) {
             Ok(text) => text,
             Err(err) => {
-                // An explicitly named file that can't be read is an error
+                // An explicitly named owned file that can't be read is an error
                 // (FR-6 fail-safe); a walked file that isn't UTF-8 is skipped.
                 if file.explicit {
                     ui::error(&format!("{}: {err}", file.path.display()));
@@ -50,7 +62,7 @@ fn run_paths(cli: &Cli) -> i32 {
             }
         };
 
-        let formatted = prim_fmt::format(&original);
+        let formatted = prim_fmt::format(kind, &original);
         if formatted == original {
             continue;
         }

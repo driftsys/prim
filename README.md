@@ -13,11 +13,11 @@ single static binary that tidies the files no other formatter owns.
 - **Safe by default** — unparseable or non-UTF-8 files are left untouched and
   reported; writes are atomic.
 
-> **Status:** walking skeleton. The command-line surface is wired end-to-end
-> through the [`prim-fmt`](crates/prim-fmt) engine, but the engine is currently
-> a no-op — it returns its input unchanged. The structured parsers and the
-> whitespace-hygiene pass land in later milestones. See
-> [docs/SPEC.md](docs/SPEC.md).
+> **Status:** early. prim does recursive discovery and applies **whitespace
+> hygiene** (trailing-whitespace removal, single final line-feed, LF endings) to
+> the parsed formats and the orphan allowlist. Structured per-format formatting
+> (JSON/YAML/TOML/Markdown) and `.editorconfig` resolution land in later
+> milestones. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Install
 

@@ -12,10 +12,22 @@ fn prim() -> Command {
 }
 
 #[test]
-fn stdin_filepath_writes_formatted_result_to_stdout() {
-    let input = "# Title\n\nbody text  \n";
+fn stdin_filepath_applies_whitespace_hygiene_to_stdout() {
+    // Trailing whitespace is trimmed; the formatted result goes to stdout.
     prim()
         .args(["--stdin-filepath", "doc.md"])
+        .write_stdin("# Title\n\nbody text  \n")
+        .assert()
+        .success()
+        .stdout("# Title\n\nbody text\n");
+}
+
+#[test]
+fn stdin_for_unowned_filetype_passes_through_unchanged() {
+    // prim does not own .rs, so stdin is emitted verbatim.
+    let input = "fn main()  {}  \n";
+    prim()
+        .args(["--stdin-filepath", "main.rs"])
         .write_stdin(input)
         .assert()
         .success()

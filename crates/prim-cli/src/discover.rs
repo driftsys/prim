@@ -58,8 +58,12 @@ fn walk_into(root: &Path, excludes: &[String], selected: &mut BTreeMap<PathBuf, 
         // git (FR-4.2).
         .standard_filters(true)
         .require_git(false)
+        // Include dotfiles so allowlisted ones (.gitignore, .editorconfig,
+        // .env, …) are reachable; the VCS metadata directory is pruned below.
+        .hidden(false)
         // The committed escape hatch (FR-4.4).
-        .add_custom_ignore_filename(".primignore");
+        .add_custom_ignore_filename(".primignore")
+        .filter_entry(|entry| entry.file_name() != ".git");
 
     if !excludes.is_empty() {
         let mut overrides = OverrideBuilder::new(root);
@@ -176,6 +180,37 @@ mod tests {
         let found = collect(&[PathBuf::from("/no/such/prim/fixture.md")], &[]);
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
+    }
+
+    #[test]
+    fn includes_allowlisted_dotfiles() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".editorconfig"), "root = true\n");
+        write(&dir.path().join("a.md"), "x\n");
+
+        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let got = names(&found);
+        assert!(
+            got.contains(&".editorconfig".to_string()),
+            "allowlisted dotfiles must be discovered, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn prunes_dot_git_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".git/config"), "[core]\n");
+        write(&dir.path().join("a.md"), "x\n");
+
+        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let paths: Vec<String> = found
+            .iter()
+            .map(|d| d.path.to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert!(
+            paths.iter().all(|p| !p.contains("/.git/")),
+            "must not descend into .git/, got {paths:?}"
+        );
     }
 
     #[test]

@@ -16,9 +16,10 @@ as the tool that tidies the files no other formatter owns.
 
 ## Project status
 
-prim is at the **walking-skeleton** stage. The command-line surface (`prim`,
-`--check`, `--diff`, `--stdin-filepath`, `--completions`) is wired end-to-end
-through the [`prim-fmt`](https://docs.rs/prim-fmt) engine, but the engine
-currently performs **no formatting** — it returns its input unchanged. The
-structured per-format parsers and the whitespace-hygiene pass land in later
-milestones. See the [Specification](SPEC.md) for the full v1 scope.
+prim is at an **early** stage. Recursive file discovery and the format-agnostic
+**whitespace hygiene** pass (trailing-whitespace removal, single final
+line-feed, LF endings) are implemented across the parsed formats and the orphan
+allowlist, wired through the [`prim-fmt`](https://docs.rs/prim-fmt) engine. The
+structured per-format passes (JSON/YAML/TOML/Markdown) and `.editorconfig`
+resolution land in later milestones. See the [Specification](SPEC.md) for the
+full v1 scope.
