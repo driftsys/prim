@@ -4,6 +4,7 @@ use clap::{CommandFactory, Parser};
 
 mod app;
 mod cli;
+mod discover;
 mod ui;
 
 use cli::{Cli, ColorWhen};

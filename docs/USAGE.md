@@ -6,9 +6,9 @@ prim [OPTIONS] [PATH]...
 
 ## Arguments
 
-| Argument    | Description                                                   |
-| ----------- | ------------------------------------------------------------- |
-| `[PATH]...` | Files to format. (Recursive directory discovery lands later.) |
+| Argument    | Description                                                                                                                                                           |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[PATH]...` | Files or directories to format. Directories are searched recursively (honoring `.gitignore`/`.ignore`/`.primignore`); defaults to the current directory when omitted. |
 
 ## Options
 
