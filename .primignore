@@ -1,0 +1,5 @@
+# .primignore — prim's committed escape hatch (gitignore syntax).
+# Paths listed here are left byte-for-byte unchanged by prim.
+
+# git-std generates CHANGELOG.md; prim must not hard-wrap generated content.
+CHANGELOG.md

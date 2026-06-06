@@ -1,0 +1,11 @@
+[book]
+title = "prim"
+authors = ["driftsys"]
+src = "docs"
+
+[build]
+build-dir = "target/book"
+
+[output.html]
+git-repository-url = "https://github.com/driftsys/prim"
+edit-url-template = "https://github.com/driftsys/prim/edit/main/docs/{path}"

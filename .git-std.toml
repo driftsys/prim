@@ -1,0 +1,16 @@
+scheme = "semver"
+strict = true
+scopes = "auto"
+
+[versioning]
+tag_prefix = "v"
+
+# Workspace version (under [workspace.package]).
+[[version_files]]
+path = "Cargo.toml"
+regex = '(?m)^version = "([^"]+)"'
+
+# Internal path-dependency version pin (under [workspace.dependencies]).
+[[version_files]]
+path = "Cargo.toml"
+regex = 'prim-fmt = \{ version = "([^"]+)"'
