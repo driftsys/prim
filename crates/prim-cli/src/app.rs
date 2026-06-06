@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::cli::Cli;
+use crate::discover;
 use crate::ui;
 
 /// Operating-mode exit codes (FR-5.5).
@@ -30,17 +31,21 @@ fn run_stdin(_path: &Path) -> i32 {
     EXIT_OK
 }
 
-/// Format each explicit path argument according to the selected mode.
+/// Discover the target files and format each according to the selected mode.
 fn run_paths(cli: &Cli) -> i32 {
     let mut had_error = false;
     let mut any_would_change = false;
 
-    for path in &cli.paths {
-        let original = match std::fs::read_to_string(path) {
+    for file in discover::collect(&cli.paths, &cli.exclude) {
+        let original = match std::fs::read_to_string(&file.path) {
             Ok(text) => text,
             Err(err) => {
-                ui::error(&format!("{}: {err}", path.display()));
-                had_error = true;
+                // An explicitly named file that can't be read is an error
+                // (FR-6 fail-safe); a walked file that isn't UTF-8 is skipped.
+                if file.explicit {
+                    ui::error(&format!("{}: {err}", file.path.display()));
+                    had_error = true;
+                }
                 continue;
             }
         };
@@ -52,14 +57,14 @@ fn run_paths(cli: &Cli) -> i32 {
         any_would_change = true;
 
         if cli.check {
-            ui::would_reformat(path);
+            ui::would_reformat(&file.path);
         } else if cli.diff {
             // Unified-diff rendering arrives with real formatting; the
             // scaffold no-op never produces a pending change to show.
-        } else if let Err(err) = std::fs::write(path, &formatted) {
+        } else if let Err(err) = std::fs::write(&file.path, &formatted) {
             // Atomic write (FR-6.4) is a follow-up milestone; this branch is
             // unreached until structured formatting yields a change.
-            ui::error(&format!("{}: {err}", path.display()));
+            ui::error(&format!("{}: {err}", file.path.display()));
             had_error = true;
         }
     }

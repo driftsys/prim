@@ -11,10 +11,11 @@ a source-code formatter and has **no plugin system**.
 
 Invoked as `prim`. The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** walking skeleton. The CLI surface is wired end-to-end through the
-> `prim-fmt` engine, but the engine is currently a no-op (`format` returns its
-> input unchanged). The per-format parsers, `.editorconfig` resolution,
-> recursive discovery, and the whitespace-hygiene pass are follow-up milestones.
+> **Status:** walking skeleton. The CLI surface and recursive file discovery are
+> wired end-to-end through the `prim-fmt` engine, but the engine is currently a
+> no-op (`format` returns its input unchanged). The per-format parsers,
+> `.editorconfig` resolution, and the whitespace-hygiene pass are follow-up
+> milestones.
 
 ## Build commands
 
@@ -67,7 +68,7 @@ routes them through `prim_fmt::format`, and maps the outcome to an exit code.
   tracked-but-unformatted files.
 
 **Key dependencies:** `clap` (CLI), `clap_complete`/`clap_mangen` (completions +
-man pages), `yansi` (colour). The `ignore` crate will back file discovery.
+man pages), `yansi` (colour), `ignore` (recursive file discovery).
 
 ## Workflow
 

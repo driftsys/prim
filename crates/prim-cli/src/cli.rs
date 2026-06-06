@@ -20,8 +20,9 @@ pub enum ColorWhen {
 #[derive(Parser, Debug)]
 #[command(name = "prim", version, about, long_about = None)]
 pub struct Cli {
-    /// Files to format. (Recursive directory discovery lands in a later
-    /// milestone; for now pass explicit file paths.)
+    /// Files or directories to format. Directories are searched recursively,
+    /// honoring .gitignore, .ignore, and .primignore. Defaults to the current
+    /// directory when no paths are given.
     #[arg(value_name = "PATH")]
     pub paths: Vec<PathBuf>,
 
