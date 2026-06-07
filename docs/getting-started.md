@@ -35,12 +35,14 @@ prim --version
 prim --help
 ```
 
-prim takes file paths and formats them in place:
+prim formats files in place, or a whole directory tree:
 
 ```bash
-prim README.md config.yaml
+prim README.md config.yaml   # specific files
+prim .                       # the current directory, recursively
 ```
 
-> **Note:** at the walking-skeleton stage the formatter is a no-op, so prim
-> reports success and leaves files unchanged. Wiring, exit codes, and the
-> command-line surface are real; the formatting logic lands in later milestones.
+> **Note:** at this early stage prim applies **whitespace hygiene**
+> (trailing-whitespace removal, single final line-feed, LF endings) to the
+> parsed formats and the orphan allowlist. Structured per-format formatting
+> (JSON/YAML/TOML/Markdown) lands in later milestones.

@@ -39,6 +39,8 @@ prim [OPTIONS] [PATH]...
 - **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout
   out.
 
-> **Status:** the formatter is currently a no-op (walking skeleton), so every
-> file is reported as already formatted. The behaviours above describe the
-> intended contract; see the [Specification](SPEC.md).
+> **Status:** prim currently applies whitespace hygiene (trailing-whitespace
+> removal, single final line-feed, LF endings) to the parsed formats and the
+> orphan allowlist. Structured per-format formatting is not yet implemented, so
+> a file is reported as changed only when its whitespace differs. See the
+> [Specification](SPEC.md).

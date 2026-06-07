@@ -4,31 +4,33 @@
 //! connective tissue — Markdown, JSON/JSONC, YAML, TOML — plus whitespace
 //! hygiene on a curated set of un-owned text files.
 //!
-//! # Scaffold stage
+//! The engine has two steps:
 //!
-//! At this stage [`format`] is the identity function: it returns its input
-//! unchanged. It exists to prove the architecture end-to-end — the `prim`
-//! binary depends on this crate and routes every operating mode through
-//! [`format`]. The per-format parsers (Markdown, JSON, YAML, TOML) and the
-//! whitespace-hygiene pass replace this no-op in later milestones.
+//! 1. [`classify`] decides whether prim owns a file (by name/extension) and, if
+//!    so, what [`FileKind`] it is. Files prim does not own are left untouched.
+//! 2. [`format`] applies the canonical formatting for that kind.
+//!
+//! At this stage [`format`] applies only the format-agnostic **whitespace
+//! hygiene** pass (trailing-whitespace removal, single final line-feed, LF line
+//! endings). Structured per-format canonicalisation (Markdown wrapping, JSON
+//! re-indentation, …) is added per [`FileKind`] in later milestones.
 
-/// Format `source` and return the formatted result.
+mod classify;
+mod hygiene;
+
+pub use classify::{FileKind, classify};
+
+/// Format `source` as the given [`FileKind`] and return the result.
 ///
-/// # Scaffold stage
-///
-/// Returns `source` unchanged. Real formatting (structured per-format
-/// canonicalisation and whitespace hygiene) lands in later milestones.
-pub fn format(source: &str) -> String {
-    source.to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_is_identity_at_scaffold_stage() {
-        let input = "# Title\n\n- item\n  trailing kept verbatim  \n";
-        assert_eq!(format(input), input);
+/// Every kind currently receives only the whitespace-hygiene pass; the `match`
+/// is the dispatch point where structured per-format passes (FR-1) attach.
+pub fn format(kind: FileKind, source: &str) -> String {
+    match kind {
+        FileKind::Markdown
+        | FileKind::Json
+        | FileKind::Jsonc
+        | FileKind::Yaml
+        | FileKind::Toml
+        | FileKind::Orphan => hygiene::hygiene(source),
     }
 }

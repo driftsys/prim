@@ -36,10 +36,23 @@ fn walked_binary_is_skipped_not_errored() {
 }
 
 #[test]
-fn explicit_binary_file_still_errors() {
+fn explicit_non_owned_file_is_left_unchanged() {
+    // A file prim does not own (here a binary) is skipped, not an error, even
+    // when named explicitly (FR-2.4).
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("logo.bin");
     std::fs::write(&bin, [0xFFu8, 0xFE, 0x00]).unwrap();
 
-    prim().arg(&bin).assert().code(2);
+    prim().arg(&bin).assert().success();
+}
+
+#[test]
+fn explicit_owned_file_that_is_not_utf8_errors() {
+    // An owned file type (.json) that cannot be read as UTF-8 is reported as an
+    // error when named explicitly (exit 2).
+    let dir = tempfile::tempdir().unwrap();
+    let bad = dir.path().join("data.json");
+    std::fs::write(&bad, [0xFFu8, 0xFE, 0x00]).unwrap();
+
+    prim().arg(&bad).assert().code(2);
 }
