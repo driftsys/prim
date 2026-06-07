@@ -6,6 +6,7 @@ use std::path::Path;
 use crate::cli::Cli;
 use crate::discover;
 use crate::ui;
+use crate::write;
 
 /// Operating-mode exit codes (FR-5.5).
 const EXIT_OK: i32 = 0;
@@ -52,11 +53,15 @@ fn run_paths(cli: &Cli) -> i32 {
         let original = match std::fs::read_to_string(&file.path) {
             Ok(text) => text,
             Err(err) => {
-                // An explicitly named owned file that can't be read is an error
-                // (FR-6 fail-safe); a walked file that isn't UTF-8 is skipped.
+                // An owned file that can't be read as UTF-8 is left unchanged
+                // and reported (FR-6.5): an error for an explicitly named file
+                // (exit 2), a warning for a discovered one.
+                let message = format!("{}: {err}", file.path.display());
                 if file.explicit {
-                    ui::error(&format!("{}: {err}", file.path.display()));
+                    ui::error(&message);
                     had_error = true;
+                } else {
+                    ui::warning(&message);
                 }
                 continue;
             }
@@ -73,9 +78,8 @@ fn run_paths(cli: &Cli) -> i32 {
         } else if cli.diff {
             // Unified-diff rendering arrives with real formatting; the
             // scaffold no-op never produces a pending change to show.
-        } else if let Err(err) = std::fs::write(&file.path, &formatted) {
-            // Atomic write (FR-6.4) is a follow-up milestone; this branch is
-            // unreached until structured formatting yields a change.
+        } else if let Err(err) = write::atomic(&file.path, &formatted) {
+            // Atomic write (FR-6.4): on failure the original is left intact.
             ui::error(&format!("{}: {err}", file.path.display()));
             had_error = true;
         }

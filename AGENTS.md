@@ -11,11 +11,11 @@ a source-code formatter and has **no plugin system**.
 
 Invoked as `prim`. The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** early. Recursive discovery and the format-agnostic **whitespace
+> **Status:** early. Recursive discovery, the format-agnostic **whitespace
 > hygiene** pass (trailing-whitespace removal, single final line-feed, LF
-> endings) are implemented and wired through the `prim-fmt` engine. The
-> per-format structured passes (JSON/YAML/TOML/Markdown), `.editorconfig`
-> resolution, and atomic writes are follow-up milestones.
+> endings), and atomic writes are implemented and wired through the `prim-fmt`
+> engine. The per-format structured passes (JSON/YAML/TOML/Markdown) and
+> `.editorconfig` resolution are follow-up milestones.
 
 ## Build commands
 

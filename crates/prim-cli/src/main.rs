@@ -6,6 +6,7 @@ mod app;
 mod cli;
 mod discover;
 mod ui;
+mod write;
 
 use cli::{Cli, ColorWhen};
 

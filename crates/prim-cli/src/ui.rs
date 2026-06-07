@@ -12,6 +12,11 @@ pub fn error(msg: &str) {
     eprintln!("{} {msg}", "error:".red().bold());
 }
 
+/// Print a prefixed warning message to stderr.
+pub fn warning(msg: &str) {
+    eprintln!("{} {msg}", "warning:".yellow().bold());
+}
+
 /// Report, on stdout, that `path` would be reformatted (`--check`).
 pub fn would_reformat(path: &Path) {
     println!("{}", path.display());
