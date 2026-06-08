@@ -32,7 +32,10 @@ fn run_stdin(path: &Path) -> i32 {
         return EXIT_ERROR;
     }
     match prim_fmt::classify(path) {
-        Some(kind) => print!("{}", prim_fmt::format(kind, &input)),
+        Some(kind) => {
+            let style = prim_fmt::Style::default();
+            print!("{}", prim_fmt::format(kind, &input, &style));
+        }
         None => print!("{input}"),
     }
     EXIT_OK
@@ -67,7 +70,8 @@ fn run_paths(cli: &Cli) -> i32 {
             }
         };
 
-        let formatted = prim_fmt::format(kind, &original);
+        let style = prim_fmt::Style::default();
+        let formatted = prim_fmt::format(kind, &original, &style);
         if formatted == original {
             continue;
         }
