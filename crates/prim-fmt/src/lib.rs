@@ -17,8 +17,10 @@
 
 mod classify;
 mod hygiene;
+mod style;
 
 pub use classify::{FileKind, classify};
+pub use style::{Indent, LineEnding, Style};
 
 /// Format `source` as the given [`FileKind`] and return the result.
 ///
