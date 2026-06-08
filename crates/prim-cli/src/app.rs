@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::cli::Cli;
 use crate::discover;
+use crate::editorconfig;
 use crate::ui;
 use crate::write;
 
@@ -32,7 +33,10 @@ fn run_stdin(path: &Path) -> i32 {
         return EXIT_ERROR;
     }
     match prim_fmt::classify(path) {
-        Some(kind) => print!("{}", prim_fmt::format(kind, &input)),
+        Some(kind) => {
+            let style = editorconfig::resolve(path);
+            print!("{}", prim_fmt::format(kind, &input, &style));
+        }
         None => print!("{input}"),
     }
     EXIT_OK
@@ -67,7 +71,8 @@ fn run_paths(cli: &Cli) -> i32 {
             }
         };
 
-        let formatted = prim_fmt::format(kind, &original);
+        let style = editorconfig::resolve(&file.path);
+        let formatted = prim_fmt::format(kind, &original, &style);
         if formatted == original {
             continue;
         }

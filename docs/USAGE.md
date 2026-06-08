@@ -39,8 +39,39 @@ prim [OPTIONS] [PATH]...
 - **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout
   out.
 
+## Configuration
+
+prim honors [`.editorconfig`](https://editorconfig.org) as its **only** style
+configuration — there is no `prim.toml` and there are no per-rule flags. With no
+`.editorconfig` present, prim applies its built-in canonical style (LF endings,
+trailing whitespace stripped, exactly one final newline, two-space indent).
+
+prim resolves the standard `.editorconfig` cascade for each file: it walks up
+the directory tree, stops at the nearest `root = true`, and applies matching
+per-glob sections (e.g. `[*.md]`). With `--stdin-filepath`, the cascade is
+resolved relative to that path's directory.
+
+Honored keys:
+
+| Key                        | Effect                                                             |
+| -------------------------- | ------------------------------------------------------------------ |
+| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                 |
+| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it. |
+| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.       |
+| `indent_style`             | `space`/`tab` — carried for the upcoming structured formatters.    |
+| `indent_size`              | indent width — carried for the upcoming structured formatters.     |
+| `max_line_length`          | wrap width — carried for the upcoming Markdown formatter.          |
+
+Scope notes:
+
+- prim treats files as UTF-8; `charset` values other than `utf-8` are not
+  supported (a non-UTF-8 file is left unchanged and reported).
+- `end_of_line = cr` (bare carriage return) is treated as `lf`.
+- An unreadable or malformed `.editorconfig` is ignored with a warning, and the
+  built-in canonical style applies.
+
 > **Status:** prim currently applies whitespace hygiene (trailing-whitespace
-> removal, single final line-feed, LF endings) to the parsed formats and the
-> orphan allowlist. Structured per-format formatting is not yet implemented, so
-> a file is reported as changed only when its whitespace differs. See the
-> [Specification](SPEC.md).
+> removal, final newline, line endings) — driven by `.editorconfig` — to the
+> parsed formats and the orphan allowlist. Structured per-format formatting is
+> not yet implemented, so a file is reported as changed only when its whitespace
+> differs. See the [Specification](SPEC.md).

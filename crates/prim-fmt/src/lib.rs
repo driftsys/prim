@@ -17,20 +17,22 @@
 
 mod classify;
 mod hygiene;
+mod style;
 
 pub use classify::{FileKind, classify};
+pub use style::{Indent, LineEnding, Style};
 
-/// Format `source` as the given [`FileKind`] and return the result.
+/// Format `source` as the given [`FileKind`] under `style`.
 ///
 /// Every kind currently receives only the whitespace-hygiene pass; the `match`
 /// is the dispatch point where structured per-format passes (FR-1) attach.
-pub fn format(kind: FileKind, source: &str) -> String {
+pub fn format(kind: FileKind, source: &str, style: &Style) -> String {
     match kind {
         FileKind::Markdown
         | FileKind::Json
         | FileKind::Jsonc
         | FileKind::Yaml
         | FileKind::Toml
-        | FileKind::Orphan => hygiene::hygiene(source),
+        | FileKind::Orphan => hygiene::hygiene(source, style),
     }
 }
