@@ -10,3 +10,4 @@
 - [AD-0002 — EditorConfig resolution semantics](decisions/0002-editorconfig-resolution-semantics.md)
 - [AD-0003 — JSON/JSONC via dprint-plugin-json](decisions/0003-json-via-dprint-plugin-json.md)
 - [AD-0004 — TOML via taplo](decisions/0004-toml-via-taplo.md)
+- [AD-0005 — YAML via pretty_yaml](decisions/0005-yaml-via-pretty-yaml.md)

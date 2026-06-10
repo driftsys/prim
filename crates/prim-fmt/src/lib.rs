@@ -21,6 +21,7 @@ mod hygiene;
 mod json;
 mod style;
 mod toml;
+mod yaml;
 
 pub use classify::{FileKind, classify};
 pub use error::FormatError;
@@ -35,9 +36,8 @@ pub fn format(kind: FileKind, source: &str, style: &Style) -> Result<String, For
     match kind {
         FileKind::Json | FileKind::Jsonc => json::format(source, style),
         FileKind::Toml => toml::format(source, style),
-        FileKind::Markdown | FileKind::Yaml | FileKind::Orphan => {
-            Ok(hygiene::hygiene(source, style))
-        }
+        FileKind::Yaml => yaml::format(source, style),
+        FileKind::Markdown | FileKind::Orphan => Ok(hygiene::hygiene(source, style)),
     }
 }
 

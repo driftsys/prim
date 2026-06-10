@@ -14,9 +14,9 @@ Invoked as `prim`. The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 > **Status:** early. Recursive discovery, the format-agnostic **whitespace
 > hygiene** pass (trailing-whitespace removal, single final line-feed, LF
 > endings), atomic writes, **`.editorconfig` style resolution**, and
-> **JSON/JSONC + TOML formatting** are implemented and wired through the
-> `prim-fmt` engine. The remaining per-format structured passes (YAML, Markdown)
-> are follow-up milestones.
+> **JSON/JSONC + TOML + YAML formatting** are implemented and wired through the
+> `prim-fmt` engine. The remaining per-format structured pass (Markdown) is the
+> last follow-up milestone.
 
 ## Build commands
 

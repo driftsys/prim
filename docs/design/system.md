@@ -35,6 +35,7 @@ prim-fmt (library, pure)
   hygiene.rs    hygiene(source, &Style) -> String
   json.rs       format(source, &Style) -> Result<String, FormatError>  (dprint-plugin-json)
   toml.rs       format(source, &Style) -> Result<String, FormatError>  (taplo)
+  yaml.rs       format(source, &Style) -> Result<String, FormatError>  (pretty_yaml)
   lib.rs        format(kind, source, &Style) -> Result<String, FormatError>  (dispatch)
 
 prim-cli (binary "prim")
@@ -64,11 +65,11 @@ For every file that prim processes the steps are, in order:
 4. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
    hygiene pass (FR-2), and for structured formats the per-format pass followed
    by hygiene: `Json`/`Jsonc` via `dprint-plugin-json` (FR-1.2/1.3, AD-0003),
-   `Toml` via `taplo` (FR-1.5, AD-0004). It returns
-   `Result<String, FormatError>`; a parse error leaves the file unchanged and is
-   reported as in step 2 (explicit → exit 2, discovered → warning). The
-   remaining structured passes (YAML, Markdown) attach at the same dispatch
-   point per milestone.
+   `Toml` via `taplo` (FR-1.5, AD-0004), `Yaml` via `pretty_yaml` (FR-1.4,
+   AD-0005). It returns `Result<String, FormatError>`; a parse error leaves the
+   file unchanged and is reported as in step 2 (explicit → exit 2, discovered →
+   warning). The remaining structured pass (Markdown) attaches at the same
+   dispatch point.
 5. **Write** — if the formatted text differs from the original, `write::atomic`
    replaces the file via a same-directory temp file and rename, preserving
    permission bits (FR-6.4). In `--check` mode, the path is printed to stdout
@@ -134,13 +135,13 @@ I/O or terminal crate. The boundary is enforced by the separation into two Cargo
 packages. All I/O, including `.editorconfig` file reading, lives exclusively in
 `prim-cli`. See AD-0001.
 
-## Implementation status (as of feat/toml-format)
+## Implementation status (as of feat/yaml-format)
 
 Implemented: recursive file discovery (FR-4), whitespace hygiene (FR-2),
 `.editorconfig` resolution (FR-3), JSON/JSONC formatting (FR-1.2/1.3, AD-0003),
-TOML formatting (FR-1.5, AD-0004), atomic writes (FR-6.4), UTF-8 fail-safe
-reporting (FR-6.5).
+TOML formatting (FR-1.5, AD-0004), YAML formatting (FR-1.4, AD-0005), atomic
+writes (FR-6.4), UTF-8 fail-safe reporting (FR-6.5).
 
-Not yet implemented: structured passes for YAML and Markdown (FR-1.4/1.1),
-`--diff` unified output (FR-5.3, scaffold comment present in `app.rs`),
-per-directory `Style` cache (deferred per AD-0002).
+Not yet implemented: the Markdown structured pass (FR-1.1), `--diff` unified
+output (FR-5.3, scaffold comment present in `app.rs`), per-directory `Style`
+cache (deferred per AD-0002).
