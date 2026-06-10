@@ -35,7 +35,16 @@ fn run_stdin(path: &Path) -> i32 {
     match prim_fmt::classify(path) {
         Some(kind) => {
             let style = editorconfig::resolve(path);
-            print!("{}", prim_fmt::format(kind, &input, &style));
+            match prim_fmt::format(kind, &input, &style) {
+                Ok(text) => print!("{text}"),
+                Err(err) => {
+                    // Preserve the editor buffer on a parse failure: echo the
+                    // original to stdout and report on stderr (FR-6.3).
+                    ui::error(&format!("{}: {err}", path.display()));
+                    print!("{input}");
+                    return EXIT_ERROR;
+                }
+            }
         }
         None => print!("{input}"),
     }
@@ -72,7 +81,22 @@ fn run_paths(cli: &Cli) -> i32 {
         };
 
         let style = editorconfig::resolve(&file.path);
-        let formatted = prim_fmt::format(kind, &original, &style);
+        let formatted = match prim_fmt::format(kind, &original, &style) {
+            Ok(text) => text,
+            Err(err) => {
+                // An owned file prim cannot parse is left unchanged and reported
+                // (FR-6.3): an error for an explicitly named file (exit 2), a
+                // warning for a discovered one.
+                let message = format!("{}: {err}", file.path.display());
+                if file.explicit {
+                    ui::error(&message);
+                    had_error = true;
+                } else {
+                    ui::warning(&message);
+                }
+                continue;
+            }
+        };
         if formatted == original {
             continue;
         }
