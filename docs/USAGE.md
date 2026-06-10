@@ -70,8 +70,10 @@ Scope notes:
 - An unreadable or malformed `.editorconfig` is ignored with a warning, and the
   built-in canonical style applies.
 
-> **Status:** prim currently applies whitespace hygiene (trailing-whitespace
-> removal, final newline, line endings) — driven by `.editorconfig` — to the
-> parsed formats and the orphan allowlist. Structured per-format formatting is
-> not yet implemented, so a file is reported as changed only when its whitespace
+> **Status:** prim applies whitespace hygiene (trailing-whitespace removal,
+> final newline, line endings) — driven by `.editorconfig` — to every file it
+> owns. **JSON and JSONC** additionally receive structured canonical formatting
+> (consistent indentation, one space after `:`, no trailing commas, comments
+> preserved). Structured formatting for YAML, TOML, and Markdown is not yet
+> implemented, so those are reported as changed only when their whitespace
 > differs. See the [Specification](SPEC.md).

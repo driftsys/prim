@@ -31,8 +31,10 @@ terminal output (`yansi`). It calls into `prim-fmt` exclusively through the
 prim-fmt (library, pure)
   classify.rs   FileKind, classify(path) -> Option<FileKind>
   style.rs      Style, LineEnding, Indent  (re-exported from lib.rs)
+  error.rs      FormatError (thiserror)  (re-exported from lib.rs)
   hygiene.rs    hygiene(source, &Style) -> String
-  lib.rs        format(kind, source, &Style) -> String  (dispatch)
+  json.rs       format(source, &Style) -> Result<String, FormatError>  (dprint-plugin-json)
+  lib.rs        format(kind, source, &Style) -> Result<String, FormatError>  (dispatch)
 
 prim-cli (binary "prim")
   cli.rs           Cli (clap struct), ColorWhen
@@ -59,8 +61,12 @@ For every file that prim processes the steps are, in order:
    `Style::default()` (FR-3.1). A malformed or unreadable config falls back to
    `Style::default()` with a warning (AD-0002).
 4. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
-   hygiene pass (FR-2). The per-format structured passes (FR-1) will attach here
-   per milestone.
+   hygiene pass (FR-2), and for `Json`/`Jsonc` the structured JSON pass via
+   `dprint-plugin-json` (FR-1.2/1.3, AD-0003) followed by hygiene. It returns
+   `Result<String, FormatError>`; a parse error leaves the file unchanged and is
+   reported as in step 2 (explicit → exit 2, discovered → warning). The
+   remaining structured passes (YAML, TOML, Markdown) attach at the same
+   dispatch point per milestone.
 5. **Write** — if the formatted text differs from the original, `write::atomic`
    replaces the file via a same-directory temp file and rename, preserving
    permission bits (FR-6.4). In `--check` mode, the path is printed to stdout
@@ -69,7 +75,9 @@ For every file that prim processes the steps are, in order:
 
 For `--stdin-filepath`, steps 2 and 5 are replaced by stdin-read and
 stdout-write respectively; resolve and format use the supplied path for
-`.editorconfig` lookup and classification (FR-5.4).
+`.editorconfig` lookup and classification (FR-5.4). A parse error in this mode
+echoes the original source to stdout unchanged (so format-on-save never blanks
+the buffer), reports to stderr, and exits 2 (AD-0003).
 
 ## Command surface and exit codes
 
@@ -89,9 +97,10 @@ See FR-5.5.
 ```rust
 // prim_fmt public surface
 pub fn classify(path: &Path) -> Option<FileKind>;
-pub fn format(kind: FileKind, source: &str, style: &Style) -> String;
+pub fn format(kind: FileKind, source: &str, style: &Style) -> Result<String, FormatError>;
 pub use style::{Style, LineEnding, Indent};
 pub use classify::FileKind;
+pub use error::FormatError;
 ```
 
 `Style::default()` is prim's built-in canonical style (FR-3.1): LF line endings,
@@ -123,12 +132,12 @@ I/O or terminal crate. The boundary is enforced by the separation into two Cargo
 packages. All I/O, including `.editorconfig` file reading, lives exclusively in
 `prim-cli`. See AD-0001.
 
-## Implementation status (as of feat/editorconfig, PR #19)
+## Implementation status (as of feat/json-format)
 
 Implemented: recursive file discovery (FR-4), whitespace hygiene (FR-2),
-`.editorconfig` resolution (FR-3), atomic writes (FR-6.4), UTF-8 fail-safe
-reporting (FR-6.5).
+`.editorconfig` resolution (FR-3), JSON/JSONC formatting (FR-1.2/1.3, AD-0003),
+atomic writes (FR-6.4), UTF-8 fail-safe reporting (FR-6.5).
 
-Not yet implemented: per-format structured passes (FR-1), `--diff` unified
-output (FR-5.3, scaffold comment present in `app.rs`), per-directory `Style`
-cache (deferred per AD-0002).
+Not yet implemented: structured passes for YAML, TOML, and Markdown
+(FR-1.4/1.5/1.1), `--diff` unified output (FR-5.3, scaffold comment present in
+`app.rs`), per-directory `Style` cache (deferred per AD-0002).
