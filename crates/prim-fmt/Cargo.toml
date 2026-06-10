@@ -15,4 +15,5 @@ categories = ["development-tools", "text-processing"]
 name = "prim_fmt"
 
 [dependencies]
+dprint-plugin-json = "0.21"
 thiserror = "2"

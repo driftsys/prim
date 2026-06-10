@@ -18,6 +18,7 @@
 mod classify;
 mod error;
 mod hygiene;
+mod json;
 mod style;
 
 pub use classify::{FileKind, classify};
@@ -31,12 +32,10 @@ pub use style::{Indent, LineEnding, Style};
 /// dispatch point where structured per-format passes (FR-1) attach.
 pub fn format(kind: FileKind, source: &str, style: &Style) -> Result<String, FormatError> {
     match kind {
-        FileKind::Markdown
-        | FileKind::Json
-        | FileKind::Jsonc
-        | FileKind::Yaml
-        | FileKind::Toml
-        | FileKind::Orphan => Ok(hygiene::hygiene(source, style)),
+        FileKind::Json | FileKind::Jsonc => json::format(source, style),
+        FileKind::Markdown | FileKind::Yaml | FileKind::Toml | FileKind::Orphan => {
+            Ok(hygiene::hygiene(source, style))
+        }
     }
 }
 
