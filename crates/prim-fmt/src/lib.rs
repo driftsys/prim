@@ -16,23 +16,38 @@
 //! re-indentation, …) is added per [`FileKind`] in later milestones.
 
 mod classify;
+mod error;
 mod hygiene;
 mod style;
 
 pub use classify::{FileKind, classify};
+pub use error::FormatError;
 pub use style::{Indent, LineEnding, Style};
 
 /// Format `source` as the given [`FileKind`] under `style`.
 ///
-/// Every kind currently receives only the whitespace-hygiene pass; the `match`
-/// is the dispatch point where structured per-format passes (FR-1) attach.
-pub fn format(kind: FileKind, source: &str, style: &Style) -> String {
+/// Returns [`FormatError`] when a structured format cannot be parsed; the CLI
+/// then leaves the file unchanged and reports it (FR-6.3). The `match` is the
+/// dispatch point where structured per-format passes (FR-1) attach.
+pub fn format(kind: FileKind, source: &str, style: &Style) -> Result<String, FormatError> {
     match kind {
         FileKind::Markdown
         | FileKind::Json
         | FileKind::Jsonc
         | FileKind::Yaml
         | FileKind::Toml
-        | FileKind::Orphan => hygiene::hygiene(source, style),
+        | FileKind::Orphan => Ok(hygiene::hygiene(source, style)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hygiene_kinds_return_ok() {
+        let style = Style::default();
+        assert_eq!(format(FileKind::Orphan, "x  \n", &style).unwrap(), "x\n");
+        assert_eq!(format(FileKind::Markdown, "a\r\n", &style).unwrap(), "a\n");
     }
 }

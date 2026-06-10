@@ -13,3 +13,6 @@ categories = ["development-tools", "text-processing"]
 
 [lib]
 name = "prim_fmt"
+
+[dependencies]
+thiserror = "2"
