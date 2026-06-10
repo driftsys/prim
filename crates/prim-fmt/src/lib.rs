@@ -20,6 +20,7 @@ mod error;
 mod hygiene;
 mod json;
 mod style;
+mod toml;
 
 pub use classify::{FileKind, classify};
 pub use error::FormatError;
@@ -33,7 +34,8 @@ pub use style::{Indent, LineEnding, Style};
 pub fn format(kind: FileKind, source: &str, style: &Style) -> Result<String, FormatError> {
     match kind {
         FileKind::Json | FileKind::Jsonc => json::format(source, style),
-        FileKind::Markdown | FileKind::Yaml | FileKind::Toml | FileKind::Orphan => {
+        FileKind::Toml => toml::format(source, style),
+        FileKind::Markdown | FileKind::Yaml | FileKind::Orphan => {
             Ok(hygiene::hygiene(source, style))
         }
     }

@@ -58,9 +58,9 @@ Honored keys:
 | `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                 |
 | `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it. |
 | `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.       |
-| `indent_style`             | `space`/`tab` — carried for the upcoming structured formatters.    |
-| `indent_size`              | indent width — carried for the upcoming structured formatters.     |
-| `max_line_length`          | wrap width — carried for the upcoming Markdown formatter.          |
+| `indent_style`             | `space`/`tab` — drives JSON/JSONC and TOML indentation.            |
+| `indent_size`              | indent width for the JSON/JSONC and TOML formatters.               |
+| `max_line_length`          | line width for the structured formatters (default 80).             |
 
 Scope notes:
 
@@ -72,8 +72,9 @@ Scope notes:
 
 > **Status:** prim applies whitespace hygiene (trailing-whitespace removal,
 > final newline, line endings) — driven by `.editorconfig` — to every file it
-> owns. **JSON and JSONC** additionally receive structured canonical formatting
-> (consistent indentation, one space after `:`, no trailing commas, comments
-> preserved). Structured formatting for YAML, TOML, and Markdown is not yet
-> implemented, so those are reported as changed only when their whitespace
+> owns. **JSON, JSONC, and TOML** additionally receive structured canonical
+> formatting (JSON/JSONC: consistent indentation, one space after `:`, no
+> trailing commas; TOML: canonical spacing with inline-table style preserved;
+> both preserve comments). Structured formatting for YAML and Markdown is not
+> yet implemented, so those are reported as changed only when their whitespace
 > differs. See the [Specification](SPEC.md).
