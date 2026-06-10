@@ -16,5 +16,6 @@ name = "prim_fmt"
 
 [dependencies]
 dprint-plugin-json = "0.21"
+pretty_yaml = "0.6"
 taplo = "0.14"
 thiserror = "2"

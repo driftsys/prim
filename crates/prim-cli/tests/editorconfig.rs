@@ -48,12 +48,14 @@ fn trim_disabled_keeps_trailing_whitespace() {
         "root=true\n[*]\ntrim_trailing_whitespace=false\n",
     )
     .unwrap();
-    let file = dir.path().join("a.yaml");
-    fs::write(&file, "a:  \n").unwrap();
+    // A `.txt` orphan stays hygiene-only (never structurally formatted), so it
+    // isolates the trim_trailing_whitespace setting from any per-format pass.
+    let file = dir.path().join("notes.txt");
+    fs::write(&file, "a  \n").unwrap();
 
     prim().arg(&file).assert().success();
 
-    assert_eq!(fs::read_to_string(&file).unwrap(), "a:  \n");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "a  \n");
 }
 
 #[test]
