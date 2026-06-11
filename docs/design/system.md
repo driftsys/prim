@@ -138,14 +138,17 @@ I/O or terminal crate. The boundary is enforced by the separation into two Cargo
 packages. All I/O, including `.editorconfig` file reading, lives exclusively in
 `prim-cli`. See AD-0001.
 
-## Implementation status (as of feat/diff-output)
+## Implementation status (v1 complete)
 
 Implemented: recursive file discovery (FR-4), whitespace hygiene (FR-2),
 `.editorconfig` resolution (FR-3), all per-format structured passes — JSON/JSONC
 (FR-1.2/1.3, AD-0003), TOML (FR-1.5, AD-0004), YAML (FR-1.4, AD-0005),
 Markdown + prose wrap (FR-1.1/1.1a/1.6, AD-0006) — atomic writes (FR-6.4), UTF-8
-fail-safe reporting (FR-6.5), and `--diff` unified output (FR-5.3). prim formats
-its own Markdown; the repo no longer depends on dprint (AD-0006).
+fail-safe reporting (FR-6.5), `--diff` unified output (FR-5.3), and a
+cross-cutting idempotency/semantic-preservation harness (FR-6.1/6.2,
+`crates/prim-fmt/tests/correctness.rs`). prim formats its own Markdown; the repo
+no longer depends on dprint (AD-0006). All v1 requirements (FR-1 through FR-6)
+are implemented.
 
-Not yet implemented: the idempotency/semantic-preservation harness (#13),
-per-directory `Style` cache (deferred per AD-0002).
+Deferred (post-v1, not requirements): a per-directory `Style` cache (AD-0002),
+colorized `--diff` output.
