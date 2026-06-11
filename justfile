@@ -10,7 +10,7 @@ test:
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo fmt -- --check
-    dprint check
+    cargo run -q -p prim-cli -- --check .
     npx markdownlint-cli '**/*.md' --ignore node_modules
 
 # Audit dependencies
@@ -32,10 +32,10 @@ verify:
     git std lint --range main..HEAD
     just build
 
-# Format Rust and Markdown
+# Format Rust and the connective tissue (Markdown/JSON/YAML/TOML) with prim
 fmt:
     cargo fmt
-    dprint fmt
+    cargo run -q -p prim-cli -- .
     npx markdownlint-cli '**/*.md' --ignore node_modules --fix
 
 # Generate the man page to target/man/

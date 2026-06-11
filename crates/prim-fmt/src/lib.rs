@@ -19,6 +19,7 @@ mod classify;
 mod error;
 mod hygiene;
 mod json;
+mod markdown;
 mod style;
 mod toml;
 mod yaml;
@@ -37,7 +38,8 @@ pub fn format(kind: FileKind, source: &str, style: &Style) -> Result<String, For
         FileKind::Json | FileKind::Jsonc => json::format(source, style),
         FileKind::Toml => toml::format(source, style),
         FileKind::Yaml => yaml::format(source, style),
-        FileKind::Markdown | FileKind::Orphan => Ok(hygiene::hygiene(source, style)),
+        FileKind::Markdown => markdown::format(source, style),
+        FileKind::Orphan => Ok(hygiene::hygiene(source, style)),
     }
 }
 

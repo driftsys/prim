@@ -22,12 +22,14 @@ jobs:
           components: rustfmt
       - run: cargo fmt -- --check
 
-  dprint:
-    name: Dprint
+  prim:
+    name: prim self-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: dprint/check@v2.3
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo run -q -p prim-cli -- --check .
 
   clippy:
     name: Clippy
@@ -73,7 +75,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [fmt, dprint, clippy, test, convco, install-test]
+    needs: [fmt, prim, clippy, test, convco, install-test]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

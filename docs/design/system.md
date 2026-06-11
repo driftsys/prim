@@ -36,6 +36,7 @@ prim-fmt (library, pure)
   json.rs       format(source, &Style) -> Result<String, FormatError>  (dprint-plugin-json)
   toml.rs       format(source, &Style) -> Result<String, FormatError>  (taplo)
   yaml.rs       format(source, &Style) -> Result<String, FormatError>  (pretty_yaml)
+  markdown.rs   format(source, &Style) -> Result<String, FormatError>  (dprint-plugin-markdown)
   lib.rs        format(kind, source, &Style) -> Result<String, FormatError>  (dispatch)
 
 prim-cli (binary "prim")
@@ -66,10 +67,10 @@ For every file that prim processes the steps are, in order:
    hygiene pass (FR-2), and for structured formats the per-format pass followed
    by hygiene: `Json`/`Jsonc` via `dprint-plugin-json` (FR-1.2/1.3, AD-0003),
    `Toml` via `taplo` (FR-1.5, AD-0004), `Yaml` via `pretty_yaml` (FR-1.4,
-   AD-0005). It returns `Result<String, FormatError>`; a parse error leaves the
-   file unchanged and is reported as in step 2 (explicit → exit 2, discovered →
-   warning). The remaining structured pass (Markdown) attaches at the same
-   dispatch point.
+   AD-0005), `Markdown` via `dprint-plugin-markdown` (FR-1.1/1.1a/1.6, AD-0006).
+   It returns `Result<String, FormatError>`; a parse error leaves the file
+   unchanged and is reported as in step 2 (explicit → exit 2, discovered →
+   warning). All per-format passes are now implemented.
 5. **Write** — if the formatted text differs from the original, `write::atomic`
    replaces the file via a same-directory temp file and rename, preserving
    permission bits (FR-6.4). In `--check` mode, the path is printed to stdout
@@ -124,9 +125,10 @@ spec defaults, then maps properties onto `Style` fields. The mapping is:
 | `max_line_length`          | `max_line_length`          | `off` → `None`; unset → `None`       |
 | `charset`                  | —                          | out of scope (AD-0002)               |
 
-`indent` and `max_line_length` are resolved and carried in `Style` but are not
-yet consumed by any formatter pass; they are available and testable now so the
-per-format parsers (FR-1, issues #9–12) can read them without an API change.
+`indent` drives indentation in the JSON/JSONC, TOML, and YAML passes;
+`max_line_length` (default 80) drives line width in those passes and the
+Markdown prose wrap. (YAML forbids tab indentation, so `Indent::Tab` falls back
+to two spaces there — AD-0005.)
 
 ## Crate boundary invariant
 
@@ -135,13 +137,15 @@ I/O or terminal crate. The boundary is enforced by the separation into two Cargo
 packages. All I/O, including `.editorconfig` file reading, lives exclusively in
 `prim-cli`. See AD-0001.
 
-## Implementation status (as of feat/yaml-format)
+## Implementation status (as of feat/markdown-format)
 
 Implemented: recursive file discovery (FR-4), whitespace hygiene (FR-2),
-`.editorconfig` resolution (FR-3), JSON/JSONC formatting (FR-1.2/1.3, AD-0003),
-TOML formatting (FR-1.5, AD-0004), YAML formatting (FR-1.4, AD-0005), atomic
-writes (FR-6.4), UTF-8 fail-safe reporting (FR-6.5).
+`.editorconfig` resolution (FR-3), all per-format structured passes — JSON/JSONC
+(FR-1.2/1.3, AD-0003), TOML (FR-1.5, AD-0004), YAML (FR-1.4, AD-0005),
+Markdown + prose wrap (FR-1.1/1.1a/1.6, AD-0006) — atomic writes (FR-6.4), and
+UTF-8 fail-safe reporting (FR-6.5). prim formats its own Markdown; the repo no
+longer depends on dprint (AD-0006).
 
-Not yet implemented: the Markdown structured pass (FR-1.1), `--diff` unified
-output (FR-5.3, scaffold comment present in `app.rs`), per-directory `Style`
-cache (deferred per AD-0002).
+Not yet implemented: `--diff` unified output (FR-5.3, scaffold comment present
+in `app.rs`), the idempotency/semantic-preservation harness (#13), per-directory
+`Style` cache (deferred per AD-0002).

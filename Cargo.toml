@@ -15,3 +15,10 @@ prim-fmt = { version = "0.1.0", path = "crates/prim-fmt" }
 lto = true
 strip = true
 codegen-units = 1
+
+# dprint-core ships a debug-only assertion (printer.rs) that panics on valid
+# Markdown containing an inline code span with an embedded newline. Release
+# builds (and the dprint wasm plugins) compile it out; disable it here so prim's
+# dev/test builds are equally robust. See AD-0006.
+[profile.dev.package.dprint-core]
+debug-assertions = false

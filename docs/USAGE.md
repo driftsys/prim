@@ -72,10 +72,11 @@ Scope notes:
 
 > **Status:** prim applies whitespace hygiene (trailing-whitespace removal,
 > final newline, line endings) — driven by `.editorconfig` — to every file it
-> owns. **JSON, JSONC, TOML, and YAML** additionally receive structured
-> canonical formatting (JSON/JSONC: consistent indentation, one space after `:`,
-> no trailing commas; TOML: canonical spacing with inline-table style preserved;
-> YAML: canonical layout with comments, anchors/aliases, and block scalar styles
-> preserved; all preserve comments). Structured formatting for Markdown is not
-> yet implemented, so Markdown is reported as changed only when its whitespace
-> differs. See the [Specification](SPEC.md).
+> owns, and structured canonical formatting to all of its parsed formats:
+> JSON/JSONC (consistent indentation, one space after `:`, no trailing commas),
+> TOML (canonical spacing, inline-table style preserved), YAML (canonical layout
+> with anchors/aliases and block scalar styles preserved), and Markdown (ATX
+> headings, normalized lists/tables, and prose hard-wrapped to `max_line_length`
+> with guardrails — inline code, links, tables, and fenced code are never
+> broken, and fenced code is preserved verbatim). All formats preserve comments
+> and never reorder. See the [Specification](SPEC.md).
