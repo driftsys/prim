@@ -15,10 +15,11 @@ Invoked as `prim`. The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 > format-agnostic **whitespace hygiene** pass (trailing-whitespace removal,
 > single final line-feed, LF endings), atomic writes, **`.editorconfig` style
 > resolution**, and structured **JSON/JSONC, TOML, YAML, and Markdown**
-> formatting (Markdown with prose-wrap guardrails), `--diff` unified output, and
-> the `--check` gate are implemented and wired through the `prim-fmt` engine.
-> prim formats its own Markdown, so the repo no longer depends on dprint.
-> Remaining work is the idempotency/semantic-preservation harness (#13).
+> formatting (Markdown with prose-wrap guardrails), `--diff` unified output, the
+> `--check` gate, and a cross-cutting idempotency/semantic-preservation harness
+> (FR-6.1/6.2) are implemented and wired through the `prim-fmt` engine. prim
+> formats its own Markdown, so the repo no longer depends on dprint. All v1
+> requirements (FR-1 through FR-6) are implemented.
 
 ## Build commands
 
