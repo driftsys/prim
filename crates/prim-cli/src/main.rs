@@ -4,6 +4,7 @@ use clap::{CommandFactory, Parser};
 
 mod app;
 mod cli;
+mod diff;
 mod discover;
 mod editorconfig;
 mod ui;

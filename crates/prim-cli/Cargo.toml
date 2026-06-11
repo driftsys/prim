@@ -21,6 +21,7 @@ clap_complete = "4"
 ec4rs = "1.2"
 ignore = "0.4"
 prim-fmt.workspace = true
+similar = "3"
 tempfile = "3"
 yansi = "1"
 

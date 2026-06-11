@@ -4,6 +4,7 @@ use std::io::Read;
 use std::path::Path;
 
 use crate::cli::Cli;
+use crate::diff;
 use crate::discover;
 use crate::editorconfig;
 use crate::ui;
@@ -105,8 +106,8 @@ fn run_paths(cli: &Cli) -> i32 {
         if cli.check {
             ui::would_reformat(&file.path);
         } else if cli.diff {
-            // Unified-diff rendering arrives with real formatting; the
-            // scaffold no-op never produces a pending change to show.
+            // Print a unified diff of the pending change; write nothing (FR-5.3).
+            print!("{}", diff::unified(&file.path, &original, &formatted));
         } else if let Err(err) = write::atomic(&file.path, &formatted) {
             // Atomic write (FR-6.4): on failure the original is left intact.
             ui::error(&format!("{}: {err}", file.path.display()));
