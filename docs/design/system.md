@@ -45,6 +45,7 @@ prim-cli (binary "prim")
   app.rs           run(&Cli) -> i32 — mode dispatch
   discover.rs      collect(paths, excludes) -> Vec<Discovered>
   editorconfig.rs  resolve(path) -> Style  (ec4rs -> Style)
+  diff.rs          unified(path, original, formatted) -> String  (similar)
   write.rs         atomic(path, contents)
   ui.rs            error / warning / would_reformat
 ```
@@ -74,8 +75,8 @@ For every file that prim processes the steps are, in order:
 5. **Write** — if the formatted text differs from the original, `write::atomic`
    replaces the file via a same-directory temp file and rename, preserving
    permission bits (FR-6.4). In `--check` mode, the path is printed to stdout
-   instead (FR-5.2). In `--diff` mode, a unified diff is printed (FR-5.3, not
-   yet implemented).
+   instead (FR-5.2). In `--diff` mode, a unified diff is printed to stdout via
+   `diff::unified` (FR-5.3).
 
 For `--stdin-filepath`, steps 2 and 5 are replaced by stdin-read and
 stdout-write respectively; resolve and format use the supplied path for
@@ -85,13 +86,13 @@ the buffer), reports to stderr, and exits 2 (AD-0003).
 
 ## Command surface and exit codes
 
-| Invocation                   | Behaviour                                                |
-| ---------------------------- | -------------------------------------------------------- |
-| `prim [PATH]...`             | Format files in place.                                   |
-| `prim --check [PATH]...`     | Exit 1 and list files that would change. Writes nothing. |
-| `prim --diff [PATH]...`      | Print unified diff. Writes nothing. (Pending FR-5.3.)    |
-| `prim --stdin-filepath <p>`  | Read stdin, write formatted result to stdout.            |
-| `prim --completions <shell>` | Print shell completion script to stdout.                 |
+| Invocation                   | Behaviour                                                     |
+| ---------------------------- | ------------------------------------------------------------- |
+| `prim [PATH]...`             | Format files in place.                                        |
+| `prim --check [PATH]...`     | Exit 1 and list files that would change. Writes nothing.      |
+| `prim --diff [PATH]...`      | Print unified diff (via `similar`) to stdout. Writes nothing. |
+| `prim --stdin-filepath <p>`  | Read stdin, write formatted result to stdout.                 |
+| `prim --completions <shell>` | Print shell completion script to stdout.                      |
 
 Exit codes: `0` success · `1` changes needed (–check) · `2` error (parse/IO).
 See FR-5.5.
@@ -137,15 +138,14 @@ I/O or terminal crate. The boundary is enforced by the separation into two Cargo
 packages. All I/O, including `.editorconfig` file reading, lives exclusively in
 `prim-cli`. See AD-0001.
 
-## Implementation status (as of feat/markdown-format)
+## Implementation status (as of feat/diff-output)
 
 Implemented: recursive file discovery (FR-4), whitespace hygiene (FR-2),
 `.editorconfig` resolution (FR-3), all per-format structured passes — JSON/JSONC
 (FR-1.2/1.3, AD-0003), TOML (FR-1.5, AD-0004), YAML (FR-1.4, AD-0005),
-Markdown + prose wrap (FR-1.1/1.1a/1.6, AD-0006) — atomic writes (FR-6.4), and
-UTF-8 fail-safe reporting (FR-6.5). prim formats its own Markdown; the repo no
-longer depends on dprint (AD-0006).
+Markdown + prose wrap (FR-1.1/1.1a/1.6, AD-0006) — atomic writes (FR-6.4), UTF-8
+fail-safe reporting (FR-6.5), and `--diff` unified output (FR-5.3). prim formats
+its own Markdown; the repo no longer depends on dprint (AD-0006).
 
-Not yet implemented: `--diff` unified output (FR-5.3, scaffold comment present
-in `app.rs`), the idempotency/semantic-preservation harness (#13), per-directory
-`Style` cache (deferred per AD-0002).
+Not yet implemented: the idempotency/semantic-preservation harness (#13),
+per-directory `Style` cache (deferred per AD-0002).

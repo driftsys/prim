@@ -743,6 +743,7 @@ dependencies = [
  "ignore",
  "predicates",
  "prim-fmt",
+ "similar",
  "tempfile",
  "yansi",
 ]
