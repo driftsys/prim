@@ -11,12 +11,14 @@ a source-code formatter and has **no plugin system**.
 
 Invoked as `prim`. The full specification lives in [docs/SPEC.md](docs/SPEC.md).
 
-> **Status:** early. Recursive discovery, the format-agnostic **whitespace
-> hygiene** pass (trailing-whitespace removal, single final line-feed, LF
-> endings), atomic writes, **`.editorconfig` style resolution**, and
-> **JSON/JSONC + TOML + YAML formatting** are implemented and wired through the
-> `prim-fmt` engine. The remaining per-format structured pass (Markdown) is the
-> last follow-up milestone.
+> **Status:** all per-format passes land. Recursive discovery, the
+> format-agnostic **whitespace hygiene** pass (trailing-whitespace removal,
+> single final line-feed, LF endings), atomic writes, **`.editorconfig` style
+> resolution**, and structured **JSON/JSONC, TOML, YAML, and Markdown**
+> formatting (Markdown with prose-wrap guardrails) are implemented and wired
+> through the `prim-fmt` engine. prim formats its own Markdown, so the repo no
+> longer depends on dprint. Remaining work is Milestone 4 (`--diff`, the
+> idempotency/semantic harness).
 
 ## Build commands
 
