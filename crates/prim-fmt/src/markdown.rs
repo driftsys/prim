@@ -111,6 +111,19 @@ mod tests {
     }
 
     #[test]
+    fn inline_code_spanning_a_newline_does_not_panic() {
+        // dprint-core has a debug-only assertion that panics on an inline code
+        // span containing a newline; disabled for the dprint-core package in the
+        // dev profile (see root Cargo.toml / AD-0006). This valid Markdown must
+        // format without panicking and keep the code text.
+        let src = "A paragraph with `format_text(input, &Opts) -> Result<String, Error>` inline.\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(out.contains("format_text(input"), "code text kept: {out:?}");
+        // Idempotent on its own output (which may keep the span across lines).
+        assert_eq!(format(&out, &Style::default()).unwrap(), out);
+    }
+
+    #[test]
     fn is_idempotent() {
         let src = "#  Heading\n\nA  paragraph   with   odd spacing that goes on and on and on past the wrap width here.\n\n- item\n- item\n";
         let once = format(src, &Style::default()).unwrap();
