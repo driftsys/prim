@@ -16,7 +16,9 @@ fn crlf_end_of_line_is_written() {
         "root = true\n[*]\nend_of_line = crlf\n",
     )
     .unwrap();
-    let file = dir.path().join("notes.md");
+    // A `.txt` orphan is hygiene-only, isolating the end_of_line setting from any
+    // per-format structured pass.
+    let file = dir.path().join("notes.txt");
     fs::write(&file, "a\nb\n").unwrap();
 
     prim().arg(&file).assert().success();
@@ -80,7 +82,7 @@ fn stdin_filepath_honors_sibling_editorconfig() {
         "root=true\n[*]\nend_of_line=crlf\n",
     )
     .unwrap();
-    let target = dir.path().join("x.md");
+    let target = dir.path().join("x.txt");
 
     prim()
         .arg("--stdin-filepath")
@@ -94,7 +96,7 @@ fn stdin_filepath_honors_sibling_editorconfig() {
 #[test]
 fn no_editorconfig_leaves_canonical_behaviour() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("a.md");
+    let file = dir.path().join("a.txt");
     fs::write(&file, "a  \r\nb\n").unwrap();
 
     prim().arg(&file).assert().success();
