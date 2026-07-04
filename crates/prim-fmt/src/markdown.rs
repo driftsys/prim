@@ -20,10 +20,20 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
         .text_wrap(TextWrap::Always)
         .build();
 
-    let guarded = guard_markdown_fences(source);
+    let (guard_markdown, guard_md) = fence_sentinels(source);
+    let guarded = guard_markdown_fences(source, &guard_markdown, &guard_md);
     let result = format_text(&guarded, &config, |_, _, _| Ok(None));
     match result {
-        Ok(Some(formatted)) => Ok(hygiene(&unguard_markdown_fences(&formatted), style)),
+        Ok(Some(formatted)) => {
+            // Restore the guarded tags. A plain replace is safe: the sentinels
+            // are absent from `source` (see `fence_sentinels`), so every
+            // occurrence in `formatted` was introduced by the guard step —
+            // including one dprint may have moved while reflowing prose.
+            let restored = formatted
+                .replace(&guard_markdown, "markdown")
+                .replace(&guard_md, "md");
+            Ok(hygiene(&restored, style))
+        }
         Ok(None) => Ok(hygiene(source, style)),
         Err(err) => Err(FormatError::Parse(err.to_string())),
     }
@@ -34,27 +44,32 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
 /// which would violate FR-1.6. Guard: swap the fence language for a sentinel
 /// tag dprint treats as foreign (and therefore preserves verbatim), then
 /// restore it after formatting.
-const GUARD_MARKDOWN: &str = "prim-fence-guard-markdown";
-const GUARD_MD: &str = "prim-fence-guard-md";
-
-fn guard_markdown_fences(source: &str) -> String {
-    swap_fence_languages(source, &[("markdown", GUARD_MARKDOWN), ("md", GUARD_MD)])
+///
+/// The sentinels are derived from `source` so they cannot already occur in it.
+/// Restoration is then a plain replace that neither clobbers a document that
+/// legitimately contains the sentinel text (e.g. docs describing this
+/// mechanism) nor leaks a sentinel that dprint relocated while reflowing prose.
+fn fence_sentinels(source: &str) -> (String, String) {
+    let mut nonce = 0u32;
+    loop {
+        let markdown = format!("prim-guard-{nonce}-markdown");
+        let md = format!("prim-guard-{nonce}-md");
+        if !source.contains(&markdown) && !source.contains(&md) {
+            return (markdown, md);
+        }
+        nonce += 1;
+    }
 }
 
-fn unguard_markdown_fences(source: &str) -> String {
-    swap_fence_languages(source, &[(GUARD_MARKDOWN, "markdown"), (GUARD_MD, "md")])
-}
-
-/// Rewrite the language word of every fenced-code opening line whose language
-/// exactly matches a swap source. Lines are inspected structurally: optional
+/// Rewrite the language word of every fenced-code opening line tagged exactly
+/// `markdown`/`md` to its sentinel. Lines are inspected structurally: optional
 /// indentation and blockquote markers, a run of ≥ 3 backticks or tildes, then
-/// the info string. Every rewrite is reversed by the opposite swap after
-/// formatting, so a false positive inside verbatim content round-trips
-/// unchanged.
-fn swap_fence_languages(source: &str, swaps: &[(&str, &str)]) -> String {
+/// the info string's first word.
+fn guard_markdown_fences(source: &str, guard_markdown: &str, guard_md: &str) -> String {
+    let swaps = [("markdown", guard_markdown), ("md", guard_md)];
     source
         .split_inclusive('\n')
-        .map(|line| swap_fence_language_line(line, swaps))
+        .map(|line| swap_fence_language_line(line, &swaps))
         .collect()
 }
 
@@ -204,29 +219,56 @@ mod tests {
     fn no_sentinel_leaks_into_output() {
         let src = "prose\n\n```markdown\ntext\n```\n\n```md\ntext\n```\n";
         let out = format(src, &Style::default()).unwrap();
-        assert!(!out.contains("prim-fence-guard"), "{out:?}");
+        assert!(!out.contains("prim-guard-"), "{out:?}");
     }
 
     #[test]
     fn other_fence_tags_are_untouched_by_the_guard() {
         let src = "```js\nconst x=1\n```\n";
-        assert_eq!(guard_markdown_fences(src), src);
+        assert_eq!(guard_markdown_fences(src, "GM", "GD"), src);
     }
 
     #[test]
     fn guard_handles_tilde_and_blockquote_fences() {
         assert_eq!(
-            guard_markdown_fences("~~~markdown\n"),
-            "~~~prim-fence-guard-markdown\n"
+            guard_markdown_fences("~~~markdown\n", "GM", "GD"),
+            "~~~GM\n"
         );
+        assert_eq!(guard_markdown_fences("> ```md\n", "GM", "GD"), "> ```GD\n");
+        // Round-trip: guarding then restoring returns the original line.
+        let guarded = guard_markdown_fences("> ```md\n", "GM", "GD");
+        assert_eq!(guarded.replace("GD", "md"), "> ```md\n");
+    }
+
+    #[test]
+    fn fence_sentinels_bump_the_nonce_past_any_collision() {
         assert_eq!(
-            guard_markdown_fences("> ```md\n"),
-            "> ```prim-fence-guard-md\n"
+            fence_sentinels("nothing here"),
+            (
+                "prim-guard-0-markdown".to_string(),
+                "prim-guard-0-md".to_string()
+            )
         );
-        // Round-trip is the invariant the fix relies on.
-        assert_eq!(
-            unguard_markdown_fences(&guard_markdown_fences("> ```md\n")),
-            "> ```md\n"
+        // A source already containing the nonce-0 sentinel forces a higher nonce.
+        let (markdown, _) = fence_sentinels("```prim-guard-0-markdown\nx\n```\n");
+        assert_ne!(markdown, "prim-guard-0-markdown");
+    }
+
+    #[test]
+    fn preexisting_sentinel_like_tag_is_preserved() {
+        // A document may legitimately contain a fence whose tag looks like a
+        // guard sentinel (docs describing this mechanism, for instance). The
+        // nonce-based sentinel must not clobber it. The heading forces dprint to
+        // return `Ok(Some(..))`, so the restore step runs.
+        let src = "#  Heading\n\n```prim-guard-0-markdown\nverbatim  content\n```\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("```prim-guard-0-markdown\n"),
+            "pre-existing sentinel-like tag must survive: {out:?}"
+        );
+        assert!(
+            out.contains("verbatim  content"),
+            "content verbatim: {out:?}"
         );
     }
 
