@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.2.0] (2026-07-04)
+
+### Features
+
+- **prim-fmt:** curate orphan allowlist — drop .env, add CODEOWNERS and
+  .mailmap ([41d9f06])
+
+### Bug Fixes
+
+- **prim-fmt:** make the fence guard collision-safe ([188992c])
+- **prim-fmt:** keep markdown-tagged fenced blocks verbatim (FR-1.6) ([988cfbf])
+- **prim-cli:** correct colour help text, exclude error message, and
+  explicit-path docs ([67ffb4f])
+- **prim-cli:** honor NO_COLOR and key auto colour off stderr ([1945c6e])
+- **prim-cli:** reject --stdin-filepath combined with --check/--diff ([e6be4da])
+- **prim-cli:** make a malformed --exclude glob a usage error ([45d1dcd])
+- **prim-cli:** report explicitly named paths prim cannot process ([273e78f])
+
+### Documentation
+
+- **prim-fmt:** add the style-stability policy ([9afb26c])
+- **prim-cli:** document the orphan allowlist in usage ([64943e9])
+- **prim-cli:** record CLI hardening in spec and usage ([f4d4e8e])
+- **prim-cli:** add golden-file recipe, JSON leniency note, and archive ignores
+  ([d54882c])
+- **prim-cli:** record charset scope, trim precedence, --diff exit code, JSON
+  leniency ([ae1cf1b])
+- **prim-fmt:** sync status docs with the implemented v1 reality ([87576bd])
+- **prim-cli:** drop system design and ADs from published book ([c0d5896])
+- **prim-fmt:** document benchmark usage ([d09ffa0])
+
+[0.2.0]: https://github.com/driftsys/prim/compare/v0.1.0...v0.2.0
+[41d9f06]: https://github.com/driftsys/prim/commit/41d9f06
+[188992c]: https://github.com/driftsys/prim/commit/188992c
+[988cfbf]: https://github.com/driftsys/prim/commit/988cfbf
+[67ffb4f]: https://github.com/driftsys/prim/commit/67ffb4f
+[1945c6e]: https://github.com/driftsys/prim/commit/1945c6e
+[e6be4da]: https://github.com/driftsys/prim/commit/e6be4da
+[45d1dcd]: https://github.com/driftsys/prim/commit/45d1dcd
+[273e78f]: https://github.com/driftsys/prim/commit/273e78f
+[9afb26c]: https://github.com/driftsys/prim/commit/9afb26c
+[64943e9]: https://github.com/driftsys/prim/commit/64943e9
+[f4d4e8e]: https://github.com/driftsys/prim/commit/f4d4e8e
+[d54882c]: https://github.com/driftsys/prim/commit/d54882c
+[ae1cf1b]: https://github.com/driftsys/prim/commit/ae1cf1b
+[87576bd]: https://github.com/driftsys/prim/commit/87576bd
+[c0d5896]: https://github.com/driftsys/prim/commit/c0d5896
+[d09ffa0]: https://github.com/driftsys/prim/commit/d09ffa0
+
 ## 0.1.0 (2026-07-01)
 
 ### Bug Fixes
