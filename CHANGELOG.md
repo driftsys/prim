@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1] (2026-07-04)
+
+### Documentation
+
+- **prim-cli:** drop .env from the dotfile-discovery comment ([86f1891])
+
+[0.2.1]: https://github.com/driftsys/prim/compare/v0.2.0...v0.2.1
+[86f1891]: https://github.com/driftsys/prim/commit/86f1891
+
 ## [0.2.0] (2026-07-04)
 
 ### Features
