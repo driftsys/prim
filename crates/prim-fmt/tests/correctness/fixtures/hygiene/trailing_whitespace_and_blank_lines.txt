@@ -1,0 +1,8 @@
+-- input --
+trailing  
+lines
+
+
+-- expected --
+trailing
+lines
