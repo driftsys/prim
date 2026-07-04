@@ -1,0 +1,8 @@
+-- input --
+inline_map: {a: 1, b: 2}
+inline_seq: [1, 2, 3]
+mixed: {list: [1, 2], nested: {x: 1}}
+-- expected --
+inline_map: { a: 1, b: 2 }
+inline_seq: [1, 2, 3]
+mixed: { list: [1, 2], nested: { x: 1 } }

@@ -1,0 +1,12 @@
+-- input --
+{
+// a comment
+"a": 1,
+"b": 2,
+}
+-- expected --
+{
+  // a comment
+  "a": 1,
+  "b": 2
+}

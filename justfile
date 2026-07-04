@@ -17,6 +17,10 @@ lint:
 audit:
     cargo audit
 
+# Run format benchmarks (not part of `just check` — slow, not CI-gated)
+bench:
+    cargo bench -p prim-fmt
+
 # Test install.sh helpers (detect_target, sha256_check, URL patterns)
 test-install:
     bash tools/bash_unit spec/install/install_test.sh

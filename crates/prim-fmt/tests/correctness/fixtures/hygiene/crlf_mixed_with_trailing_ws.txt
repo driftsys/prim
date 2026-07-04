@@ -1,0 +1,8 @@
+-- input --
+line one  
+line two
+line three   
+-- expected --
+line one
+line two
+line three

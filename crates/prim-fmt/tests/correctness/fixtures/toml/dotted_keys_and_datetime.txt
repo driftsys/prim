@@ -1,0 +1,8 @@
+-- input --
+physical.color = "orange"
+physical.shape = "round"
+created = 1987-07-05T17:45:00Z
+-- expected --
+physical.color = "orange"
+physical.shape = "round"
+created = 1987-07-05T17:45:00Z

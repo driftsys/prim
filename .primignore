@@ -3,3 +3,7 @@
 
 # git-std generates CHANGELOG.md; prim must not hard-wrap generated content.
 CHANGELOG.md
+
+# Correctness-harness test fixtures intentionally contain non-canonical whitespace and line endings.
+# These golden files must remain byte-exact and unformatted.
+crates/prim-fmt/tests/correctness/fixtures/
