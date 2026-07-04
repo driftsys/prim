@@ -12,16 +12,16 @@ prim [OPTIONS] [PATH]...
 
 ## Options
 
-| Flag                            | Description                                                             |
-| ------------------------------- | ----------------------------------------------------------------------- |
-| `--check`                       | Write nothing; exit non-zero if any file would change, and list it.     |
-| `--diff`                        | Print a unified diff of pending changes; write nothing.                 |
-| `--stdin-filepath <PATH>`       | Read stdin, write the formatted result to stdout (format-on-save).      |
-| `--exclude <GLOB>`              | Exclude paths matching the glob (repeatable).                           |
-| `--color <auto\|always\|never>` | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`). |
-| `--completions <SHELL>`         | Generate a shell completion script and print it to stdout.              |
-| `-h, --help`                    | Print help.                                                             |
-| `-V, --version`                 | Print version.                                                          |
+| Flag                            | Description                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `--check`                       | Write nothing; exit non-zero if any file would change, and list it.                                            |
+| `--diff`                        | Print a unified diff of pending changes; write nothing.                                                        |
+| `--stdin-filepath <PATH>`       | Read stdin, write the formatted result to stdout (format-on-save). Mutually exclusive with `--check`/`--diff`. |
+| `--exclude <GLOB>`              | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                               |
+| `--color <auto\|always\|never>` | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                        |
+| `--completions <SHELL>`         | Generate a shell completion script and print it to stdout.                                                     |
+| `-h, --help`                    | Print help.                                                                                                    |
+| `-V, --version`                 | Print version.                                                                                                 |
 
 ## Exit codes
 

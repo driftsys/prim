@@ -85,6 +85,11 @@ source-code formatter and has **no plugin system**.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax).
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
   error (exit `2`).
+- **FR-4.6** prim shall handle an explicitly named path strictly: a path that
+  does not exist shall be reported as an error (exit `2`); an existing path
+  whose type prim does not own shall be reported as a warning and left unchanged
+  (exit `0`). An unowned path reached only by directory walking shall be skipped
+  silently (FR-2.4).
 
 ## FR-5 — Operating modes (CLI)
 

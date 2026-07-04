@@ -6,7 +6,7 @@ use clap_complete::Shell;
 /// When to use coloured output.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum ColorWhen {
-    /// Colour if stdout is a TTY.
+    /// Colour if stderr is a TTY and `NO_COLOR` is unset.
     Auto,
     /// Always use colour.
     Always,

@@ -58,7 +58,11 @@ pub fn collect(paths: &[PathBuf], excludes: &[String]) -> Result<Vec<Discovered>
 fn validate_excludes(excludes: &[String]) -> Result<(), ignore::Error> {
     let mut builder = OverrideBuilder::new(".");
     for glob in excludes {
-        builder.add(&format!("!{glob}"))?;
+        // Validate the glob as the user typed it. `walk_into` later negates it
+        // with a `!` prefix, but the marker does not affect glob parsing, so
+        // validating the raw form catches the same errors while keeping the
+        // user's exact input in any error message.
+        builder.add(glob)?;
     }
     builder.build()?;
     Ok(())
