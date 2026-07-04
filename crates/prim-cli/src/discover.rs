@@ -77,7 +77,7 @@ fn walk_into(root: &Path, excludes: &[String], selected: &mut BTreeMap<PathBuf, 
         .standard_filters(true)
         .require_git(false)
         // Include dotfiles so allowlisted ones (.gitignore, .editorconfig,
-        // .env, …) are reachable; the VCS metadata directory is pruned below.
+        // .mailmap, …) are reachable; the VCS metadata directory is pruned below.
         .hidden(false)
         // The committed escape hatch (FR-4.4).
         .add_custom_ignore_filename(".primignore")
