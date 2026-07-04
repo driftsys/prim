@@ -39,6 +39,25 @@ prim [OPTIONS] [PATH]...
 - **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout
   out.
 
+## What prim formats
+
+Parsed formats (structured canonical formatting plus whitespace hygiene), by
+extension: `.md`, `.markdown`, `.json`, `.jsonc`, `.yaml`, `.yml`, `.toml`.
+
+Orphan allowlist (whitespace hygiene only) — un-owned text files matched by
+exact name or pattern:
+
+| Kind          | Entries                                                                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ignore files  | `.gitignore`, `.gitattributes`, `.dockerignore`, `.npmignore`, `.eslintignore`, `.prettierignore`, `.primignore`, `.helmignore`, `.containerignore` |
+| Repo metadata | `CODEOWNERS`, `.mailmap`, `.editorconfig`, `AUTHORS`, `CONTRIBUTORS`, `NOTICE`, `COPYING`, `LICENSE*`                                               |
+| Containers    | `Dockerfile`, `Dockerfile.*`, `Containerfile`                                                                                                       |
+| Plain text    | `*.txt`, `*.text`                                                                                                                                   |
+
+Everything else — source code, unknown types, binaries — is left byte-for-byte
+unchanged. `.env` files are deliberately excluded: their values are data and may
+be whitespace-sensitive.
+
 ## Configuration
 
 prim honors [`.editorconfig`](https://editorconfig.org) as its **only** style
