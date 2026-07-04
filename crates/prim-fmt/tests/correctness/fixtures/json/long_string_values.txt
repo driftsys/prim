@@ -1,0 +1,6 @@
+-- input --
+{"description":"This is a fairly long string value that exists to check how the formatter treats long scalar values inside JSON objects without wrapping them, since JSON strings are not prose."}
+-- expected --
+{
+  "description": "This is a fairly long string value that exists to check how the formatter treats long scalar values inside JSON objects without wrapping them, since JSON strings are not prose."
+}

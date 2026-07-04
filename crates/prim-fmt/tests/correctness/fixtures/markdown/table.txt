@@ -1,0 +1,10 @@
+-- input --
+| Col A | Col B |
+|---|---|
+| 1 | 2 |
+| longer value | x |
+-- expected --
+| Col A        | Col B |
+| ------------ | ----- |
+| 1            | 2     |
+| longer value | x     |

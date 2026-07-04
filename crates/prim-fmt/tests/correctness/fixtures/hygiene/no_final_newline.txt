@@ -1,0 +1,4 @@
+-- input --
+content with no trailing newline
+-- expected --
+content with no trailing newline

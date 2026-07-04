@@ -1,0 +1,8 @@
+-- input --
+"key: with colon": 1
+'key with spaces': 2
+normal_key: 3
+-- expected --
+"key: with colon": 1
+"key with spaces": 2
+normal_key: 3

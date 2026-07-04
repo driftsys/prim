@@ -1,0 +1,12 @@
+-- input --
+1. first
+   - nested bullet
+   - another
+2. second
+   1. nested ordered
+-- expected --
+1. first
+   - nested bullet
+   - another
+2. second
+   1. nested ordered

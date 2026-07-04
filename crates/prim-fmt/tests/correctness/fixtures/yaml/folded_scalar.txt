@@ -1,0 +1,16 @@
+-- input --
+summary: >
+  This is a folded
+  block scalar that
+  wraps onto one line.
+literal: |-
+  no trailing newline
+  on this one
+-- expected --
+summary: >
+  This is a folded
+  block scalar that
+  wraps onto one line.
+literal: |-
+  no trailing newline
+  on this one

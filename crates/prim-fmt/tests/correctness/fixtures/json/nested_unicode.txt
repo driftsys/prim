@@ -1,0 +1,8 @@
+-- input --
+{"name":"café","emoji":"🎉","nested":{"deep":{"deeper":[1,2,[3,4,{"x":null}]]}}}
+-- expected --
+{
+  "name": "café",
+  "emoji": "🎉",
+  "nested": { "deep": { "deeper": [1, 2, [3, 4, { "x": null }]] } }
+}
