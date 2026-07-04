@@ -83,7 +83,13 @@ source-code formatter and has **no plugin system**.
   crate) without invoking git, and shall function in non-git directories.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax).
-- **FR-4.5** prim shall accept CLI exclude globs.
+- **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
+  error (exit `2`).
+- **FR-4.6** prim shall handle an explicitly named path strictly: a path that
+  does not exist shall be reported as an error (exit `2`); an existing path
+  whose type prim does not own shall be reported as a warning and left unchanged
+  (exit `0`). An unowned path reached only by directory walking shall be skipped
+  silently (FR-2.4).
 
 ## FR-5 — Operating modes (CLI)
 
@@ -95,7 +101,8 @@ source-code formatter and has **no plugin system**.
   nothing; it shall exit `0` whether or not changes are pending (`--check` is
   the CI gate).
 - **FR-5.4** With `--stdin-filepath <path>`, prim shall read stdin and write the
-  formatted result to stdout.
+  formatted result to stdout. The flag is mutually exclusive with `--check` and
+  `--diff`.
 - **FR-5.5** _(exit codes)_ `0` = success · `1` = changes needed (`--check`) ·
   `2` = error (parse/IO).
 

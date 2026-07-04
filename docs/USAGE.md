@@ -12,16 +12,16 @@ prim [OPTIONS] [PATH]...
 
 ## Options
 
-| Flag                            | Description                                                         |
-| ------------------------------- | ------------------------------------------------------------------- |
-| `--check`                       | Write nothing; exit non-zero if any file would change, and list it. |
-| `--diff`                        | Print a unified diff of pending changes; write nothing.             |
-| `--stdin-filepath <PATH>`       | Read stdin, write the formatted result to stdout (format-on-save).  |
-| `--exclude <GLOB>`              | Exclude paths matching the glob (repeatable).                       |
-| `--color <auto\|always\|never>` | When to use coloured output (default `auto`).                       |
-| `--completions <SHELL>`         | Generate a shell completion script and print it to stdout.          |
-| `-h, --help`                    | Print help.                                                         |
-| `-V, --version`                 | Print version.                                                      |
+| Flag                            | Description                                                                                                    |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `--check`                       | Write nothing; exit non-zero if any file would change, and list it.                                            |
+| `--diff`                        | Print a unified diff of pending changes; write nothing.                                                        |
+| `--stdin-filepath <PATH>`       | Read stdin, write the formatted result to stdout (format-on-save). Mutually exclusive with `--check`/`--diff`. |
+| `--exclude <GLOB>`              | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                               |
+| `--color <auto\|always\|never>` | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                        |
+| `--completions <SHELL>`         | Generate a shell completion script and print it to stdout.                                                     |
+| `-h, --help`                    | Print help.                                                                                                    |
+| `-V, --version`                 | Print version.                                                                                                 |
 
 ## Exit codes
 
@@ -38,6 +38,8 @@ prim [OPTIONS] [PATH]...
 - **`--diff`** — preview pending changes without writing.
 - **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout
   out.
+- Naming a path explicitly is strict: a missing file is an error (exit `2`); an
+  existing file prim does not own is skipped with a warning.
 
 ## Configuration
 

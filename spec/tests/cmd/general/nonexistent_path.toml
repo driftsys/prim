@@ -1,0 +1,3 @@
+bin.name = "prim"
+args = ["/no/such/prim/path.xyz"]
+status.code = 2

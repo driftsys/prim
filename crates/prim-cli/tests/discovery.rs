@@ -37,8 +37,8 @@ fn walked_binary_is_skipped_not_errored() {
 
 #[test]
 fn explicit_non_owned_file_is_left_unchanged() {
-    // A file prim does not own (here a binary) is skipped, not an error, even
-    // when named explicitly (FR-2.4).
+    // A file prim does not own (here a binary) is skipped with a warning,
+    // not an error, when named explicitly (FR-2.4).
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("logo.bin");
     std::fs::write(&bin, [0xFFu8, 0xFE, 0x00]).unwrap();
@@ -55,4 +55,15 @@ fn explicit_owned_file_that_is_not_utf8_errors() {
     std::fs::write(&bad, [0xFFu8, 0xFE, 0x00]).unwrap();
 
     prim().arg(&bad).assert().code(2);
+}
+
+#[test]
+fn malformed_exclude_glob_is_a_usage_error() {
+    let dir = tempfile::tempdir().unwrap();
+    prim()
+        .current_dir(dir.path())
+        .args(["--exclude", "{unclosed"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("--exclude"));
 }

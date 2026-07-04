@@ -7,6 +7,8 @@ use std::path::Path;
 
 use yansi::Paint;
 
+use crate::cli::ColorWhen;
+
 /// Print a prefixed error message to stderr.
 pub fn error(msg: &str) {
     eprintln!("{} {msg}", "error:".red().bold());
@@ -20,4 +22,35 @@ pub fn warning(msg: &str) {
 /// Report, on stdout, that `path` would be reformatted (`--check`).
 pub fn would_reformat(path: &Path) {
     println!("{}", path.display());
+}
+
+/// Decide whether coloured output is enabled: an explicit `--color always` /
+/// `--color never` wins; `auto` colours only when stderr (the human-output
+/// stream) is a terminal and `NO_COLOR` is unset (clig.dev).
+pub fn resolve_color(when: ColorWhen, stderr_is_tty: bool, no_color: bool) -> bool {
+    match when {
+        ColorWhen::Always => true,
+        ColorWhen::Never => false,
+        ColorWhen::Auto => stderr_is_tty && !no_color,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::ColorWhen;
+
+    use super::resolve_color;
+
+    #[test]
+    fn always_and_never_ignore_the_environment() {
+        assert!(resolve_color(ColorWhen::Always, false, true));
+        assert!(!resolve_color(ColorWhen::Never, true, false));
+    }
+
+    #[test]
+    fn auto_needs_a_tty_and_no_color_unset() {
+        assert!(resolve_color(ColorWhen::Auto, true, false));
+        assert!(!resolve_color(ColorWhen::Auto, false, false));
+        assert!(!resolve_color(ColorWhen::Auto, true, true));
+    }
 }
