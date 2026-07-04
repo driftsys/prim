@@ -123,9 +123,12 @@ pub fn parse_spec_file(name: &str, text: &str) -> SpecCase {
 #[allow(dead_code)]
 pub fn discover(fixtures_root: &Path) -> Vec<(FileKind, PathBuf)> {
     let mut found = Vec::new();
-    for entry in std::fs::read_dir(fixtures_root)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", fixtures_root.display()))
-    {
+    let entries = match std::fs::read_dir(fixtures_root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return found,
+        Err(e) => panic!("cannot read {}: {e}", fixtures_root.display()),
+    };
+    for entry in entries {
         let dir = entry.expect("readable dir entry");
         if !dir.file_type().expect("file type").is_dir() {
             continue;
