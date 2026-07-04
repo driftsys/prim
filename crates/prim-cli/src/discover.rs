@@ -25,7 +25,10 @@ pub struct Discovered {
 /// honoring `.gitignore`, `.ignore`, `.primignore`, and `--exclude` globs.
 /// Results are sorted and de-duplicated; a path reached both explicitly and via
 /// a walk is marked explicit.
-pub fn collect(paths: &[PathBuf], excludes: &[String]) -> Vec<Discovered> {
+/// Fails when an `--exclude` glob is malformed (FR-4.5): a typo'd filter must
+/// be a usage error, not a silently ignored one.
+pub fn collect(paths: &[PathBuf], excludes: &[String]) -> Result<Vec<Discovered>, ignore::Error> {
+    validate_excludes(excludes)?;
     // BTreeMap keeps results sorted by path and de-duplicated; the bool is the
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
@@ -44,10 +47,21 @@ pub fn collect(paths: &[PathBuf], excludes: &[String]) -> Vec<Discovered> {
         }
     }
 
-    selected
+    Ok(selected
         .into_iter()
         .map(|(path, explicit)| Discovered { path, explicit })
-        .collect()
+        .collect())
+}
+
+/// Reject malformed exclude globs up front; `walk_into` re-builds the same
+/// set per walk root, which cannot fail after this check.
+fn validate_excludes(excludes: &[String]) -> Result<(), ignore::Error> {
+    let mut builder = OverrideBuilder::new(".");
+    for glob in excludes {
+        builder.add(&format!("!{glob}"))?;
+    }
+    builder.build()?;
+    Ok(())
 }
 
 /// Walk `root` recursively, adding every regular file with walked provenance.
@@ -115,7 +129,7 @@ mod tests {
         write(&dir.path().join("a.md"), "a\n");
         write(&dir.path().join("sub/b.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
         let mut got = names(&found);
         got.sort();
         assert_eq!(got, vec!["a.md", "b.json"]);
@@ -132,7 +146,7 @@ mod tests {
         write(&dir.path().join("ignored.md"), "x\n");
         write(&dir.path().join("kept.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
         let got = names(&found);
         assert!(got.contains(&"kept.md".to_string()));
         assert!(!got.contains(&"ignored.md".to_string()));
@@ -145,7 +159,7 @@ mod tests {
         write(&dir.path().join("skip.json"), "{}\n");
         write(&dir.path().join("keep.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
         let got = names(&found);
         assert!(got.contains(&"keep.json".to_string()));
         assert!(!got.contains(&"skip.json".to_string()));
@@ -157,7 +171,7 @@ mod tests {
         write(&dir.path().join("keep.md"), "x\n");
         write(&dir.path().join("drop.log"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &["*.log".to_string()]);
+        let found = collect(&[dir.path().to_path_buf()], &["*.log".to_string()]).unwrap();
         let got = names(&found);
         assert!(got.contains(&"keep.md".to_string()));
         assert!(!got.contains(&"drop.log".to_string()));
@@ -169,7 +183,7 @@ mod tests {
         let file = dir.path().join("named.toml");
         write(&file, "x = 1\n");
 
-        let found = collect(std::slice::from_ref(&file), &[]);
+        let found = collect(std::slice::from_ref(&file), &[]).unwrap();
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
         assert_eq!(found[0].path, file);
@@ -177,7 +191,7 @@ mod tests {
 
     #[test]
     fn nonexistent_explicit_path_is_included_as_explicit() {
-        let found = collect(&[PathBuf::from("/no/such/prim/fixture.md")], &[]);
+        let found = collect(&[PathBuf::from("/no/such/prim/fixture.md")], &[]).unwrap();
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
     }
@@ -188,7 +202,7 @@ mod tests {
         write(&dir.path().join(".editorconfig"), "root = true\n");
         write(&dir.path().join("a.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
         let got = names(&found);
         assert!(
             got.contains(&".editorconfig".to_string()),
@@ -202,7 +216,7 @@ mod tests {
         write(&dir.path().join(".git/config"), "[core]\n");
         write(&dir.path().join("a.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]);
+        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
         let paths: Vec<String> = found
             .iter()
             .map(|d| d.path.to_string_lossy().replace('\\', "/"))
@@ -221,7 +235,7 @@ mod tests {
         let a = dir.path().join("a.md");
 
         // a.md reached both via the walk and named explicitly.
-        let found = collect(&[dir.path().to_path_buf(), a.clone()], &[]);
+        let found = collect(&[dir.path().to_path_buf(), a.clone()], &[]).unwrap();
 
         // De-duplicated: a.md appears once.
         assert_eq!(found.iter().filter(|d| d.path == a).count(), 1);

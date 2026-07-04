@@ -56,3 +56,14 @@ fn explicit_owned_file_that_is_not_utf8_errors() {
 
     prim().arg(&bad).assert().code(2);
 }
+
+#[test]
+fn malformed_exclude_glob_is_a_usage_error() {
+    let dir = tempfile::tempdir().unwrap();
+    prim()
+        .current_dir(dir.path())
+        .args(["--exclude", "{unclosed"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("--exclude"));
+}
