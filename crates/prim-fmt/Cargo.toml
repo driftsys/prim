@@ -22,7 +22,12 @@ taplo = "0.14"
 thiserror = "2"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 jsonc-parser = { version = "0.32", features = ["serde"] }
 serde_json = "1"
 toml = "1"
 yaml-rust2 = "0.11"
+
+[[bench]]
+name = "format"
+harness = false
