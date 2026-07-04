@@ -56,6 +56,9 @@ fn run_stdin(path: &Path) -> i32 {
 fn run_paths(cli: &Cli) -> i32 {
     let mut had_error = false;
     let mut any_would_change = false;
+    // Caches each directory's `.editorconfig` cascade so a repository parses
+    // every config once, not once per file.
+    let mut resolver = editorconfig::Resolver::new();
 
     let files = match discover::collect(&cli.paths, &cli.exclude) {
         Ok(files) => files,
@@ -101,7 +104,7 @@ fn run_paths(cli: &Cli) -> i32 {
             }
         };
 
-        let style = editorconfig::resolve(&file.path);
+        let style = resolver.resolve(&file.path);
         let formatted = match prim_fmt::format(kind, &original, &style) {
             Ok(text) => text,
             Err(err) => {

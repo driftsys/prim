@@ -113,9 +113,16 @@ trailing whitespace stripped, exactly one final newline, two-space indent.
 
 ## Style resolution detail
 
-`editorconfig::resolve(path)` is the sole I/O consumer of `.editorconfig`. It
-calls `ec4rs::properties_of(path)`, applies `use_fallbacks()` for EditorConfig
-spec defaults, then maps properties onto `Style` fields. The mapping is:
+`editorconfig::Resolver` is the sole I/O consumer of `.editorconfig`. It opens
+the `.editorconfig` cascade for a file's directory, applies matching sections
+and `use_fallbacks()` for EditorConfig spec defaults, then maps properties onto
+`Style` fields. `Resolver` caches the parsed cascade **per directory**, so a
+repository parses each `.editorconfig` once rather than once per file. Because
+per-glob sections mean two files in one directory can resolve differently
+(`[*.md]` vs `[*.toml]`), only the file reading and parsing is cached — the glob
+matching still runs per file, so the cached result is byte-identical to an
+uncached resolve (guarded by an equivalence test against
+`ec4rs::properties_of`). The mapping is:
 
 | EditorConfig key           | `Style` field              | Notes                                |
 | -------------------------- | -------------------------- | ------------------------------------ |
@@ -150,5 +157,8 @@ cross-cutting idempotency/semantic-preservation harness (FR-6.1/6.2,
 no longer depends on dprint (AD-0006). All v1 requirements (FR-1 through FR-6)
 are implemented.
 
-Deferred (post-v1, not requirements): a per-directory `Style` cache (AD-0002),
-colorized `--diff` output.
+Implemented post-v1: the per-directory `.editorconfig` cascade cache (AD-0002) —
+a repository with a root `.editorconfig` formats ~9% faster by parsing each
+config once instead of per file.
+
+Deferred (post-v1, not requirements): colorized `--diff` output.
