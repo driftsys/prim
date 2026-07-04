@@ -59,3 +59,31 @@ fn default_in_place_leaves_already_formatted_file_byte_identical() {
 fn unreadable_path_reports_error_and_exits_two() {
     prim().arg("/no/such/prim/fixture.md").assert().code(2);
 }
+
+#[test]
+fn explicit_nonexistent_unowned_path_errors() {
+    // A named path that does not exist is an error even when prim would not
+    // own the file type (previously: silent exit 0).
+    prim().arg("/no/such/prim/fixture.xyz").assert().code(2);
+}
+
+#[test]
+fn explicit_unowned_existing_file_warns_and_exits_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("main.rs");
+    std::fs::write(&file, "fn main() {}\n").unwrap();
+
+    prim()
+        .arg(&file)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("not a file type prim formats"));
+}
+
+#[test]
+fn walked_unowned_files_stay_silent() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
+
+    prim().arg(dir.path()).assert().success().stderr("");
+}

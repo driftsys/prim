@@ -59,8 +59,20 @@ fn run_paths(cli: &Cli) -> i32 {
 
     for file in discover::collect(&cli.paths, &cli.exclude) {
         let Some(kind) = prim_fmt::classify(&file.path) else {
-            // A file prim does not own — left byte-for-byte unchanged (FR-2.4),
-            // even when named explicitly.
+            // A file prim does not own is left byte-for-byte unchanged
+            // (FR-2.4). Walked files are skipped silently; a named path is
+            // answered — a missing one is an error, an unowned one a warning.
+            if file.explicit {
+                if file.path.exists() {
+                    ui::warning(&format!(
+                        "{}: not a file type prim formats; skipped",
+                        file.path.display()
+                    ));
+                } else {
+                    ui::error(&format!("{}: no such file", file.path.display()));
+                    had_error = true;
+                }
+            }
             continue;
         };
 

@@ -37,8 +37,8 @@ fn walked_binary_is_skipped_not_errored() {
 
 #[test]
 fn explicit_non_owned_file_is_left_unchanged() {
-    // A file prim does not own (here a binary) is skipped, not an error, even
-    // when named explicitly (FR-2.4).
+    // A file prim does not own (here a binary) is skipped with a warning,
+    // not an error, when named explicitly (FR-2.4).
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("logo.bin");
     std::fs::write(&bin, [0xFFu8, 0xFE, 0x00]).unwrap();
