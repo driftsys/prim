@@ -13,11 +13,11 @@ single static binary that tidies the files no other formatter owns.
 - **Safe by default** — unparseable or non-UTF-8 files are left untouched and
   reported; writes are atomic.
 
-> **Status:** early. prim does recursive discovery and applies **whitespace
-> hygiene** (trailing-whitespace removal, single final line-feed, LF endings) to
-> the parsed formats and the orphan allowlist. Structured per-format formatting
-> (JSON/YAML/TOML/Markdown) and `.editorconfig` resolution land in later
-> milestones. See [docs/SPEC.md](docs/SPEC.md).
+> **Status:** v1 complete — all v1 requirements (FR-1 through FR-6) are
+> implemented: recursive discovery, whitespace hygiene, `.editorconfig` style
+> resolution, structured JSON/JSONC, TOML, YAML, and Markdown formatting (with
+> prose-wrap guardrails), `--check` / `--diff` / `--stdin-filepath` modes, and
+> atomic writes. See [docs/SPEC.md](docs/SPEC.md).
 
 ## Install
 

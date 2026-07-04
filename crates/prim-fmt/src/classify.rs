@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-/// The kind of file prim recognises. Parsed formats gain structured
-/// canonicalisation in later milestones; `Orphan` files (the un-owned text
+/// The kind of file prim recognises. Parsed formats receive structured
+/// canonicalisation plus whitespace hygiene; `Orphan` files (the un-owned text
 /// allowlist) only ever receive whitespace hygiene.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileKind {

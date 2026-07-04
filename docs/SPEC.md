@@ -37,7 +37,9 @@ source-code formatter and has **no plugin system**.
 - **FR-1.2** prim shall format JSON to a canonical style (consistent
   indentation, one space after `:`, no trailing commas).
 - **FR-1.3** prim shall format JSONC, preserving all comments in position.
-  (JSON5 excluded.)
+  `.json` files are parsed with the same lenient JSONC parser: comments and
+  trailing commas are accepted on input and never emitted (AD-0003). (JSON5
+  excluded.)
 - **FR-1.4** prim shall format YAML, preserving comments, anchors/aliases, and
   multi-line scalar styles.
 - **FR-1.5** prim shall format TOML, preserving comments and inline-table style.
@@ -47,7 +49,8 @@ source-code formatter and has **no plugin system**.
 ## FR-2 — Text hygiene (parsed formats + orphan allowlist)
 
 - **FR-2.1** For every file it processes, prim shall remove trailing whitespace
-  from each line.
+  from each line, unless `.editorconfig` sets `trim_trailing_whitespace = false`
+  (FR-3.2 takes precedence).
 - **FR-2.2** prim shall ensure each processed file ends with exactly one
   line-feed.
 - **FR-2.3** prim shall normalize line endings to LF, unless `.editorconfig`
@@ -64,9 +67,10 @@ source-code formatter and has **no plugin system**.
 - **FR-3.1** prim shall apply its built-in canonical style with no config file
   present.
 - **FR-3.2** prim shall read `.editorconfig` and honor `indent_style`,
-  `indent_size`, `max_line_length`, `end_of_line`, `charset`,
-  `insert_final_newline`, `trim_trailing_whitespace` — including the `root=true`
-  chain and per-glob sections.
+  `indent_size`, `max_line_length`, `end_of_line`, `insert_final_newline`,
+  `trim_trailing_whitespace` — including the `root=true` chain and per-glob
+  sections. (`charset` is out of scope: prim processes UTF-8 only — FR-6.5,
+  AD-0002.)
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags).
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
@@ -88,7 +92,8 @@ source-code formatter and has **no plugin system**.
   formatted, exit non-zero when any file would change, and list the files that
   would change.
 - **FR-5.3** `--diff` shall print a unified diff of pending changes and write
-  nothing.
+  nothing; it shall exit `0` whether or not changes are pending (`--check` is
+  the CI gate).
 - **FR-5.4** With `--stdin-filepath <path>`, prim shall read stdin and write the
   formatted result to stdout.
 - **FR-5.5** _(exit codes)_ `0` = success · `1` = changes needed (`--check`) ·

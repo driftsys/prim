@@ -80,3 +80,9 @@ Scope notes:
 > with guardrails — inline code, links, tables, and fenced code are never
 > broken, and fenced code is preserved verbatim). All formats preserve comments
 > and never reorder. See the [Specification](SPEC.md).
+
+## Format notes
+
+- `.json` files are parsed leniently as JSONC: comments and trailing commas are
+  accepted on input (trailing commas are removed on output). prim never rejects
+  a `.json` file for containing comments (AD-0003).
