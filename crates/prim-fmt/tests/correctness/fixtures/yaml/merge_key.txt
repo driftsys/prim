@@ -1,0 +1,14 @@
+-- input --
+defaults: &defaults
+  adapter: postgres
+  host: localhost
+development:
+  <<: *defaults
+  database: dev_db
+-- expected --
+defaults: &defaults
+  adapter: postgres
+  host: localhost
+development:
+  <<: *defaults
+  database: dev_db

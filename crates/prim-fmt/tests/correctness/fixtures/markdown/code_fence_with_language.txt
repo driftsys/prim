@@ -1,0 +1,20 @@
+-- input --
+Some text.
+
+```rust
+fn main() {
+    println!("hi");
+}
+```
+
+More text.
+-- expected --
+Some text.
+
+```rust
+fn main() {
+    println!("hi");
+}
+```
+
+More text.

@@ -1,0 +1,4 @@
+-- input --
+{"pi":3.14159,"neg":-42,"exp":1.5e10,"negexp":-1.5e-10,"zero":-0}
+-- expected --
+{ "pi": 3.14159, "neg": -42, "exp": 1.5e10, "negexp": -1.5e-10, "zero": -0 }

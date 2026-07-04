@@ -20,6 +20,9 @@ target
 docs/wip/
 docs/archive/
 
+# Superpowers SDD session scaffolding (briefs, reports, review diffs) — ephemeral
+.superpowers/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

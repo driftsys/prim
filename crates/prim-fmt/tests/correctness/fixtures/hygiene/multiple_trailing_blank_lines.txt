@@ -1,0 +1,6 @@
+-- input --
+content
+
+
+-- expected --
+content

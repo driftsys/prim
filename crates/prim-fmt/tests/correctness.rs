@@ -1,36 +1,65 @@
-//! Cross-cutting correctness harness (FR-6.1 idempotency, FR-6.2 semantic
-//! preservation). Every formatter is run through both checks over a shared
-//! corpus, using independent parsers for the semantic comparison.
+#[path = "correctness/spec_parser.rs"]
+mod spec_parser;
 
-use prim_fmt::{FileKind, Style, format};
+// Cross-cutting correctness harness (FR-6.1 idempotency, FR-6.2 semantic
+// preservation) plus format-equality assertions, all driven from the
+// plain-text fixtures under `tests/correctness/fixtures/`. Adding coverage
+// means adding a `.txt` fixture — see
+// `docs/wip/plans/2026-07-02-spec-test-harness-plan.md` for the format.
 
-/// Representative + edge-case inputs per format.
-const CORPUS: &[(FileKind, &str)] = &[
-    (FileKind::Json, "{\"a\":1,\"b\":[1,2,3],\"c\":{\"d\":true}}"),
-    (FileKind::Json, "[]"),
-    (FileKind::Jsonc, "{\n// a comment\n\"a\": 1,\n\"b\": 2,\n}"),
-    (
-        FileKind::Toml,
-        "a=1\nb = \"x\"\n[t]\nc=[1,2]\nd = {e=1}\n# comment",
-    ),
-    (
-        FileKind::Yaml,
-        "a: 1\nb:\n  - 1\n  - 2\nbase: &id 1\nref: *id\nblock: |\n  l1\n  l2\n# comment",
-    ),
-    (
-        FileKind::Markdown,
-        "#  Heading\n\nSome   prose with `inline code` that runs on and on and on well past the wrap.\n\n- one\n- two\n",
-    ),
-    (FileKind::Orphan, "trailing  \nlines\n\n\n"),
-];
+use prim_fmt::{FileKind, format};
+use spec_parser::{SpecCase, discover, parse_spec_file, rewrite_expected};
+use std::path::{Path, PathBuf};
+
+fn fixtures_root() -> PathBuf {
+    Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/correctness/fixtures"
+    ))
+    .to_path_buf()
+}
+
+fn load_cases() -> Vec<(FileKind, SpecCase)> {
+    discover(&fixtures_root())
+        .into_iter()
+        .map(|(kind, path)| {
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let name = path.display().to_string();
+            (kind, parse_spec_file(&name, &text))
+        })
+        .collect()
+}
 
 #[test]
-fn formatting_is_idempotent() {
-    let style = Style::default();
-    for (kind, input) in CORPUS {
-        let once = format(*kind, input, &style).expect("formats");
-        let twice = format(*kind, &once, &style).expect("formats");
-        assert_eq!(once, twice, "not idempotent for {kind:?}: {input:?}");
+fn spec_cases_format_as_expected() {
+    let update = std::env::var_os("PRIM_SPEC_UPDATE").is_some();
+    let mut failures = Vec::new();
+    for (kind, case) in load_cases() {
+        let actual = format(kind, &case.input, &case.style).expect("formats");
+        if actual != case.expected {
+            if update {
+                rewrite_expected(Path::new(&case.name), &actual);
+            } else {
+                failures.push(case.name.clone());
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "spec cases produced unexpected output: {failures:?}\n\
+         run `PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness \
+         spec_cases_format_as_expected` to regenerate, then review the diff \
+         before committing"
+    );
+}
+
+#[test]
+fn spec_cases_are_idempotent() {
+    for (kind, case) in load_cases() {
+        let once = format(kind, &case.input, &case.style).expect("formats");
+        let twice = format(kind, &once, &case.style).expect("formats");
+        assert_eq!(once, twice, "not idempotent: {}", case.name);
     }
 }
 
@@ -42,39 +71,45 @@ fn json_value(text: &str) -> serde_json::Value {
     .expect("parses")
 }
 
-fn fmt(kind: FileKind, input: &str) -> String {
-    format(kind, input, &Style::default()).expect("formats")
-}
-
 #[test]
-fn json_and_jsonc_data_model_preserved() {
-    for (kind, input) in CORPUS
-        .iter()
-        .filter(|(k, _)| matches!(k, FileKind::Json | FileKind::Jsonc))
-    {
+fn spec_cases_preserve_json_data_model() {
+    for (kind, case) in load_cases() {
+        if !matches!(kind, FileKind::Json | FileKind::Jsonc) {
+            continue;
+        }
+        let actual = format(kind, &case.input, &case.style).expect("formats");
         assert_eq!(
-            json_value(input),
-            json_value(&fmt(*kind, input)),
-            "JSON data model changed: {input:?}"
+            json_value(&case.input),
+            json_value(&actual),
+            "JSON data model changed: {}",
+            case.name
         );
     }
 }
 
 #[test]
-fn toml_data_model_preserved() {
-    for (_, input) in CORPUS.iter().filter(|(k, _)| matches!(k, FileKind::Toml)) {
-        let before: toml::Table = input.parse().expect("parses");
-        let after: toml::Table = fmt(FileKind::Toml, input).parse().expect("parses");
-        assert_eq!(before, after, "TOML data model changed: {input:?}");
+fn spec_cases_preserve_toml_data_model() {
+    for (kind, case) in load_cases() {
+        if kind != FileKind::Toml {
+            continue;
+        }
+        let actual = format(kind, &case.input, &case.style).expect("formats");
+        let before: toml::Table = case.input.parse().expect("parses");
+        let after: toml::Table = actual.parse().expect("parses");
+        assert_eq!(before, after, "TOML data model changed: {}", case.name);
     }
 }
 
 #[test]
-fn yaml_data_model_preserved() {
+fn spec_cases_preserve_yaml_data_model() {
     use yaml_rust2::YamlLoader;
-    for (_, input) in CORPUS.iter().filter(|(k, _)| matches!(k, FileKind::Yaml)) {
-        let before = YamlLoader::load_from_str(input).expect("parses");
-        let after = YamlLoader::load_from_str(&fmt(FileKind::Yaml, input)).expect("parses");
-        assert_eq!(before, after, "YAML data model changed: {input:?}");
+    for (kind, case) in load_cases() {
+        if kind != FileKind::Yaml {
+            continue;
+        }
+        let actual = format(kind, &case.input, &case.style).expect("formats");
+        let before = YamlLoader::load_from_str(&case.input).expect("parses");
+        let after = YamlLoader::load_from_str(&actual).expect("parses");
+        assert_eq!(before, after, "YAML data model changed: {}", case.name);
     }
 }

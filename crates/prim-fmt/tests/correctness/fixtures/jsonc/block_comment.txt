@@ -1,0 +1,13 @@
+-- input --
+{
+  /* block
+     comment */
+  "a": 1 /* inline */, "b": 2
+}
+-- expected --
+{
+  /* block
+     comment */
+  "a": 1, /* inline */
+  "b": 2
+}

@@ -1,0 +1,16 @@
+-- input --
+description = """
+line one
+line two
+"""
+literal = '''
+raw \n text
+'''
+-- expected --
+description = """
+line one
+line two
+"""
+literal = '''
+raw \n text
+'''

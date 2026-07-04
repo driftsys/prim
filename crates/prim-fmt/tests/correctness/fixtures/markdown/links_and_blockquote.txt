@@ -1,0 +1,12 @@
+-- input --
+> A blockquote with a [reference link][ref] inside it.
+>
+> - and a nested list
+
+[ref]: https://example.com "Example"
+-- expected --
+> A blockquote with a [reference link][ref] inside it.
+>
+> - and a nested list
+
+[ref]: https://example.com "Example"

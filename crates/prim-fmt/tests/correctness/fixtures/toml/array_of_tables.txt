@@ -1,0 +1,14 @@
+-- input --
+[[fruit]]
+name = "apple"
+[fruit.physical]
+color = "red"
+[[fruit]]
+name = "banana"
+-- expected --
+[[fruit]]
+name = "apple"
+[fruit.physical]
+color = "red"
+[[fruit]]
+name = "banana"

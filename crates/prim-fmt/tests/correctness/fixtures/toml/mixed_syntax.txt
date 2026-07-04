@@ -1,0 +1,14 @@
+-- input --
+a=1
+b = "x"
+[t]
+c=[1,2]
+d = {e=1}
+# comment
+-- expected --
+a = 1
+b = "x"
+[t]
+c = [1, 2]
+d = { e = 1 }
+# comment
