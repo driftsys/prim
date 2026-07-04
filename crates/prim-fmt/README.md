@@ -25,6 +25,24 @@ if let Some(kind) = prim_fmt::classify(Path::new("README.md")) {
 }
 ```
 
+## Correctness fixtures
+
+`tests/correctness/fixtures/<format>/*.txt` drive the correctness harness
+(FR-6.1 idempotency, FR-6.2 semantic preservation, plus format-equality). Each
+file has `-- input --` and `-- expected --` sections, plus an optional
+`-- config --` section overriding the default `Style`. The directory name
+selects the `FileKind` (`json`, `jsonc`, `toml`, `yaml`, `markdown`, `hygiene`).
+
+To add a fixture: create the file with your `-- input --` and an empty
+`-- expected --`, then run:
+
+```bash
+PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness spec_cases_format_as_expected
+```
+
+Review the generated diff before committing — this is the step where a formatter
+bug would show up as unexpected output.
+
 ## License
 
 MIT © driftsys
