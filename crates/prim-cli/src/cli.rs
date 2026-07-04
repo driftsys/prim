@@ -37,7 +37,8 @@ pub struct Cli {
 
     /// Read from stdin and write the formatted result to stdout. The path
     /// names the file so the right formatter is selected (format-on-save).
-    #[arg(long, value_name = "PATH")]
+    /// Mutually exclusive with --check and --diff.
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["check", "diff"])]
     pub stdin_filepath: Option<PathBuf>,
 
     /// Exclude paths matching the given glob (repeatable).

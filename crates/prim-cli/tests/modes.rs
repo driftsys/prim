@@ -87,3 +87,18 @@ fn walked_unowned_files_stay_silent() {
 
     prim().arg(dir.path()).assert().success().stderr("");
 }
+
+#[test]
+fn stdin_filepath_conflicts_with_check_and_diff() {
+    // clap reports argument conflicts as usage errors (exit 2).
+    prim()
+        .args(["--stdin-filepath", "a.md", "--check"])
+        .write_stdin("x\n")
+        .assert()
+        .code(2);
+    prim()
+        .args(["--stdin-filepath", "a.md", "--diff"])
+        .write_stdin("x\n")
+        .assert()
+        .code(2);
+}
