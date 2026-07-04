@@ -1,0 +1,16 @@
+-- input --
+#   Heading with odd spacing
+
+```markdown
+This nested markdown example has a deliberately long line that must stay exactly as written even though it far exceeds eighty columns.
+```
+
+Body text.
+-- expected --
+# Heading with odd spacing
+
+```markdown
+This nested markdown example has a deliberately long line that must stay exactly as written even though it far exceeds eighty columns.
+```
+
+Body text.
