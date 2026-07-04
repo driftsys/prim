@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2] (2026-07-04)
+
+### Performance
+
+- **prim-cli:** cache the .editorconfig cascade per directory ([4532403])
+
+[0.2.2]: https://github.com/driftsys/prim/compare/v0.2.1...v0.2.2
+[4532403]: https://github.com/driftsys/prim/commit/4532403
+
 ## [0.2.1] (2026-07-04)
 
 ### Documentation
