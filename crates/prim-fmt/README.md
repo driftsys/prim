@@ -43,6 +43,22 @@ PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness spec_cases_format_a
 Review the generated diff before committing — this is the step where a formatter
 bug would show up as unexpected output.
 
+## Benchmarks
+
+`benches/format.rs` times `format()` per file kind (JSON, TOML, YAML, Markdown)
+across small/medium/large synthetic inputs generated at bench time (no vendored
+corpus — deterministic and reproducible). Run:
+
+```bash
+just bench
+```
+
+This is not part of `just check` or CI — it's slow and its numbers are
+machine-dependent, so it's for local regression-hunting, not a gate. HTML
+reports land in `target/criterion/report/index.html`. There is currently no
+tracked performance baseline; treat a run before and after your change as the
+comparison, not an absolute number.
+
 ## License
 
 MIT © driftsys
