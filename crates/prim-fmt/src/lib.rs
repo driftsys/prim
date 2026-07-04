@@ -10,10 +10,12 @@
 //!    so, what [`FileKind`] it is. Files prim does not own are left untouched.
 //! 2. [`format`] applies the canonical formatting for that kind.
 //!
-//! At this stage [`format`] applies only the format-agnostic **whitespace
-//! hygiene** pass (trailing-whitespace removal, single final line-feed, LF line
-//! endings). Structured per-format canonicalisation (Markdown wrapping, JSON
-//! re-indentation, …) is added per [`FileKind`] in later milestones.
+//! [`format`] applies structured canonicalisation to the parsed formats —
+//! JSON/JSONC via `dprint-plugin-json`, TOML via `taplo`, YAML via
+//! `pretty_yaml`, Markdown via `dprint-plugin-markdown` — followed by the
+//! format-agnostic **whitespace hygiene** pass (trailing-whitespace removal,
+//! single final line-feed, configured line endings). `Orphan` files receive
+//! hygiene only.
 
 mod classify;
 mod error;
