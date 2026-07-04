@@ -1,0 +1,24 @@
+-- input --
+#   Heading with odd spacing
+
+````markdown
+An outer markdown-tagged fence whose contents include a line that itself looks like a fence opener:
+```markdown
+inner content that must also stay exactly as written
+```
+and a trailing line that is deliberately far longer than eighty columns and must never be hard-wrapped.
+````
+
+Body text.
+-- expected --
+# Heading with odd spacing
+
+````markdown
+An outer markdown-tagged fence whose contents include a line that itself looks like a fence opener:
+```markdown
+inner content that must also stay exactly as written
+```
+and a trailing line that is deliberately far longer than eighty columns and must never be hard-wrapped.
+````
+
+Body text.
