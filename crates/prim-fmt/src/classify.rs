@@ -39,7 +39,9 @@ pub fn classify(path: &Path) -> Option<FileKind> {
     is_orphan(name).then_some(FileKind::Orphan)
 }
 
-/// Whether `name` is on the curated orphan allowlist (FR-2 table in the spec).
+/// Whether `name` is on the curated orphan allowlist (documented in
+/// `docs/USAGE.md`). `.env` files are deliberately excluded: their values are
+/// data and may be whitespace-sensitive.
 fn is_orphan(name: &str) -> bool {
     const EXACT: &[&str] = &[
         ".gitignore",
@@ -52,7 +54,8 @@ fn is_orphan(name: &str) -> bool {
         ".helmignore",
         ".editorconfig",
         ".containerignore",
-        ".env",
+        ".mailmap",
+        "CODEOWNERS",
         "Dockerfile",
         "Containerfile",
         "AUTHORS",
@@ -63,7 +66,6 @@ fn is_orphan(name: &str) -> bool {
 
     EXACT.contains(&name)
         || name.starts_with("Dockerfile.") // Dockerfile.*
-        || name.starts_with(".env.") // .env.*
         || name.starts_with("LICENSE") // LICENSE*
 }
 
@@ -99,7 +101,7 @@ mod tests {
             ".helmignore",
             ".editorconfig",
             ".containerignore",
-            ".env",
+            ".mailmap",
         ] {
             assert_eq!(k(name), Some(FileKind::Orphan), "{name}");
         }
@@ -110,7 +112,7 @@ mod tests {
         assert_eq!(k("Dockerfile"), Some(FileKind::Orphan));
         assert_eq!(k("Dockerfile.dev"), Some(FileKind::Orphan));
         assert_eq!(k("Containerfile"), Some(FileKind::Orphan));
-        assert_eq!(k(".env.local"), Some(FileKind::Orphan));
+        assert_eq!(k("CODEOWNERS"), Some(FileKind::Orphan));
         assert_eq!(k("LICENSE"), Some(FileKind::Orphan));
         assert_eq!(k("LICENSE.txt"), Some(FileKind::Orphan));
         assert_eq!(k("AUTHORS"), Some(FileKind::Orphan));
@@ -126,6 +128,8 @@ mod tests {
         assert_eq!(k("main.rs"), None);
         assert_eq!(k("script.py"), None);
         assert_eq!(k("logo.png"), None);
+        assert_eq!(k(".env"), None); // data values, not metadata — excluded.
+        assert_eq!(k(".env.local"), None);
         assert_eq!(k("Makefile"), None); // Make is out of v1 scope.
         assert_eq!(k("run.sh"), None); // Shell is deferred to Phase 2.
         assert_eq!(k("noext"), None);
