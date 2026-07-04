@@ -36,6 +36,21 @@ CHANGELOG.md
 fixtures/malformed.json
 ```
 
+## Protecting golden files
+
+Test fixtures and golden files often contain deliberate formatting violations
+(trailing whitespace, missing final newlines, non-canonical indentation) that
+must stay byte-exact. Add those directories to `.primignore` — prim's own
+repository does this for its test fixtures:
+
+```gitignore
+# .primignore
+crates/prim-fmt/tests/correctness/fixtures/
+```
+
+Note: `--exclude` and `.primignore` apply to directory walks; a file named
+explicitly on the command line is always processed.
+
 ## Using prim with git-std
 
 `git-std` generates `CHANGELOG.md`, which prim would otherwise hard-wrap as
