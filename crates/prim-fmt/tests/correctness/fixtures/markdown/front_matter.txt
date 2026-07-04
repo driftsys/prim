@@ -1,0 +1,18 @@
+-- input --
+---
+title:   Front Matter Sample
+tags: [a, b]
+---
+
+#   Heading after front matter
+
+Body text.
+-- expected --
+---
+title:   Front Matter Sample
+tags: [a, b]
+---
+
+# Heading after front matter
+
+Body text.

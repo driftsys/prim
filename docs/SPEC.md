@@ -130,6 +130,23 @@ source-code formatter and has **no plugin system**.
 - **NFR-5** _(footprint)_ peak memory scales with the largest single file, not
   repository size.
 
+## Style stability
+
+The canonical style is a compatibility contract. Any change to prim's output for
+already-canonical input — including a change inherited from a formatter
+dependency upgrade (`dprint-plugin-json`, `dprint-plugin-markdown`, `taplo`,
+`pretty_yaml`) — is a versioned, release-noted event: a **minor** version bump
+while prim is pre-1.0, a **major** bump once prim reaches 1.0. The release notes
+must call out the changed output explicitly so downstream `prim --check` gates
+upgrade deliberately. The fixture harness
+(`crates/prim-fmt/tests/correctness/fixtures/`) enforces this: its
+`spec_cases_format_as_expected` test byte-compares formatter output against each
+fixture's committed `-- expected --` section, so canonical-output drift fails
+the build until it is reverted, or deliberately regenerated with
+`PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness
+spec_cases_format_as_expected`,
+reviewed in the diff, and released as above.
+
 ## Non-goals
 
 - No source-code formatting (Rust/JS/TS/Python/Go/…).

@@ -1,0 +1,10 @@
+-- input --
+First line ends with a backslash hard break\
+and continues on the next line.
+
+A separate paragraph here.
+-- expected --
+First line ends with a backslash hard break\
+and continues on the next line.
+
+A separate paragraph here.
