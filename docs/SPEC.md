@@ -147,6 +147,24 @@ default, format-in-place action.
   deprecated sugar for the `fmt` forms; the first use in a run emits a one-line
   deprecation warning to stderr. They are scheduled for removal in v2.0; the
   bare alias itself is not deprecated.
+- **FR-5.8** _(machine-readable reports, story D2)_ `--format <json|sarif>`
+  shall be accepted only on `prim fmt --check` and `prim lint`. It changes only
+  stdout for those report-only modes: write behaviour and exit codes are
+  unchanged, and warnings/errors remain on stderr. Without `--format`, the
+  existing plain-text stdout for `fmt --check` and `lint` remains unchanged.
+  - **FR-5.8a** `--format json` shall emit a stable JSON document of the form
+    `{ "version": 1, "mode": "fmt-check"|"lint", "findings": [...] }`. Each
+    finding includes `path`, `code`, and `message`; positioned findings also
+    include 1-indexed `line` and `column`. `fmt --check` reports one
+    `format::drift` finding per file that would change, with the message
+    `"would be reformatted"`. `prim lint` reports the existing coarse structured
+    format drift as `format::drift`, plus the B1 hygiene diagnostics for orphan
+    files with their stable `hygiene::*` codes and positions.
+  - **FR-5.8b** `--format sarif` shall emit a valid SARIF 2.1.0 log with one
+    result per finding. Each result's `ruleId` shall match the stable `code`,
+    `artifactLocation.uri` shall be the reported file path, and
+    `region.startLine` / `region.startColumn` shall be present whenever the
+    finding has a known position.
 
 ## FR-6 — Correctness & safety
 

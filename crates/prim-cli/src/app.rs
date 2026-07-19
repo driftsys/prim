@@ -4,10 +4,11 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use crate::cli::{Cli, FmtArgs, LintArgs, Verb};
+use crate::cli::{Cli, FixArgs, FmtArgs, LintArgs, OutputFormat, Verb, WriteArgs};
 use crate::diff;
 use crate::discover;
 use crate::editorconfig;
+use crate::report::{self, Finding, ReportMode};
 use crate::ui;
 use crate::write;
 use prim_fmt::{FileKind, Style};
@@ -23,7 +24,11 @@ const EXIT_ERROR: i32 = 2;
 /// A generic lint finding for the structured formats that still only have
 /// format-drift reporting (JSON/JSONC/TOML/YAML). Markdown has itemized rumdl
 /// content diagnostics instead; orphan files have itemized whitespace-hygiene
-/// diagnostics (story B1).
+/// diagnostics (story B1). The `_CODE`/`_FINDING` split feeds both the
+/// plain-text (`ui::lint_finding`) and machine-readable (`Finding::new`,
+/// story D2) report paths.
+const FORMAT_DRIFT_CODE: &str = "format::drift";
+const FORMAT_CHECK_FINDING: &str = "would be reformatted";
 const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix)";
 
 /// A file that formatted successfully: its path, kind, resolved style,
@@ -37,23 +42,31 @@ pub fn run(cli: &Cli) -> i32 {
         // exist yet, so `fix` is byte-for-byte `fmt` for now.
         // Exit codes still differ (AD-0007 §4): unlike `fmt --diff` (always
         // `0`, preview-only), `fix --check`/`--diff` share one gated
-        // contract, so `is_fix` is threaded through to `run_fmt`.
-        Verb::Fmt(args) => run_fmt(args, &cli.exclude, false),
-        Verb::Fix(args) => run_fmt(args, &cli.exclude, true),
+        // contract, so `run_fix` still dispatches through the shared
+        // `run_fmt_paths(..., is_fix = true)` helper.
+        Verb::Fmt(args) => run_fmt(args, &cli.exclude),
+        Verb::Fix(args) => run_fix(args, &cli.exclude),
         Verb::Lint(args) => run_lint(args, &cli.exclude),
     }
 }
 
-fn run_fmt(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
-    if let Some(path) = args.stdin_filepath.as_deref() {
+fn run_fmt(args: &FmtArgs, excludes: &[String]) -> i32 {
+    if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
-    run_fmt_paths(args, excludes, is_fix)
+    run_fmt_paths(&args.write, args.format, excludes, false)
+}
+
+fn run_fix(args: &FixArgs, excludes: &[String]) -> i32 {
+    if let Some(path) = args.write.stdin_filepath.as_deref() {
+        return run_fmt_stdin(path);
+    }
+    run_fmt_paths(&args.write, None, excludes, true)
 }
 
 fn run_lint(args: &LintArgs, excludes: &[String]) -> i32 {
     if let Some(path) = args.stdin_filepath.as_deref() {
-        return run_lint_stdin(path);
+        return run_lint_stdin(path, args.format);
     }
     run_lint_paths(args, excludes)
 }
@@ -89,7 +102,7 @@ fn run_fmt_stdin(path: &Path) -> i32 {
 
 /// Read stdin and report whether it would violate the canonical format;
 /// writes nothing, ever (`lint` is report-only).
-fn run_lint_stdin(path: &Path) -> i32 {
+fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         ui::error("could not read stdin as UTF-8");
@@ -100,7 +113,18 @@ fn run_lint_stdin(path: &Path) -> i32 {
             // Story B1: itemized, coded, positioned findings.
             let style = editorconfig::resolve(path);
             let diagnostics = prim_fmt::hygiene_diagnostics(&input, &style);
-            if diagnostics.is_empty() {
+            if let Some(format) = format {
+                let findings = diagnostics
+                    .iter()
+                    .map(|diagnostic| Finding::diagnostic(path, diagnostic))
+                    .collect::<Vec<_>>();
+                emit_report(format, ReportMode::Lint, &findings);
+                if diagnostics.is_empty() {
+                    EXIT_OK
+                } else {
+                    EXIT_ACTIONABLE
+                }
+            } else if diagnostics.is_empty() {
                 EXIT_OK
             } else {
                 for diagnostic in &diagnostics {
@@ -111,7 +135,18 @@ fn run_lint_stdin(path: &Path) -> i32 {
         }
         Some(FileKind::Markdown) => {
             let diagnostics = prim_fmt::lint_markdown(&input);
-            if diagnostics.is_empty() {
+            if let Some(format) = format {
+                let findings = diagnostics
+                    .iter()
+                    .map(|diagnostic| Finding::markdown(path, diagnostic))
+                    .collect::<Vec<_>>();
+                emit_report(format, ReportMode::Lint, &findings);
+                if diagnostics.is_empty() {
+                    EXIT_OK
+                } else {
+                    EXIT_ACTIONABLE
+                }
+            } else if diagnostics.is_empty() {
                 EXIT_OK
             } else {
                 for diagnostic in &diagnostics {
@@ -123,18 +158,37 @@ fn run_lint_stdin(path: &Path) -> i32 {
         Some(kind) => {
             let style = editorconfig::resolve(path);
             match prim_fmt::format(kind, &input, &style) {
-                Ok(text) if text == input => EXIT_OK,
+                Ok(text) if text == input => {
+                    if let Some(format) = format {
+                        emit_report(format, ReportMode::Lint, &[]);
+                    }
+                    EXIT_OK
+                }
                 Ok(_) => {
-                    ui::lint_finding(path, FORMAT_DRIFT_FINDING);
+                    if let Some(format) = format {
+                        let findings =
+                            vec![Finding::new(path, FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING)];
+                        emit_report(format, ReportMode::Lint, &findings);
+                    } else {
+                        ui::lint_finding(path, FORMAT_DRIFT_FINDING);
+                    }
                     EXIT_ACTIONABLE
                 }
                 Err(err) => {
                     ui::error(&format!("{}: {err}", path.display()));
+                    if let Some(format) = format {
+                        emit_report(format, ReportMode::Lint, &[]);
+                    }
                     EXIT_ERROR
                 }
             }
         }
-        None => EXIT_OK,
+        None => {
+            if let Some(format) = format {
+                emit_report(format, ReportMode::Lint, &[]);
+            }
+            EXIT_OK
+        }
     }
 }
 
@@ -209,7 +263,12 @@ fn load_and_format(
     Ok((results, had_error))
 }
 
-fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
+fn run_fmt_paths(
+    args: &WriteArgs,
+    format: Option<OutputFormat>,
+    excludes: &[String],
+    is_fix: bool,
+) -> i32 {
     let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
         Ok(outcome) => outcome,
         Err(err) => {
@@ -219,6 +278,7 @@ fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
     };
 
     let mut any_would_change = false;
+    let mut findings = Vec::new();
     for (path, _kind, _style, original, formatted) in results {
         if formatted == original {
             continue;
@@ -226,7 +286,11 @@ fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
         any_would_change = true;
 
         if args.check {
-            ui::would_reformat(&path);
+            if format.is_some() {
+                findings.push(Finding::new(&path, FORMAT_DRIFT_CODE, FORMAT_CHECK_FINDING));
+            } else {
+                ui::would_reformat(&path);
+            }
         } else if args.diff {
             // Print a unified diff of the pending change; write nothing (FR-5.3).
             print!("{}", diff::unified(&path, &original, &formatted));
@@ -235,6 +299,12 @@ fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
             ui::error(&format!("{}: {err}", path.display()));
             had_error = true;
         }
+    }
+
+    if let Some(format) = format
+        && args.check
+    {
+        emit_report(format, ReportMode::FmtCheck, &findings);
     }
 
     // AD-0007 §4: `fmt --diff` is always a `0`-exit preview, but `fix
@@ -261,6 +331,7 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
     };
 
     let mut any_finding = false;
+    let mut findings = Vec::new();
     for (path, kind, style, original, formatted) in results {
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
@@ -269,7 +340,11 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
             if !diagnostics.is_empty() {
                 any_finding = true;
                 for diagnostic in &diagnostics {
-                    ui::lint_diagnostic(&path, diagnostic);
+                    if args.format.is_some() {
+                        findings.push(Finding::diagnostic(&path, diagnostic));
+                    } else {
+                        ui::lint_diagnostic(&path, diagnostic);
+                    }
                 }
             }
         } else if kind == FileKind::Markdown {
@@ -277,15 +352,27 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
             if !diagnostics.is_empty() {
                 any_finding = true;
                 for diagnostic in &diagnostics {
-                    ui::lint_markdown_diagnostic(&path, diagnostic);
+                    if args.format.is_some() {
+                        findings.push(Finding::markdown(&path, diagnostic));
+                    } else {
+                        ui::lint_markdown_diagnostic(&path, diagnostic);
+                    }
                 }
             }
         } else if formatted != original {
             // JSON/JSONC/TOML/YAML keep the coarser format-drift finding until
-            // their own content diagnostics land (D2).
+            // their own content diagnostics land (future story).
             any_finding = true;
-            ui::lint_finding(&path, FORMAT_DRIFT_FINDING);
+            if args.format.is_some() {
+                findings.push(Finding::new(&path, FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING));
+            } else {
+                ui::lint_finding(&path, FORMAT_DRIFT_FINDING);
+            }
         }
+    }
+
+    if let Some(format) = args.format {
+        emit_report(format, ReportMode::Lint, &findings);
     }
 
     if had_error {
@@ -295,4 +382,8 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
     } else {
         EXIT_OK
     }
+}
+
+fn emit_report(format: OutputFormat, mode: ReportMode, findings: &[Finding]) {
+    print!("{}", report::render(format, mode, findings));
 }
