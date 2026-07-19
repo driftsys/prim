@@ -22,6 +22,8 @@ use prim_fmt::{Indent, LineEnding, Style};
 
 use crate::ui;
 
+const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
+
 /// One parsed `.editorconfig` in a cascade: the directory that contains it
 /// (globs match relative to it) and its sections, parsed once and reused.
 struct CachedConfig {
@@ -46,9 +48,7 @@ impl Resolver {
         Self::default()
     }
 
-    /// Resolve the [`Style`] that applies to `path`, reusing the cached cascade
-    /// for its directory when one is present.
-    pub fn resolve(&mut self, path: &Path) -> Style {
+    fn properties_for(&mut self, path: &Path) -> Properties {
         let dir = path
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -57,7 +57,20 @@ impl Resolver {
             .cache
             .entry(dir.clone())
             .or_insert_with(|| build_cascade(&dir));
-        style_from(apply(cascade, path))
+        apply(cascade, path)
+    }
+
+    /// Resolve the [`Style`] that applies to `path`, reusing the cached cascade
+    /// for its directory when one is present.
+    pub fn resolve(&mut self, path: &Path) -> Style {
+        style_from(self.properties_for(path))
+    }
+
+    /// Resolve `prim_mdlint_strict` for `path`, reusing the cached cascade for
+    /// its directory when one is present. Unset or non-`true` values fall back
+    /// to `false`, matching story G3's floor-by-default contract.
+    pub fn resolve_mdlint_strict(&mut self, path: &Path) -> bool {
+        mdlint_strict_from(&self.properties_for(path))
     }
 }
 
@@ -65,6 +78,12 @@ impl Resolver {
 /// and unit tests.
 pub fn resolve(path: &Path) -> Style {
     Resolver::new().resolve(path)
+}
+
+/// One-shot resolution of `prim_mdlint_strict` without caching — used by
+/// `lint --stdin-filepath` and unit tests.
+pub fn resolve_mdlint_strict(path: &Path) -> bool {
+    Resolver::new().resolve_mdlint_strict(path)
 }
 
 /// Parse the `.editorconfig` cascade that applies to files in `dir`, once.
@@ -159,6 +178,16 @@ fn style_from(cfg: Properties) -> Style {
         };
     }
     style
+}
+
+fn mdlint_strict_from(cfg: &Properties) -> bool {
+    raw_bool_from(cfg, MDLINT_STRICT_KEY).unwrap_or(false)
+}
+
+fn raw_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
+    cfg.get_raw_for_key(key)
+        .into_option()
+        .map(|value| value.eq_ignore_ascii_case("true"))
 }
 
 /// Map `indent_style` + `indent_size`/`tab_width` onto [`Indent`], keeping the
@@ -369,11 +398,7 @@ mod tests {
         // directory, so a nearer config in a subdirectory is discovered.
         let parent = path.parent().unwrap_or(dir);
         let cascade = build_cascade(parent);
-        let props = apply(&cascade, &path);
-        props
-            .get_raw_for_key(key)
-            .into_option()
-            .map(|value| value.eq_ignore_ascii_case("true"))
+        raw_bool_from(&apply(&cascade, &path), key)
     }
 
     #[test]

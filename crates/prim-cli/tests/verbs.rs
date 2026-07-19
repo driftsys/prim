@@ -142,6 +142,29 @@ fn lint_stdin_filepath_reports_markdown_content_findings() {
 }
 
 #[test]
+fn lint_stdin_filepath_resolves_prim_mdlint_strict_from_editorconfig() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[docs/**.md]\nprim_mdlint_strict = true\n",
+    )
+    .unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "--stdin-filepath", "docs/guide.md"])
+        .write_stdin("# Title\n\n![](hero.png)\n")
+        .assert()
+        .code(1)
+        .stdout(
+            predicates::str::contains("docs/guide.md:3:")
+                .and(predicates::str::contains("[MD045]"))
+                .and(predicates::str::contains("Image missing alt text")),
+        );
+}
+
+#[test]
 fn lint_does_not_accept_check_or_diff() {
     // `lint` is inherently report-only (AD-0007 §2); these flags belong to
     // `fmt`/`fix` only, so clap rejects them as a usage error.

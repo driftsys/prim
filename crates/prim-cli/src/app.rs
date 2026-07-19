@@ -32,8 +32,8 @@ const FORMAT_CHECK_FINDING: &str = "would be reformatted";
 const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix)";
 
 /// A file that formatted successfully: its path, kind, resolved style,
-/// original text, and formatted text.
-type FormattedFile = (PathBuf, FileKind, Style, String, String);
+/// the resolved Markdown strict-tier toggle, original text, and formatted text.
+type FormattedFile = (PathBuf, FileKind, Style, bool, String, String);
 
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
@@ -134,25 +134,23 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
             }
         }
         Some(FileKind::Markdown) => {
-            let diagnostics = prim_fmt::lint_markdown(&input);
+            let diagnostics =
+                prim_fmt::lint_markdown(&input, editorconfig::resolve_mdlint_strict(path));
+            let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
                 let findings = diagnostics
                     .iter()
                     .map(|diagnostic| Finding::markdown(path, diagnostic))
                     .collect::<Vec<_>>();
                 emit_report(format, ReportMode::Lint, &findings);
-                if diagnostics.is_empty() {
-                    EXIT_OK
-                } else {
-                    EXIT_ACTIONABLE
-                }
+                if has_error { EXIT_ACTIONABLE } else { EXIT_OK }
             } else if diagnostics.is_empty() {
                 EXIT_OK
             } else {
                 for diagnostic in &diagnostics {
                     ui::lint_markdown_diagnostic(path, diagnostic);
                 }
-                EXIT_ACTIONABLE
+                if has_error { EXIT_ACTIONABLE } else { EXIT_OK }
             }
         }
         Some(kind) => {
@@ -257,7 +255,13 @@ fn load_and_format(
             }
         };
 
-        results.push((file.path, kind, style, original, formatted));
+        let markdown_strict = if kind == FileKind::Markdown {
+            resolver.resolve_mdlint_strict(&file.path)
+        } else {
+            false
+        };
+
+        results.push((file.path, kind, style, markdown_strict, original, formatted));
     }
 
     Ok((results, had_error))
@@ -279,7 +283,7 @@ fn run_fmt_paths(
 
     let mut any_would_change = false;
     let mut findings = Vec::new();
-    for (path, _kind, _style, original, formatted) in results {
+    for (path, _kind, _style, _markdown_strict, original, formatted) in results {
         if formatted == original {
             continue;
         }
@@ -330,15 +334,15 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
         }
     };
 
-    let mut any_finding = false;
+    let mut any_error_finding = false;
     let mut findings = Vec::new();
-    for (path, kind, style, original, formatted) in results {
+    for (path, kind, style, markdown_strict, original, formatted) in results {
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
             // un-owned-text allowlist — the same set A1's BOM strip covers.
             let diagnostics = prim_fmt::hygiene_diagnostics(&original, &style);
             if !diagnostics.is_empty() {
-                any_finding = true;
+                any_error_finding = true;
                 for diagnostic in &diagnostics {
                     if args.format.is_some() {
                         findings.push(Finding::diagnostic(&path, diagnostic));
@@ -348,9 +352,9 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
                 }
             }
         } else if kind == FileKind::Markdown {
-            let diagnostics = prim_fmt::lint_markdown(&original);
+            let diagnostics = prim_fmt::lint_markdown(&original, markdown_strict);
             if !diagnostics.is_empty() {
-                any_finding = true;
+                any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);
                 for diagnostic in &diagnostics {
                     if args.format.is_some() {
                         findings.push(Finding::markdown(&path, diagnostic));
@@ -362,7 +366,7 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
         } else if formatted != original {
             // JSON/JSONC/TOML/YAML keep the coarser format-drift finding until
             // their own content diagnostics land (future story).
-            any_finding = true;
+            any_error_finding = true;
             if args.format.is_some() {
                 findings.push(Finding::new(&path, FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING));
             } else {
@@ -377,7 +381,7 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
 
     if had_error {
         EXIT_ERROR
-    } else if any_finding {
+    } else if any_error_finding {
         EXIT_ACTIONABLE
     } else {
         EXIT_OK
