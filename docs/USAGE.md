@@ -59,9 +59,15 @@ Warnings never raise the exit code; only errors do.
   share one gated contract (AD-0007 §4), unlike `fmt --diff`'s preview-only
   behaviour.
 - **`lint`** — report-only: prints one finding per violation and never rewrites.
-  Today's findings are hygiene/format drift only (the same drift `fmt --check`
-  reports); stable diagnostic codes and Markdown content rules land with stories
-  B1 and G2.
+  For the un-owned-text allowlist (BOM, line endings, trailing whitespace,
+  indentation, missing final newline — same set `.editorconfig`/hygiene covers),
+  each finding is a coded, positioned diagnostic:
+  `path:line:col: message [code]` (e.g.
+  `notes.txt:1:6: trailing whitespace
+  [hygiene::trailing-whitespace]`).
+  Structured formats (JSON/YAML/TOML/ Markdown) still report the coarser format
+  drift `fmt --check` would report; their own content diagnostics and
+  `--format json`/`--format sarif` land with stories G2/D2.
 - **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout out
   (`fmt`/`fix`), or a report (`lint`).
 - Naming a path explicitly is strict: a missing file is an error (exit `2`); an

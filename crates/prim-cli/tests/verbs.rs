@@ -3,6 +3,7 @@
 // shim, and `lint`'s report-only contract.
 
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 
 fn prim() -> Command {
     Command::cargo_bin("prim").expect("prim binary builds")
@@ -86,17 +87,17 @@ fn top_level_diff_and_stdin_filepath_also_warn_once() {
 }
 
 #[test]
-fn lint_reports_hygiene_drift_without_writing() {
+fn lint_reports_a_coded_diagnostic_without_writing() {
+    // Since story B1, orphan files (the un-owned-text allowlist) get
+    // itemized `code`/`file:line:col` findings instead of a coarse message.
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("doc.txt");
     std::fs::write(&file, "title  \n").unwrap();
 
-    prim()
-        .arg("lint")
-        .arg(&file)
-        .assert()
-        .code(1)
-        .stdout(predicates::str::contains("doc.txt"));
+    prim().arg("lint").arg(&file).assert().code(1).stdout(
+        predicates::str::contains("doc.txt:1:6:")
+            .and(predicates::str::contains("[hygiene::trailing-whitespace]")),
+    );
 
     // lint never rewrites.
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "title  \n");
@@ -123,7 +124,7 @@ fn lint_stdin_filepath_reports_without_writing_to_stdout() {
         .write_stdin("title  \n")
         .assert()
         .code(1)
-        .stdout(predicates::str::contains("doc.txt"));
+        .stdout(predicates::str::contains("[hygiene::trailing-whitespace]"));
 }
 
 #[test]
