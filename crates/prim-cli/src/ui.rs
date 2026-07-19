@@ -24,6 +24,14 @@ pub fn would_reformat(path: &Path) {
     println!("{}", path.display());
 }
 
+/// Report, on stdout, a lint finding for `path` (`prim lint` — report-only,
+/// never rewrites). One line per finding; today's shape is intentionally
+/// coarse (no stable code or line:col yet — story B1 adds those, D2 adds
+/// `--format json`/`--format sarif`).
+pub fn lint_finding(path: &Path, message: &str) {
+    println!("{}: {message}", path.display());
+}
+
 /// Decide whether coloured output is enabled: an explicit `--color always` /
 /// `--color never` wins; `auto` colours only when stderr (the human-output
 /// stream) is a terminal and `NO_COLOR` is unset (clig.dev).

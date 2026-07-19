@@ -3,6 +3,7 @@ use std::io::IsTerminal;
 use clap::{CommandFactory, Parser};
 
 mod app;
+mod argv;
 mod cli;
 mod diff;
 mod discover;
@@ -10,10 +11,11 @@ mod editorconfig;
 mod ui;
 mod write;
 
-use cli::Cli;
+use cli::{Cli, Verb};
 
 fn main() {
-    let cli = Cli::parse();
+    let (args, verb_injected) = argv::inject_default_verb(std::env::args().collect());
+    let cli = Cli::parse_from(args);
 
     // Colour policy (clig.dev): --color wins; auto honors NO_COLOR and keys
     // off stderr, where all human-readable output goes.
@@ -29,6 +31,18 @@ fn main() {
         let mut cmd = Cli::command();
         clap_complete::generate(shell, &mut cmd, "prim", &mut std::io::stdout());
         return;
+    }
+
+    // AD-0007 §3: the top-level `--check`/`--diff`/`--stdin-filepath` spelling
+    // is deprecated sugar for `prim fmt ...`. Warn once, on stderr only, so
+    // the stdout machine channel (and CI gates reading it) stay untouched.
+    if verb_injected
+        && let Verb::Fmt(fmt_args) = &cli.verb
+        && let Some(flag) = argv::deprecated_flag(fmt_args)
+    {
+        ui::warning(&format!(
+            "'prim {flag}' is deprecated; use 'prim fmt {flag}' (removed in v2.0)"
+        ));
     }
 
     std::process::exit(app::run(&cli));

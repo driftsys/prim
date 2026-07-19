@@ -16,8 +16,9 @@ single static binary that tidies the files no other formatter owns.
 > **Status:** v1 complete — all v1 requirements (FR-1 through FR-6) are
 > implemented: recursive discovery, whitespace hygiene, `.editorconfig` style
 > resolution, structured JSON/JSONC, TOML, YAML, and Markdown formatting (with
-> prose-wrap guardrails), `--check` / `--diff` / `--stdin-filepath` modes, and
-> atomic writes. See [docs/SPEC.md](docs/SPEC.md).
+> prose-wrap guardrails), `fmt`/`lint`/`fix` verbs (with `--check` / `--diff` /
+> `--stdin-filepath` as deprecated top-level sugar), and atomic writes. See
+> [docs/SPEC.md](docs/SPEC.md).
 
 ## Install
 
@@ -32,10 +33,11 @@ cargo install prim-cli
 ## Usage
 
 ```bash
-prim README.md config.yaml     # format files in place
-prim --check .                 # CI gate: non-zero if anything would change
-prim --diff config.toml        # preview pending changes
-prim --stdin-filepath x.md     # editor format-on-save (stdin → stdout)
+prim README.md config.yaml     # format files in place (bare alias for `fmt`)
+prim fmt --check .             # CI gate: non-zero if anything would change
+prim fmt --diff config.toml    # preview pending changes
+prim fmt --stdin-filepath x.md # editor format-on-save (stdin → stdout)
+prim lint .                    # report-only: hygiene + content violations
 ```
 
 See the [user guide](https://driftsys.github.io/prim/) and

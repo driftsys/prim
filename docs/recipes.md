@@ -6,18 +6,20 @@ Fail the build when any tracked file is not formatted:
 
 ```yaml
 - name: Check formatting
-  run: prim --check .
+  run: prim fmt --check .
 ```
 
-`prim --check` writes nothing, exits `0` when everything is already formatted,
-and exits `1` (listing the offending files) otherwise.
+`prim fmt --check` writes nothing, exits `0` when everything is already
+formatted, and exits `1` (listing the offending files) otherwise. The top-level
+`prim --check` spelling still works as deprecated sugar (warns on stderr;
+removed in v2.0) — prefer `prim fmt --check` in new pipelines.
 
 ## Editor format-on-save
 
 Point your editor's "format with external command" hook at:
 
 ```bash
-prim --stdin-filepath "$FILE"
+prim fmt --stdin-filepath "$FILE"
 ```
 
 prim reads the buffer on stdin and writes the formatted result to stdout. The

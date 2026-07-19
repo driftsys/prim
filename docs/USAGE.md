@@ -1,43 +1,65 @@
 # Usage
 
 ```text
-prim [OPTIONS] [PATH]...
+prim [fmt|lint|fix] [OPTIONS] [PATH]...
 ```
+
+prim exposes three verbs (AD-0007). Bare `prim [PATH]...` is a permanent alias
+for `prim fmt [PATH]...` — no verb is required for the common case.
+
+| Verb   | Writes?        | Purpose                                                                                                       |
+| ------ | -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `fmt`  | yes (in place) | Format the parsed formats + whitespace hygiene. Default action.                                               |
+| `lint` | never          | Report hygiene and content violations only.                                                                   |
+| `fix`  | yes (in place) | `fmt` plus autofixable content rules (none yet — pending story G2, so `fix` is currently identical to `fmt`). |
 
 ## Arguments
 
-| Argument    | Description                                                                                                                                                           |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[PATH]...` | Files or directories to format. Directories are searched recursively (honoring `.gitignore`/`.ignore`/`.primignore`); defaults to the current directory when omitted. |
+| Argument    | Description                                                                                                                                                            |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[PATH]...` | Files or directories to process. Directories are searched recursively (honoring `.gitignore`/`.ignore`/`.primignore`); defaults to the current directory when omitted. |
 
 ## Options
 
-| Flag                            | Description                                                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `--check`                       | Write nothing; exit non-zero if any file would change, and list it.                                            |
-| `--diff`                        | Print a unified diff of pending changes; write nothing.                                                        |
-| `--stdin-filepath <PATH>`       | Read stdin, write the formatted result to stdout (format-on-save). Mutually exclusive with `--check`/`--diff`. |
-| `--exclude <GLOB>`              | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                               |
-| `--color <auto\|always\|never>` | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                        |
-| `--completions <SHELL>`         | Generate a shell completion script and print it to stdout.                                                     |
-| `-h, --help`                    | Print help.                                                                                                    |
-| `-V, --version`                 | Print version.                                                                                                 |
+| Flag                            | Verbs                | Description                                                                                                                |
+| ------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--check`                       | `fmt`, `fix`         | Write nothing; exit non-zero if any file would change, and list it.                                                        |
+| `--diff`                        | `fmt`, `fix`         | Print a unified diff of pending changes; write nothing.                                                                    |
+| `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix` | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`. |
+| `--exclude <GLOB>`              | all                  | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                           |
+| `--color <auto\|always\|never>` | all                  | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                                    |
+| `--completions <SHELL>`         | global               | Generate a shell completion script and print it to stdout.                                                                 |
+| `-h, --help`                    | global               | Print help.                                                                                                                |
+| `-V, --version`                 | global               | Print version.                                                                                                             |
+
+The top-level `--check`, `--diff`, and `--stdin-filepath` flags remain accepted
+directly on bare `prim` as **deprecated sugar** for the `fmt` forms: the first
+use in a run prints a one-line deprecation warning to stderr. They are scheduled
+for removal in v2.0 — the bare `fmt` alias itself is not deprecated.
 
 ## Exit codes
 
-| Code | Meaning                                        |
-| ---- | ---------------------------------------------- |
-| `0`  | Success.                                       |
-| `1`  | Changes needed (`--check` found a difference). |
-| `2`  | Error (parse or I/O failure).                  |
+| Code | Meaning                                                             |
+| ---- | ------------------------------------------------------------------- |
+| `0`  | Nothing to do, or already clean.                                    |
+| `1`  | Actionable: format drift (`fmt`/`fix --check`) or a `lint` finding. |
+| `2`  | prim could not do its job (parse, I/O, or usage error).             |
+
+Warnings never raise the exit code; only errors do.
 
 ## Operating modes
 
-- **Default** — format the given files in place.
-- **`--check`** — a CI gate: exit `1` and list the files that would change.
-- **`--diff`** — preview pending changes without writing.
-- **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout
-  out.
+- **`fmt` (default)** — format the given files in place.
+- **`fmt --check`** (also `fix --check`) — a CI gate: exit `1` and list the
+  files that would change.
+- **`fmt --diff`** (also `fix --diff`) — preview pending changes without
+  writing.
+- **`lint`** — report-only: prints one finding per violation and never rewrites.
+  Today's findings are hygiene/format drift only (the same drift `fmt --check`
+  reports); stable diagnostic codes and Markdown content rules land with stories
+  B1 and G2.
+- **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout out
+  (`fmt`/`fix`), or a report (`lint`).
 - Naming a path explicitly is strict: a missing file is an error (exit `2`); an
   existing file prim does not own is skipped with a warning.
 

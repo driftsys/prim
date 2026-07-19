@@ -93,18 +93,33 @@ source-code formatter and has **no plugin system**.
 
 ## FR-5 — Operating modes (CLI)
 
-- **FR-5.1** _(default)_ prim shall format matched files in place.
-- **FR-5.2** `--check` shall write nothing, exit `0` when all files are already
-  formatted, exit non-zero when any file would change, and list the files that
-  would change.
-- **FR-5.3** `--diff` shall print a unified diff of pending changes and write
-  nothing; it shall exit `0` whether or not changes are pending (`--check` is
-  the CI gate).
-- **FR-5.4** With `--stdin-filepath <path>`, prim shall read stdin and write the
-  formatted result to stdout. The flag is mutually exclusive with `--check` and
-  `--diff`.
-- **FR-5.5** _(exit codes)_ `0` = success · `1` = changes needed (`--check`) ·
-  `2` = error (parse/IO).
+prim exposes three verbs (AD-0007): `fmt`, `lint`, `fix`. Bare `prim [PATH]...`
+is a permanent alias for `prim fmt [PATH]...` — no verb is required for the
+default, format-in-place action.
+
+- **FR-5.1** _(default)_ `prim fmt` (and its bare alias) shall format matched
+  files in place.
+- **FR-5.2** `prim fmt --check` (also `fix --check`) shall write nothing, exit
+  `0` when all files are already formatted, exit non-zero when any file would
+  change, and list the files that would change.
+- **FR-5.3** `prim fmt --diff` (also `fix --diff`) shall print a unified diff of
+  pending changes and write nothing; it shall exit `0` whether or not changes
+  are pending (`--check` is the CI gate).
+- **FR-5.4** With `--stdin-filepath <path>` (valid on `fmt`, `lint`, and `fix`),
+  prim shall read stdin and, for `fmt`/`fix`, write the formatted result to
+  stdout. The flag is mutually exclusive with `--check` and `--diff`.
+- **FR-5.5** `prim lint` shall report hygiene and content violations without
+  ever rewriting a file; it has neither `--check` nor `--diff` (report-only is
+  its only mode).
+- **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
+  actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
+  could not do its job (parse/IO/usage error). Warnings never raise the exit
+  code; only errors do.
+- **FR-5.7** _(deprecated top-level flags)_ The top-level `--check`, `--diff`,
+  and `--stdin-filepath` flags remain accepted directly on bare `prim` as
+  deprecated sugar for the `fmt` forms; the first use in a run emits a one-line
+  deprecation warning to stderr. They are scheduled for removal in v2.0; the
+  bare alias itself is not deprecated.
 
 ## FR-6 — Correctness & safety
 
