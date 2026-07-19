@@ -18,6 +18,7 @@
 //! hygiene only.
 
 mod classify;
+mod diagnostics;
 mod error;
 mod hygiene;
 mod json;
@@ -29,6 +30,7 @@ mod toml;
 mod yaml;
 
 pub use classify::{FileKind, classify};
+pub use diagnostics::{Diagnostic, hygiene_diagnostics};
 pub use error::FormatError;
 pub use mdlint::{MdDiagnostic, lint as lint_markdown};
 pub use position::line_col;

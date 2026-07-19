@@ -25,11 +25,26 @@ pub fn would_reformat(path: &Path) {
 }
 
 /// Report, on stdout, a lint finding for `path` (`prim lint` — report-only,
-/// never rewrites). One line per finding; today's shape is intentionally
-/// coarse (no stable code or line:col yet — story B1 adds those, D2 adds
-/// `--format json`/`--format sarif`).
+/// never rewrites). Coarse shape kept for structured formats
+/// (JSON/JSONC/TOML/YAML/Markdown) until finer-grained content diagnostics
+/// land (G2/D2); orphan files get itemized codes via [`lint_diagnostic`]
+/// (story B1).
 pub fn lint_finding(path: &Path, message: &str) {
     println!("{}: {message}", path.display());
+}
+
+/// Report, on stdout, one positioned, coded lint finding for `path` (story
+/// B1). `--format json`/`--format sarif` machine-readable output is D2's
+/// scope, not this one.
+pub fn lint_diagnostic(path: &Path, diagnostic: &prim_fmt::Diagnostic) {
+    println!(
+        "{}:{}:{}: {} [{}]",
+        path.display(),
+        diagnostic.line,
+        diagnostic.column,
+        diagnostic.message,
+        diagnostic.code
+    );
 }
 
 /// Decide whether coloured output is enabled: an explicit `--color always` /

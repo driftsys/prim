@@ -117,6 +117,18 @@ default, format-in-place action.
 - **FR-5.5** `prim lint` shall report hygiene and content violations without
   ever rewriting a file; it has neither `--check` nor `--diff` (report-only is
   its only mode).
+  - **FR-5.5a** _(hygiene diagnostics, story B1)_ For the un-owned-text
+    allowlist (the orphan set, shell excluded — same scope as FR-2.4/2.5),
+    `prim lint` shall report each whitespace-hygiene violation individually: a
+    leading BOM, a line ending that does not match the resolved `end_of_line`,
+    trailing whitespace, an indentation character that contradicts the resolved
+    `indent_style`, and a missing final newline (when `insert_final_newline` is
+    set). Each finding carries a stable, namespaced diagnostic code
+    (`hygiene::bom`, `hygiene::eol`, `hygiene::trailing-whitespace`,
+    `hygiene::indent`, `hygiene::final-newline`) and a 1-indexed `file:line:col`
+    (`prim_fmt::line_col`, AD-0008), printed as `path:line:col: message [code]`.
+    Structured formats (JSON/JSONC/TOML/YAML/Markdown) keep the coarser
+    format-drift finding until their own content diagnostics land (G2/D2).
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
   could not do its job (parse/IO/usage error). Warnings never raise the exit

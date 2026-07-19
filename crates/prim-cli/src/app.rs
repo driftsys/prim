@@ -10,6 +10,7 @@ use crate::discover;
 use crate::editorconfig;
 use crate::ui;
 use crate::write;
+use prim_fmt::{FileKind, Style};
 
 /// Exit codes (AD-0007 §4): `0` nothing to do / already clean, `1`
 /// actionable — format drift (`fmt`/`fix` `--check`) or a lint finding, `2`
@@ -19,14 +20,16 @@ const EXIT_OK: i32 = 0;
 const EXIT_ACTIONABLE: i32 = 1;
 const EXIT_ERROR: i32 = 2;
 
-/// A generic lint finding used until story B1 lands the rich diagnostic
-/// engine (stable codes + file:line:col). It flags the same drift `fmt
-/// --check` would report, just phrased as a report-only finding.
-const HYGIENE_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix; content-rule diagnostics land with story B1/G2)";
+/// A generic lint finding for structured formats (JSON/JSONC/TOML/YAML/
+/// Markdown): it flags the same drift `fmt --check` would report, just
+/// phrased as a report-only finding. Orphan files get itemized codes +
+/// `file:line:col` instead (story B1, `prim_fmt::hygiene_diagnostics`);
+/// finer-grained structured-format diagnostics are future stories (G2/D2).
+const HYGIENE_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix; content-rule diagnostics land with story G2)";
 
-/// A file that formatted successfully: its path, original text, and
-/// formatted text.
-type FormattedFile = (PathBuf, String, String);
+/// A file that formatted successfully: its path, kind, resolved style,
+/// original text, and formatted text.
+type FormattedFile = (PathBuf, FileKind, Style, String, String);
 
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
@@ -94,6 +97,19 @@ fn run_lint_stdin(path: &Path) -> i32 {
         return EXIT_ERROR;
     }
     match prim_fmt::classify(path) {
+        Some(FileKind::Orphan) => {
+            // Story B1: itemized, coded, positioned findings.
+            let style = editorconfig::resolve(path);
+            let diagnostics = prim_fmt::hygiene_diagnostics(&input, &style);
+            if diagnostics.is_empty() {
+                EXIT_OK
+            } else {
+                for diagnostic in &diagnostics {
+                    ui::lint_diagnostic(path, diagnostic);
+                }
+                EXIT_ACTIONABLE
+            }
+        }
         Some(kind) => {
             let style = editorconfig::resolve(path);
             match prim_fmt::format(kind, &input, &style) {
@@ -177,7 +193,7 @@ fn load_and_format(
             }
         };
 
-        results.push((file.path, original, formatted));
+        results.push((file.path, kind, style, original, formatted));
     }
 
     Ok((results, had_error))
@@ -193,7 +209,7 @@ fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
     };
 
     let mut any_would_change = false;
-    for (path, original, formatted) in results {
+    for (path, _kind, _style, original, formatted) in results {
         if formatted == original {
             continue;
         }
@@ -235,8 +251,20 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
     };
 
     let mut any_finding = false;
-    for (path, original, formatted) in results {
-        if formatted != original {
+    for (path, kind, style, original, formatted) in results {
+        if kind == FileKind::Orphan {
+            // Story B1: itemized, coded, positioned findings for the
+            // un-owned-text allowlist — the same set A1's BOM strip covers.
+            let diagnostics = prim_fmt::hygiene_diagnostics(&original, &style);
+            if !diagnostics.is_empty() {
+                any_finding = true;
+                for diagnostic in &diagnostics {
+                    ui::lint_diagnostic(&path, diagnostic);
+                }
+            }
+        } else if formatted != original {
+            // Structured formats keep the coarser format-drift finding until
+            // their own content diagnostics land (G2/D2).
             any_finding = true;
             ui::lint_finding(&path, HYGIENE_DRIFT_FINDING);
         }
