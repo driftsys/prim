@@ -25,10 +25,10 @@ pub fn would_reformat(path: &Path) {
 }
 
 /// Report, on stdout, a lint finding for `path` (`prim lint` — report-only,
-/// never rewrites). Coarse shape kept for structured formats
-/// (JSON/JSONC/TOML/YAML/Markdown) until finer-grained content diagnostics
-/// land (G2/D2); orphan files get itemized codes via [`lint_diagnostic`]
-/// (story B1).
+/// never rewrites). Coarse shape kept for JSON/JSONC/TOML/YAML; orphan files
+/// get itemized codes via [`lint_diagnostic`] (story B1), and Markdown has its
+/// own positioned rumdl diagnostics via [`lint_markdown_diagnostic`] (story
+/// G2).
 pub fn lint_finding(path: &Path, message: &str) {
     println!("{}: {message}", path.display());
 }
@@ -37,13 +37,36 @@ pub fn lint_finding(path: &Path, message: &str) {
 /// B1). `--format json`/`--format sarif` machine-readable output is D2's
 /// scope, not this one.
 pub fn lint_diagnostic(path: &Path, diagnostic: &prim_fmt::Diagnostic) {
+    lint_positioned(
+        path,
+        diagnostic.line,
+        diagnostic.column,
+        &diagnostic.message,
+        diagnostic.code,
+    );
+}
+
+/// Report, on stdout, one positioned Markdown content-lint finding for
+/// `path` (story G2), using rumdl's own rule code verbatim (for example
+/// `MD034`).
+pub fn lint_markdown_diagnostic(path: &Path, diagnostic: &prim_fmt::MdDiagnostic) {
+    lint_positioned(
+        path,
+        diagnostic.line,
+        diagnostic.column,
+        &diagnostic.message,
+        &diagnostic.rule,
+    );
+}
+
+fn lint_positioned(path: &Path, line: usize, column: usize, message: &str, code: &str) {
     println!(
         "{}:{}:{}: {} [{}]",
         path.display(),
-        diagnostic.line,
-        diagnostic.column,
-        diagnostic.message,
-        diagnostic.code
+        line,
+        column,
+        message,
+        code
     );
 }
 

@@ -128,6 +128,20 @@ fn lint_stdin_filepath_reports_without_writing_to_stdout() {
 }
 
 #[test]
+fn lint_stdin_filepath_reports_markdown_content_findings() {
+    prim()
+        .args(["lint", "--stdin-filepath", "README.md"])
+        .write_stdin("#Title\n\nSee https://example.com.\n")
+        .assert()
+        .code(1)
+        .stdout(
+            predicates::str::contains("README.md:3:")
+                .and(predicates::str::contains("[MD034]"))
+                .and(predicates::str::contains("prim fmt").not()),
+        );
+}
+
+#[test]
 fn lint_does_not_accept_check_or_diff() {
     // `lint` is inherently report-only (AD-0007 §2); these flags belong to
     // `fmt`/`fix` only, so clap rejects them as a usage error.
@@ -137,7 +151,7 @@ fn lint_does_not_accept_check_or_diff() {
 
 #[test]
 fn fix_formats_in_place_like_fmt_today() {
-    // `fix` has no autofixable content rules yet (story G2); until then it is
+    // `fix` has no autofixable content rules yet; until then it is
     // byte-for-byte `fmt`.
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("doc.txt");

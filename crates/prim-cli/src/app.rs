@@ -20,12 +20,11 @@ const EXIT_OK: i32 = 0;
 const EXIT_ACTIONABLE: i32 = 1;
 const EXIT_ERROR: i32 = 2;
 
-/// A generic lint finding for structured formats (JSON/JSONC/TOML/YAML/
-/// Markdown): it flags the same drift `fmt --check` would report, just
-/// phrased as a report-only finding. Orphan files get itemized codes +
-/// `file:line:col` instead (story B1, `prim_fmt::hygiene_diagnostics`);
-/// finer-grained structured-format diagnostics are future stories (G2/D2).
-const HYGIENE_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix; content-rule diagnostics land with story G2)";
+/// A generic lint finding for the structured formats that still only have
+/// format-drift reporting (JSON/JSONC/TOML/YAML). Markdown has itemized rumdl
+/// content diagnostics instead; orphan files have itemized whitespace-hygiene
+/// diagnostics (story B1).
+const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix)";
 
 /// A file that formatted successfully: its path, kind, resolved style,
 /// original text, and formatted text.
@@ -35,7 +34,7 @@ type FormattedFile = (PathBuf, FileKind, Style, String, String);
 pub fn run(cli: &Cli) -> i32 {
     match &cli.verb {
         // `fix` is `fmt` plus autofixable content rules; those rules don't
-        // exist yet (story G2), so `fix` is byte-for-byte `fmt` for now.
+        // exist yet, so `fix` is byte-for-byte `fmt` for now.
         // Exit codes still differ (AD-0007 §4): unlike `fmt --diff` (always
         // `0`, preview-only), `fix --check`/`--diff` share one gated
         // contract, so `is_fix` is threaded through to `run_fmt`.
@@ -110,12 +109,23 @@ fn run_lint_stdin(path: &Path) -> i32 {
                 EXIT_ACTIONABLE
             }
         }
+        Some(FileKind::Markdown) => {
+            let diagnostics = prim_fmt::lint_markdown(&input);
+            if diagnostics.is_empty() {
+                EXIT_OK
+            } else {
+                for diagnostic in &diagnostics {
+                    ui::lint_markdown_diagnostic(path, diagnostic);
+                }
+                EXIT_ACTIONABLE
+            }
+        }
         Some(kind) => {
             let style = editorconfig::resolve(path);
             match prim_fmt::format(kind, &input, &style) {
                 Ok(text) if text == input => EXIT_OK,
                 Ok(_) => {
-                    ui::lint_finding(path, HYGIENE_DRIFT_FINDING);
+                    ui::lint_finding(path, FORMAT_DRIFT_FINDING);
                     EXIT_ACTIONABLE
                 }
                 Err(err) => {
@@ -262,11 +272,19 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
                     ui::lint_diagnostic(&path, diagnostic);
                 }
             }
+        } else if kind == FileKind::Markdown {
+            let diagnostics = prim_fmt::lint_markdown(&original);
+            if !diagnostics.is_empty() {
+                any_finding = true;
+                for diagnostic in &diagnostics {
+                    ui::lint_markdown_diagnostic(&path, diagnostic);
+                }
+            }
         } else if formatted != original {
-            // Structured formats keep the coarser format-drift finding until
-            // their own content diagnostics land (G2/D2).
+            // JSON/JSONC/TOML/YAML keep the coarser format-drift finding until
+            // their own content diagnostics land (D2).
             any_finding = true;
-            ui::lint_finding(&path, HYGIENE_DRIFT_FINDING);
+            ui::lint_finding(&path, FORMAT_DRIFT_FINDING);
         }
     }
 

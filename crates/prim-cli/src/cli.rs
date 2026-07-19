@@ -58,7 +58,7 @@ pub enum Verb {
 /// Shared arguments for `fmt` and `fix`: both write in place by default and
 /// share the `--check`/`--diff`/`--stdin-filepath` format-drift surface
 /// (AD-0007 §2). `fix` has no autofix-specific flags yet — the autofixable
-/// content rules land with story G2.
+/// content rules are still future work.
 #[derive(Args, Debug)]
 pub struct FmtArgs {
     /// Files or directories to process. Directories are searched recursively,
