@@ -129,6 +129,37 @@ fn markdown_reports_rumdl_rule_codes_with_positions_instead_of_coarse_drift() {
 }
 
 #[test]
+fn markdown_floor_warning_prints_but_does_not_raise_the_exit_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(&file, "# Title\n\n![](hero.png)\n").unwrap();
+
+    prim().arg("lint").arg(&file).assert().code(0).stdout(
+        predicates::str::contains("README.md:3:")
+            .and(predicates::str::contains("[MD045]"))
+            .and(predicates::str::contains("Image missing alt text")),
+    );
+}
+
+#[test]
+fn markdown_strict_mode_escalates_warnings_via_editorconfig() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(&file, "# Title\n\n![](hero.png)\n").unwrap();
+
+    prim().arg("lint").arg(&file).assert().code(1).stdout(
+        predicates::str::contains("README.md:3:")
+            .and(predicates::str::contains("[MD045]"))
+            .and(predicates::str::contains("Image missing alt text")),
+    );
+}
+
+#[test]
 fn clean_orphan_file_reports_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("notes.txt");

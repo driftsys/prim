@@ -67,12 +67,59 @@ Warnings never raise the exit code; only errors do.
     `path:line:col: message [code]` (e.g.
     `notes.txt:1:6: trailing whitespace
     [hygiene::trailing-whitespace]`).
-  - For Markdown, `prim lint` runs rumdl in Standard flavor with a fixed active
-    subset — `MD034` (no bare URLs), `MD042` (no empty links), and `MD045`
-    (images need alt text) — and prints each finding as
-    `path:line:col: message [MD0xx]`. prim passes rumdl's rule codes through
+  - For Markdown, `prim lint` runs rumdl in Standard flavor with prim's own
+    severity matrix, selected per file through `.editorconfig`
+    `prim_mdlint_strict = true|false` (default `false`). `false` runs the
+    always-on floor tier; `true` adds the strict tier and escalates the
+    warn-tier floor rules to errors. prim prints each finding as
+    `path:line:col: message [MD0xx]`, passes rumdl's rule codes through
     verbatim, never invokes rumdl's formatter/fixer, and does not auto-fix these
     findings in `fix` yet.
+    - **Defects / integrity (floor → strict):**
+
+      | Rule  | Floor | Strict |
+      | ----- | ----- | ------ |
+      | MD045 | warn  | error  |
+      | MD042 | error | error  |
+      | MD011 | error | error  |
+      | MD052 | error | error  |
+      | MD056 | error | error  |
+      | MD062 | error | error  |
+      | MD034 | error | error  |
+      | MD057 | error | error  |
+      | MD024 | warn  | error  |
+      | MD051 | warn  | error  |
+      | MD080 | warn  | error  |
+      | MD075 | warn  | error  |
+      | MD066 | off   | error  |
+      | MD068 | off   | error  |
+      | MD070 | off   | error  |
+
+    - **Structure / opinion (floor → strict):**
+
+      | Rule                                     | Floor | Strict |
+      | ---------------------------------------- | ----- | ------ |
+      | MD025 (SUMMARY-safe via `.editorconfig`) | off   | warn   |
+      | MD041                                    | off   | warn   |
+      | MD001                                    | off   | warn   |
+      | MD040                                    | off   | warn   |
+      | MD033                                    | off   | warn   |
+      | MD026                                    | off   | warn   |
+      | MD036                                    | off   | warn   |
+      | MD059                                    | off   | warn   |
+      | MD053                                    | off   | warn   |
+      | MD073                                    | off   | warn   |
+      | MD082                                    | off   | warn   |
+      | MD067                                    | off   | warn   |
+
+    - **Never linted (formatter territory):** MD003-005, MD007, MD009, MD010,
+      MD012, MD018-023, MD027-032, MD035, MD037-039, MD046-050, MD055, MD058,
+      MD060, MD064, MD065, MD071, MD076, MD077.
+    - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
+      MD069, MD072 (frontmatter key sorting stays off because prim must remain
+      semantics-preserving), MD074, MD078, MD079, MD081.
+    - Warn-tier Markdown findings still print, but they do **not** raise the
+      `prim lint` exit code; only error-tier findings do.
   - JSON/JSONC/YAML/TOML still report the coarser format drift `fmt --check`
     would report; their own content diagnostics are future work.
   - Add `--format json` or `--format sarif` to switch stdout from the plain-text
@@ -247,9 +294,9 @@ configuration — there is no `prim.toml` and there are no per-rule flags. With 
 `.editorconfig` present, prim applies its built-in canonical style (LF endings,
 trailing whitespace stripped, exactly one final newline, two-space indent).
 
-Markdown content lint does not add a second config source: its active rumdl
-rules are the fixed curated subset above, and `.editorconfig` remains prim's
-only user-facing configuration file.
+Markdown content lint does not add a second config source: `.editorconfig`
+remains prim's only user-facing configuration file, including the strict-tier
+toggle below.
 
 prim resolves the standard `.editorconfig` cascade for each file: it walks up
 the directory tree, stops at the nearest `root = true`, and applies matching
@@ -258,14 +305,15 @@ resolved relative to that path's directory.
 
 Honored keys:
 
-| Key                        | Effect                                                             |
-| -------------------------- | ------------------------------------------------------------------ |
-| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                 |
-| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it. |
-| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.       |
-| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.     |
-| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters.        |
-| `max_line_length`          | line width for the structured formatters (default 80).             |
+| Key                        | Effect                                                                      |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                          |
+| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.          |
+| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                |
+| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.              |
+| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters.                 |
+| `max_line_length`          | line width for the structured formatters (default 80).                      |
+| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint. |
 
 Scope notes:
 

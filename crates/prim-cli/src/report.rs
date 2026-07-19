@@ -37,6 +37,7 @@ pub struct Finding {
     message: String,
     line: Option<usize>,
     column: Option<usize>,
+    is_error: bool,
 }
 
 impl Finding {
@@ -48,6 +49,7 @@ impl Finding {
             message: message.to_string(),
             line: None,
             column: None,
+            is_error: true,
         }
     }
 
@@ -59,6 +61,7 @@ impl Finding {
             message: diagnostic.message.clone(),
             line: Some(diagnostic.line),
             column: Some(diagnostic.column),
+            is_error: true,
         }
     }
 
@@ -71,6 +74,7 @@ impl Finding {
             message: diagnostic.message.clone(),
             line: Some(diagnostic.line),
             column: Some(diagnostic.column),
+            is_error: diagnostic.is_error,
         }
     }
 }
@@ -122,7 +126,7 @@ fn render_sarif(findings: &[Finding]) -> String {
         .iter()
         .map(|finding| SarifResult {
             rule_id: &finding.code,
-            level: "error",
+            level: if finding.is_error { "error" } else { "warning" },
             message: SarifMessage {
                 text: &finding.message,
             },

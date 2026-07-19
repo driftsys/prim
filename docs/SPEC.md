@@ -70,9 +70,10 @@ source-code formatter and has **no plugin system**.
   present.
 - **FR-3.2** prim shall read `.editorconfig` and honor `indent_style`,
   `indent_size`, `max_line_length`, `end_of_line`, `insert_final_newline`,
-  `trim_trailing_whitespace` — including the `root=true` chain and per-glob
-  sections. (`charset` is out of scope: prim processes UTF-8 only — FR-6.5,
-  AD-0002.)
+  `trim_trailing_whitespace`, plus the custom Markdown-lint tier key
+  `prim_mdlint_strict = true|false` (default `false`) — including the
+  `root=true` chain and per-glob sections. (`charset` is out of scope: prim
+  processes UTF-8 only — FR-6.5, AD-0002.)
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags).
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
@@ -129,15 +130,58 @@ default, format-in-place action.
     (`prim_fmt::line_col`, AD-0008), printed as `path:line:col: message [code]`.
     JSON/JSONC/TOML/YAML keep the coarser format-drift finding until their own
     content diagnostics land (D2).
-  - **FR-5.5b** _(Markdown content diagnostics, story G2)_ For Markdown files,
-    `prim lint` shall run `rumdl_lib::lint()` in Standard flavor through
+  - **FR-5.5b** _(Markdown content diagnostics, stories G2/G3)_ For Markdown
+    files, `prim lint` shall run `rumdl_lib::lint()` in Standard flavor through
     `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
-    the active rule subset by `Rule::name()`: `MD034` (no bare URLs), `MD042`
-    (no empty links), and `MD045` (images need alt text). Each finding carries
-    rumdl's rule code verbatim and a 1-indexed `path:line:col`, printed as
-    `path:line:col: message [MD0xx]`. This path is lint-only: prim shall never
-    invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
-    not yet auto-fix these rules.
+    prim's active rule subset by `Rule::name()`. The per-file `.editorconfig`
+    key `prim_mdlint_strict = true|false` (default `false`) is resolved through
+    the normal EditorConfig cascade; `false` runs the always-on floor tier,
+    `true` adds the strict tier and escalates warn-tier floor findings to
+    errors. Each finding carries rumdl's rule code verbatim and a 1-indexed
+    `path:line:col`, printed as `path:line:col: message [MD0xx]`. This path is
+    lint-only: prim shall never invoke rumdl's formatter or auto-fix Markdown
+    findings, and `prim fix` does not yet auto-fix these rules.
+    - **Severity matrix (floor / strict):**
+
+      | Group               | Rule                                     | Floor | Strict |
+      | ------------------- | ---------------------------------------- | ----- | ------ |
+      | defects / integrity | MD045                                    | warn  | error  |
+      | defects / integrity | MD042                                    | error | error  |
+      | defects / integrity | MD011                                    | error | error  |
+      | defects / integrity | MD052                                    | error | error  |
+      | defects / integrity | MD056                                    | error | error  |
+      | defects / integrity | MD062                                    | error | error  |
+      | defects / integrity | MD034                                    | error | error  |
+      | defects / integrity | MD057                                    | error | error  |
+      | defects / integrity | MD024                                    | warn  | error  |
+      | defects / integrity | MD051                                    | warn  | error  |
+      | defects / integrity | MD080                                    | warn  | error  |
+      | defects / integrity | MD075                                    | warn  | error  |
+      | defects / integrity | MD066                                    | off   | error  |
+      | defects / integrity | MD068                                    | off   | error  |
+      | defects / integrity | MD070                                    | off   | error  |
+      | structure / opinion | MD025 (SUMMARY-safe via `.editorconfig`) | off   | warn   |
+      | structure / opinion | MD041                                    | off   | warn   |
+      | structure / opinion | MD001                                    | off   | warn   |
+      | structure / opinion | MD040                                    | off   | warn   |
+      | structure / opinion | MD033                                    | off   | warn   |
+      | structure / opinion | MD026                                    | off   | warn   |
+      | structure / opinion | MD036                                    | off   | warn   |
+      | structure / opinion | MD059                                    | off   | warn   |
+      | structure / opinion | MD053                                    | off   | warn   |
+      | structure / opinion | MD073                                    | off   | warn   |
+      | structure / opinion | MD082                                    | off   | warn   |
+      | structure / opinion | MD067                                    | off   | warn   |
+
+    - **Never linted (formatter territory):** MD003-005, MD007, MD009, MD010,
+      MD012, MD018-023, MD027-032, MD035, MD037-039, MD046-050, MD055, MD058,
+      MD060, MD064, MD065, MD071, MD076, MD077.
+    - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
+      MD069, MD072 (frontmatter key sorting would violate prim's
+      semantics-preserving guardrail), MD074, MD078, MD079, MD081.
+    - **Exit-code implication:** warn-tier Markdown findings are still printed
+      (and appear in JSON/SARIF output), but only error-tier findings raise
+      `prim lint`'s exit code to `1`.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
   could not do its job (parse/IO/usage error). Warnings never raise the exit
