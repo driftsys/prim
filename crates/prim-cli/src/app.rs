@@ -1,33 +1,66 @@
-//! Operating-mode dispatch over the prim formatting engine.
+//! Operating-mode dispatch over the prim formatting engine (AD-0007): `fmt`
+//! and `fix` write, `lint` only ever reports.
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::cli::Cli;
+use crate::cli::{Cli, FmtArgs, LintArgs, Verb};
 use crate::diff;
 use crate::discover;
 use crate::editorconfig;
 use crate::ui;
 use crate::write;
 
-/// Operating-mode exit codes (FR-5.5).
+/// Exit codes (AD-0007 §4): `0` nothing to do / already clean, `1`
+/// actionable — format drift (`fmt`/`fix` `--check`) or a lint finding, `2`
+/// prim could not do its job (parse/IO/usage error). Warnings never raise the
+/// exit code; only errors do.
 const EXIT_OK: i32 = 0;
-const EXIT_CHANGES: i32 = 1;
+const EXIT_ACTIONABLE: i32 = 1;
 const EXIT_ERROR: i32 = 2;
+
+/// A generic lint finding used until story B1 lands the rich diagnostic
+/// engine (stable codes + file:line:col). It flags the same drift `fmt
+/// --check` would report, just phrased as a report-only finding.
+const HYGIENE_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix; content-rule diagnostics land with story B1/G2)";
+
+/// A file that formatted successfully: its path, original text, and
+/// formatted text.
+type FormattedFile = (PathBuf, String, String);
 
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
-    if let Some(path) = cli.stdin_filepath.as_deref() {
-        return run_stdin(path);
+    match &cli.verb {
+        // `fix` is `fmt` plus autofixable content rules; those rules don't
+        // exist yet (story G2), so `fix` is byte-for-byte `fmt` for now.
+        // Exit codes still differ (AD-0007 §4): unlike `fmt --diff` (always
+        // `0`, preview-only), `fix --check`/`--diff` share one gated
+        // contract, so `is_fix` is threaded through to `run_fmt`.
+        Verb::Fmt(args) => run_fmt(args, &cli.exclude, false),
+        Verb::Fix(args) => run_fmt(args, &cli.exclude, true),
+        Verb::Lint(args) => run_lint(args, &cli.exclude),
     }
-    run_paths(cli)
+}
+
+fn run_fmt(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
+    if let Some(path) = args.stdin_filepath.as_deref() {
+        return run_fmt_stdin(path);
+    }
+    run_fmt_paths(args, excludes, is_fix)
+}
+
+fn run_lint(args: &LintArgs, excludes: &[String]) -> i32 {
+    if let Some(path) = args.stdin_filepath.as_deref() {
+        return run_lint_stdin(path);
+    }
+    run_lint_paths(args, excludes)
 }
 
 /// Read stdin, format it, and write the result to stdout (format-on-save).
 ///
 /// The path selects the formatter; if prim does not own that file type, the
 /// input is passed through unchanged.
-fn run_stdin(path: &Path) -> i32 {
+fn run_fmt_stdin(path: &Path) -> i32 {
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {
         ui::error("could not read stdin as UTF-8");
@@ -52,27 +85,55 @@ fn run_stdin(path: &Path) -> i32 {
     EXIT_OK
 }
 
-/// Discover the target files and format each according to the selected mode.
-fn run_paths(cli: &Cli) -> i32 {
+/// Read stdin and report whether it would violate the canonical format;
+/// writes nothing, ever (`lint` is report-only).
+fn run_lint_stdin(path: &Path) -> i32 {
+    let mut input = String::new();
+    if std::io::stdin().read_to_string(&mut input).is_err() {
+        ui::error("could not read stdin as UTF-8");
+        return EXIT_ERROR;
+    }
+    match prim_fmt::classify(path) {
+        Some(kind) => {
+            let style = editorconfig::resolve(path);
+            match prim_fmt::format(kind, &input, &style) {
+                Ok(text) if text == input => EXIT_OK,
+                Ok(_) => {
+                    ui::lint_finding(path, HYGIENE_DRIFT_FINDING);
+                    EXIT_ACTIONABLE
+                }
+                Err(err) => {
+                    ui::error(&format!("{}: {err}", path.display()));
+                    EXIT_ERROR
+                }
+            }
+        }
+        None => EXIT_OK,
+    }
+}
+
+/// Discover the target files and format each with its resolved style.
+///
+/// Files prim does not own are left byte-for-byte unchanged (FR-2.4): walked
+/// files are skipped silently, an explicitly named path is answered — a
+/// missing one is an error, an unowned one a warning. An owned file that
+/// fails to read (non-UTF-8) or parse is likewise skipped and reported.
+/// Returns the (path, original, formatted) triples for every file that
+/// formatted successfully, plus whether a hard error occurred.
+fn load_and_format(
+    paths: &[PathBuf],
+    excludes: &[String],
+) -> Result<(Vec<FormattedFile>, bool), ignore::Error> {
     let mut had_error = false;
-    let mut any_would_change = false;
+    let mut results = Vec::new();
     // Caches each directory's `.editorconfig` cascade so a repository parses
     // every config once, not once per file.
     let mut resolver = editorconfig::Resolver::new();
 
-    let files = match discover::collect(&cli.paths, &cli.exclude) {
-        Ok(files) => files,
-        Err(err) => {
-            ui::error(&format!("--exclude: {err}"));
-            return EXIT_ERROR;
-        }
-    };
+    let files = discover::collect(paths, excludes)?;
 
     for file in files {
         let Some(kind) = prim_fmt::classify(&file.path) else {
-            // A file prim does not own is left byte-for-byte unchanged
-            // (FR-2.4). Walked files are skipped silently; a named path is
-            // answered — a missing one is an error, an unowned one a warning.
             if file.explicit {
                 if file.path.exists() {
                     ui::warning(&format!(
@@ -90,9 +151,6 @@ fn run_paths(cli: &Cli) -> i32 {
         let original = match std::fs::read_to_string(&file.path) {
             Ok(text) => text,
             Err(err) => {
-                // An owned file that can't be read as UTF-8 is left unchanged
-                // and reported (FR-6.5): an error for an explicitly named file
-                // (exit 2), a warning for a discovered one.
                 let message = format!("{}: {err}", file.path.display());
                 if file.explicit {
                     ui::error(&message);
@@ -108,9 +166,6 @@ fn run_paths(cli: &Cli) -> i32 {
         let formatted = match prim_fmt::format(kind, &original, &style) {
             Ok(text) => text,
             Err(err) => {
-                // An owned file prim cannot parse is left unchanged and reported
-                // (FR-6.3): an error for an explicitly named file (exit 2), a
-                // warning for a discovered one.
                 let message = format!("{}: {err}", file.path.display());
                 if file.explicit {
                     ui::error(&message);
@@ -121,27 +176,76 @@ fn run_paths(cli: &Cli) -> i32 {
                 continue;
             }
         };
+
+        results.push((file.path, original, formatted));
+    }
+
+    Ok((results, had_error))
+}
+
+fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
+    let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&format!("--exclude: {err}"));
+            return EXIT_ERROR;
+        }
+    };
+
+    let mut any_would_change = false;
+    for (path, original, formatted) in results {
         if formatted == original {
             continue;
         }
         any_would_change = true;
 
-        if cli.check {
-            ui::would_reformat(&file.path);
-        } else if cli.diff {
+        if args.check {
+            ui::would_reformat(&path);
+        } else if args.diff {
             // Print a unified diff of the pending change; write nothing (FR-5.3).
-            print!("{}", diff::unified(&file.path, &original, &formatted));
-        } else if let Err(err) = write::atomic(&file.path, &formatted) {
+            print!("{}", diff::unified(&path, &original, &formatted));
+        } else if let Err(err) = write::atomic(&path, &formatted) {
             // Atomic write (FR-6.4): on failure the original is left intact.
-            ui::error(&format!("{}: {err}", file.path.display()));
+            ui::error(&format!("{}: {err}", path.display()));
             had_error = true;
+        }
+    }
+
+    // AD-0007 §4: `fmt --diff` is always a `0`-exit preview, but `fix
+    // --check`/`--diff` share one gated contract — both report whether a
+    // fixable finding is pending.
+    let gates_on_pending_findings = args.check || (is_fix && args.diff);
+
+    if had_error {
+        EXIT_ERROR
+    } else if gates_on_pending_findings && any_would_change {
+        EXIT_ACTIONABLE
+    } else {
+        EXIT_OK
+    }
+}
+
+fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
+    let (results, had_error) = match load_and_format(&args.paths, excludes) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&format!("--exclude: {err}"));
+            return EXIT_ERROR;
+        }
+    };
+
+    let mut any_finding = false;
+    for (path, original, formatted) in results {
+        if formatted != original {
+            any_finding = true;
+            ui::lint_finding(&path, HYGIENE_DRIFT_FINDING);
         }
     }
 
     if had_error {
         EXIT_ERROR
-    } else if cli.check && any_would_change {
-        EXIT_CHANGES
+    } else if any_finding {
+        EXIT_ACTIONABLE
     } else {
         EXIT_OK
     }

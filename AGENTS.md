@@ -48,18 +48,26 @@ just fmt                # Format Rust + Markdown
 other crates can consume it. `prim-cli` orchestrates: it reads files or stdin,
 routes them through `prim_fmt::format`, and maps the outcome to an exit code.
 
-**Command surface — one command, no subcommands:**
+**Command surface — three verbs (`fmt`/`lint`/`fix`), AD-0007:**
 
-| Invocation                   | Purpose                                                 |
-| ---------------------------- | ------------------------------------------------------- |
-| `prim [PATH]...`             | Format the given files in place (default).              |
-| `prim --check [PATH]...`     | CI gate: exit `1` and list files that would change.     |
-| `prim --diff [PATH]...`      | Print a unified diff of pending changes; write nothing. |
-| `prim --stdin-filepath <p>`  | Read stdin, write formatted result to stdout.           |
-| `prim --completions <shell>` | Generate shell completion scripts.                      |
+| Invocation                      | Purpose                                                           |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `prim [PATH]...`                | Permanent alias for `prim fmt [PATH]...` (format in place).       |
+| `prim fmt [PATH]...`            | Format the given files in place (default).                        |
+| `prim fmt --check [PATH]...`    | CI gate: exit `1` and list files that would change.               |
+| `prim fmt --diff [PATH]...`     | Print a unified diff of pending changes; write nothing.           |
+| `prim lint [PATH]...`           | Report-only: hygiene + content violations. Never rewrites.        |
+| `prim fix [PATH]...`            | `fmt` plus autofixable content rules (none yet — pending G2).     |
+| `prim fmt --stdin-filepath <p>` | Read stdin, write formatted result to stdout (also `lint`/`fix`). |
+| `prim --completions <shell>`    | Generate shell completion scripts.                                |
 
-**Exit codes:** `0` success · `1` changes needed (`--check`) · `2` error
-(parse/IO).
+The top-level `--check`/`--diff`/`--stdin-filepath` flags remain accepted
+directly on bare `prim` as deprecated `fmt` sugar (warn once on stderr, removed
+in v2.0); the bare `fmt` alias itself is permanent.
+
+**Exit codes:** `0` nothing to do / clean · `1` actionable (format drift or a
+lint finding) · `2` prim could not do its job (parse/IO/usage error). Warnings
+never raise the exit code.
 
 **Key design decisions:**
 
