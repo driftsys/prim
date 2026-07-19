@@ -22,12 +22,14 @@ mod error;
 mod hygiene;
 mod json;
 mod markdown;
+mod position;
 mod style;
 mod toml;
 mod yaml;
 
 pub use classify::{FileKind, classify};
 pub use error::FormatError;
+pub use position::line_col;
 pub use style::{Indent, LineEnding, Style};
 
 /// Format `source` as the given [`FileKind`] under `style`.
