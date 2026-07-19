@@ -64,11 +64,11 @@ pub fn inject_default_verb(args: Vec<String>) -> (Vec<String>, bool) {
 /// deprecated top-level spellings (e.g. bare `prim README.md`, which is the
 /// permanent, non-deprecated `fmt` alias).
 pub fn deprecated_flag(args: &FmtArgs) -> Option<&'static str> {
-    if args.check {
+    if args.write.check {
         Some("--check")
-    } else if args.diff {
+    } else if args.write.diff {
         Some("--diff")
-    } else if args.stdin_filepath.is_some() {
+    } else if args.write.stdin_filepath.is_some() {
         Some("--stdin-filepath")
     } else {
         None
@@ -77,6 +77,8 @@ pub fn deprecated_flag(args: &FmtArgs) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    use crate::cli::WriteArgs;
+
     use super::*;
 
     fn argv(rest: &[&str]) -> Vec<String> {
@@ -175,22 +177,25 @@ mod tests {
     #[test]
     fn deprecated_flag_reports_the_one_flag_in_use() {
         let mut args = FmtArgs {
-            paths: vec![],
-            check: false,
-            diff: false,
-            stdin_filepath: None,
+            write: WriteArgs {
+                paths: vec![],
+                check: false,
+                diff: false,
+                stdin_filepath: None,
+            },
+            format: None,
         };
         assert_eq!(deprecated_flag(&args), None);
 
-        args.check = true;
+        args.write.check = true;
         assert_eq!(deprecated_flag(&args), Some("--check"));
 
-        args.check = false;
-        args.diff = true;
+        args.write.check = false;
+        args.write.diff = true;
         assert_eq!(deprecated_flag(&args), Some("--diff"));
 
-        args.diff = false;
-        args.stdin_filepath = Some("a.md".into());
+        args.write.diff = false;
+        args.write.stdin_filepath = Some("a.md".into());
         assert_eq!(deprecated_flag(&args), Some("--stdin-filepath"));
     }
 }

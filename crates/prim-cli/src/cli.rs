@@ -14,6 +14,15 @@ pub enum ColorWhen {
     Never,
 }
 
+/// Machine-readable report formats for report-only command modes.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum OutputFormat {
+    /// Emit a stable JSON document describing findings.
+    Json,
+    /// Emit a SARIF 2.1.0 document describing findings.
+    Sarif,
+}
+
 /// prim — opinionated, near-zero-config formatter for a repository's
 /// connective tissue (Markdown, JSON/JSONC, YAML, TOML) plus whitespace
 /// hygiene on a curated set of un-owned text files.
@@ -52,7 +61,7 @@ pub enum Verb {
     /// Report hygiene and content violations; never rewrites a file.
     Lint(LintArgs),
     /// Format, plus autofixable content rules on top of `fmt`.
-    Fix(FmtArgs),
+    Fix(FixArgs),
 }
 
 /// Shared arguments for `fmt` and `fix`: both write in place by default and
@@ -60,7 +69,7 @@ pub enum Verb {
 /// (AD-0007 §2). `fix` has no autofix-specific flags yet — the autofixable
 /// content rules are still future work.
 #[derive(Args, Debug)]
-pub struct FmtArgs {
+pub struct WriteArgs {
     /// Files or directories to process. Directories are searched recursively,
     /// honoring .gitignore, .ignore, and .primignore. Defaults to the current
     /// directory when no paths are given.
@@ -83,6 +92,28 @@ pub struct FmtArgs {
     pub stdin_filepath: Option<PathBuf>,
 }
 
+/// Arguments for `fmt`: write in place by default, gate on `--check`, preview
+/// with `--diff`, and optionally emit machine-readable reports from
+/// `--check`.
+#[derive(Args, Debug)]
+pub struct FmtArgs {
+    #[command(flatten)]
+    pub write: WriteArgs,
+
+    /// Machine-readable report format for `--check`.
+    #[arg(long, value_enum, requires = "check", conflicts_with = "diff")]
+    pub format: Option<OutputFormat>,
+}
+
+/// Arguments for `fix`: the same write/check/diff surface as `fmt`, but no
+/// machine-readable report mode yet (story D2 is scoped to `fmt --check`
+/// and `lint` only).
+#[derive(Args, Debug)]
+pub struct FixArgs {
+    #[command(flatten)]
+    pub write: WriteArgs,
+}
+
 /// Arguments for `lint`: report-only, so it has neither `--check` nor
 /// `--diff` (AD-0007 §2) — every run already reports every finding.
 #[derive(Args, Debug)]
@@ -97,4 +128,8 @@ pub struct LintArgs {
     /// the right rules are selected.
     #[arg(long, value_name = "PATH")]
     pub stdin_filepath: Option<PathBuf>,
+
+    /// Machine-readable report format for lint findings.
+    #[arg(long, value_enum)]
+    pub format: Option<OutputFormat>,
 }

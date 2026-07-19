@@ -1,7 +1,7 @@
 //! Minimal CLI output helpers.
 //!
-//! Human-readable messages go to stderr; machine-readable output (the list
-//! of files that would change under `--check`) goes to stdout.
+//! Human-readable messages go to stderr; the default plain-text report modes
+//! also write their findings to stdout.
 
 use std::path::Path;
 
@@ -34,8 +34,7 @@ pub fn lint_finding(path: &Path, message: &str) {
 }
 
 /// Report, on stdout, one positioned, coded lint finding for `path` (story
-/// B1). `--format json`/`--format sarif` machine-readable output is D2's
-/// scope, not this one.
+/// B1).
 pub fn lint_diagnostic(path: &Path, diagnostic: &prim_fmt::Diagnostic) {
     lint_positioned(
         path,
