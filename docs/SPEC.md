@@ -61,6 +61,8 @@ source-code formatter and has **no plugin system**.
   left byte-for-byte unchanged.
 - **FR-2.5** prim shall identify allowlisted files by filename/extension, not
   content sniffing.
+- **FR-2.6** prim shall strip a leading UTF-8 BOM (`U+FEFF`), unconditionally,
+  from every file it processes.
 
 ## FR-3 — Style resolution
 

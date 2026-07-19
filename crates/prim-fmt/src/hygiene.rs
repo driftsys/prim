@@ -5,6 +5,7 @@ use crate::Style;
 
 /// Apply whitespace hygiene to `source` under `style`:
 ///
+/// - strip a leading UTF-8 BOM (`U+FEFF`), if present,
 /// - normalise every line ending to `style.end_of_line` (FR-2.3),
 /// - when `style.trim_trailing_whitespace`, strip trailing whitespace from each
 ///   line (FR-2.1),
@@ -14,6 +15,11 @@ use crate::Style;
 ///
 /// The pass is idempotent (FR-6.1).
 pub fn hygiene(source: &str, style: &Style) -> String {
+    // A BOM only signals encoding at the very start of a file; strip it before
+    // reasoning about lines. prim already reads UTF-8 only (AD-0002), so this
+    // is a plain character strip, not a transcode.
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+
     // Normalise existing endings to LF so we can reason in logical lines.
     let normalized = source.replace("\r\n", "\n").replace('\r', "\n");
 
@@ -81,6 +87,32 @@ mod tests {
         assert_eq!(hygiene("   \n  \n", &canonical()), "");
     }
 
+    #[test]
+    fn default_strips_leading_utf8_bom() {
+        assert_eq!(hygiene("\u{feff}a\nb\n", &canonical()), "a\nb\n");
+    }
+
+    #[test]
+    fn bom_only_content_stays_empty() {
+        assert_eq!(hygiene("\u{feff}", &canonical()), "");
+        assert_eq!(hygiene("\u{feff}\n", &canonical()), "");
+    }
+
+    #[test]
+    fn bom_is_stripped_regardless_of_trim_setting() {
+        let style = Style {
+            trim_trailing_whitespace: false,
+            ..Style::default()
+        };
+        assert_eq!(hygiene("\u{feff}a  \n", &style), "a  \n");
+    }
+
+    #[test]
+    fn interior_feu_is_not_treated_as_bom() {
+        // U+FEFF only signals a BOM as the very first character.
+        assert_eq!(hygiene("a\u{feff}b\n", &canonical()), "a\u{feff}b\n");
+    }
+
     // --- Style-driven behaviour (FR-3.2) ---
 
     #[test]
@@ -142,7 +174,15 @@ mod tests {
             },
         ];
         for style in styles {
-            for input in ["a  \r\nb\n\n", "", "x", "  keep\nlead  \n", "   \n"] {
+            for input in [
+                "a  \r\nb\n\n",
+                "",
+                "x",
+                "  keep\nlead  \n",
+                "   \n",
+                "\u{feff}a\nb\n",
+                "\u{feff}",
+            ] {
                 let once = hygiene(input, &style);
                 assert_eq!(
                     hygiene(&once, &style),
