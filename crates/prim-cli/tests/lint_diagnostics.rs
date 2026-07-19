@@ -1,9 +1,9 @@
 // Behavioural acceptance tests for story B1 (`prim lint` diagnostics
 // mode): each whitespace-hygiene violation on the un-owned-text allowlist
 // (the same set A1's BOM strip covers) reports a stable `code` and a
-// 1-indexed `file:line:col`, never rewriting the file. Structured formats
-// (JSON/YAML/TOML/Markdown) keep the coarser format-drift finding — their own
-// content diagnostics are future stories (G2/D2).
+// 1-indexed `file:line:col`, never rewriting the file. Markdown now also gets
+// itemized rumdl content diagnostics; JSON/YAML/TOML still keep the coarser
+// format-drift finding until their own content diagnostics land (D2).
 
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
@@ -93,9 +93,10 @@ fn reports_every_finding_in_a_file_with_several_violations() {
 }
 
 #[test]
-fn structured_formats_keep_the_coarse_format_drift_finding() {
-    // JSON/YAML/TOML/Markdown are out of B1's scope — they still get the
-    // pre-existing single "format drift" finding, not itemized codes.
+fn json_keeps_the_coarse_format_drift_finding() {
+    // Markdown now has its own itemized content diagnostics (story G2), but
+    // JSON/YAML/TOML still keep the pre-existing single "format drift"
+    // finding, not itemized codes.
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("doc.json");
     std::fs::write(&file, "{\"a\":1}").unwrap();
@@ -107,6 +108,24 @@ fn structured_formats_keep_the_coarse_format_drift_finding() {
         .code(1)
         .stdout(predicates::str::contains("doc.json").and(predicates::str::contains("prim fmt")))
         .stdout(predicates::str::contains("hygiene::").not());
+}
+
+#[test]
+fn markdown_reports_rumdl_rule_codes_with_positions_instead_of_coarse_drift() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(&file, "#Title\n\nSee https://example.com.\n").unwrap();
+
+    prim().arg("lint").arg(&file).assert().code(1).stdout(
+        predicates::str::contains("README.md:3:")
+            .and(predicates::str::contains("[MD034]"))
+            .and(predicates::str::contains("prim fmt").not()),
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "#Title\n\nSee https://example.com.\n"
+    );
 }
 
 #[test]

@@ -127,8 +127,17 @@ default, format-in-place action.
     (`hygiene::bom`, `hygiene::eol`, `hygiene::trailing-whitespace`,
     `hygiene::indent`, `hygiene::final-newline`) and a 1-indexed `file:line:col`
     (`prim_fmt::line_col`, AD-0008), printed as `path:line:col: message [code]`.
-    Structured formats (JSON/JSONC/TOML/YAML/Markdown) keep the coarser
-    format-drift finding until their own content diagnostics land (G2/D2).
+    JSON/JSONC/TOML/YAML keep the coarser format-drift finding until their own
+    content diagnostics land (D2).
+  - **FR-5.5b** _(Markdown content diagnostics, story G2)_ For Markdown files,
+    `prim lint` shall run `rumdl_lib::lint()` in Standard flavor through
+    `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
+    the active rule subset by `Rule::name()`: `MD034` (no bare URLs), `MD042`
+    (no empty links), and `MD045` (images need alt text). Each finding carries
+    rumdl's rule code verbatim and a 1-indexed `path:line:col`, printed as
+    `path:line:col: message [MD0xx]`. This path is lint-only: prim shall never
+    invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
+    not yet auto-fix these rules.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
   could not do its job (parse/IO/usage error). Warnings never raise the exit
@@ -184,8 +193,8 @@ reviewed in the diff, and released as above.
 
 - No source-code formatting (Rust/JS/TS/Python/Go/…).
 - No plugins or user-facing extensibility API.
-- No linting/diagnostics beyond format-checking.
-- No schema validation.
+- No schema validation or generalized lint framework beyond the documented
+  whitespace-hygiene and Markdown-content checks.
 - No style knobs beyond `.editorconfig`.
 
 ## Phase 2 — roadmap (not v1)

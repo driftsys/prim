@@ -7,11 +7,11 @@ prim [fmt|lint|fix] [OPTIONS] [PATH]...
 prim exposes three verbs (AD-0007). Bare `prim [PATH]...` is a permanent alias
 for `prim fmt [PATH]...` — no verb is required for the common case.
 
-| Verb   | Writes?        | Purpose                                                                                                       |
-| ------ | -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `fmt`  | yes (in place) | Format the parsed formats + whitespace hygiene. Default action.                                               |
-| `lint` | never          | Report hygiene and content violations only.                                                                   |
-| `fix`  | yes (in place) | `fmt` plus autofixable content rules (none yet — pending story G2, so `fix` is currently identical to `fmt`). |
+| Verb   | Writes?        | Purpose                                                                                    |
+| ------ | -------------- | ------------------------------------------------------------------------------------------ |
+| `fmt`  | yes (in place) | Format the parsed formats + whitespace hygiene. Default action.                            |
+| `lint` | never          | Report hygiene and content violations only.                                                |
+| `fix`  | yes (in place) | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
 
 ## Arguments
 
@@ -59,15 +59,21 @@ Warnings never raise the exit code; only errors do.
   share one gated contract (AD-0007 §4), unlike `fmt --diff`'s preview-only
   behaviour.
 - **`lint`** — report-only: prints one finding per violation and never rewrites.
-  For the un-owned-text allowlist (BOM, line endings, trailing whitespace,
-  indentation, missing final newline — same set `.editorconfig`/hygiene covers),
-  each finding is a coded, positioned diagnostic:
-  `path:line:col: message [code]` (e.g.
-  `notes.txt:1:6: trailing whitespace
-  [hygiene::trailing-whitespace]`).
-  Structured formats (JSON/YAML/TOML/ Markdown) still report the coarser format
-  drift `fmt --check` would report; their own content diagnostics and
-  `--format json`/`--format sarif` land with stories G2/D2.
+  - For the un-owned-text allowlist (BOM, line endings, trailing whitespace,
+    indentation, missing final newline — same set `.editorconfig`/hygiene
+    covers), each finding is a coded, positioned diagnostic:
+    `path:line:col: message [code]` (e.g.
+    `notes.txt:1:6: trailing whitespace
+    [hygiene::trailing-whitespace]`).
+  - For Markdown, `prim lint` runs rumdl in Standard flavor with a fixed active
+    subset — `MD034` (no bare URLs), `MD042` (no empty links), and `MD045`
+    (images need alt text) — and prints each finding as
+    `path:line:col: message [MD0xx]`. prim passes rumdl's rule codes through
+    verbatim, never invokes rumdl's formatter/fixer, and does not auto-fix these
+    findings in `fix` yet.
+  - JSON/JSONC/YAML/TOML still report the coarser format drift `fmt --check`
+    would report; machine-readable `--format json`/`--format sarif` output is
+    still D2's scope.
 - **`--stdin-filepath`** — editor format-on-save: stdin in, formatted stdout out
   (`fmt`/`fix`), or a report (`lint`).
 - Naming a path explicitly is strict: a missing file is an error (exit `2`); an
@@ -101,6 +107,10 @@ prim honors [`.editorconfig`](https://editorconfig.org) as its **only** style
 configuration — there is no `prim.toml` and there are no per-rule flags. With no
 `.editorconfig` present, prim applies its built-in canonical style (LF endings,
 trailing whitespace stripped, exactly one final newline, two-space indent).
+
+Markdown content lint does not add a second config source: its active rumdl
+rules are the fixed curated subset above, and `.editorconfig` remains prim's
+only user-facing configuration file.
 
 prim resolves the standard `.editorconfig` cascade for each file: it walks up
 the directory tree, stops at the nearest `root = true`, and applies matching
