@@ -44,3 +44,28 @@ fn in_place_trims_trailing_whitespace_and_adds_final_newline() {
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "title\nbody\n");
 }
+
+#[test]
+fn in_place_strips_leading_utf8_bom_from_orphan_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(".gitignore");
+    std::fs::write(&file, "\u{feff}target/\n").unwrap();
+
+    prim().arg(&file).assert().success();
+
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "target/\n");
+}
+
+#[test]
+fn check_flags_a_bom_only_orphan_file_as_needing_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("notes.txt");
+    std::fs::write(&file, "\u{feff}kept\n").unwrap();
+
+    prim()
+        .arg("--check")
+        .arg(&file)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("notes.txt"));
+}

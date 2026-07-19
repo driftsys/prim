@@ -86,6 +86,9 @@ Everything else — source code, unknown types, binaries — is left byte-for-by
 unchanged. `.env` files are deliberately excluded: their values are data and may
 be whitespace-sensitive.
 
+Whitespace hygiene also strips a leading UTF-8 BOM (`U+FEFF`), unconditionally,
+from every file prim processes (parsed formats and orphans alike).
+
 ## Configuration
 
 prim honors [`.editorconfig`](https://editorconfig.org) as its **only** style
