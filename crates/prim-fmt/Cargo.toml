@@ -18,6 +18,10 @@ name = "prim_fmt"
 dprint-plugin-json = "0.22"
 dprint-plugin-markdown = "0.22"
 pretty_yaml = "0.6"
+# Markdown content linter (lint-only). `default-features = false` drops the
+# `native` feature (tokio/tower-lsp/notify/…) and `parallel` (rayon); prim never
+# invokes rumdl's formatter, LSP, or file walker — only `rumdl_lib::lint`.
+rumdl = { version = "=0.2.35", default-features = false }
 taplo = "0.14"
 thiserror = "2"
 

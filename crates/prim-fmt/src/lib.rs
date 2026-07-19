@@ -22,6 +22,7 @@ mod error;
 mod hygiene;
 mod json;
 mod markdown;
+mod mdlint;
 mod position;
 mod style;
 mod toml;
@@ -29,6 +30,7 @@ mod yaml;
 
 pub use classify::{FileKind, classify};
 pub use error::FormatError;
+pub use mdlint::{MdDiagnostic, lint as lint_markdown};
 pub use position::line_col;
 pub use style::{Indent, LineEnding, Style};
 
