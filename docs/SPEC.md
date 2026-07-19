@@ -102,9 +102,13 @@ default, format-in-place action.
 - **FR-5.2** `prim fmt --check` (also `fix --check`) shall write nothing, exit
   `0` when all files are already formatted, exit non-zero when any file would
   change, and list the files that would change.
-- **FR-5.3** `prim fmt --diff` (also `fix --diff`) shall print a unified diff of
-  pending changes and write nothing; it shall exit `0` whether or not changes
-  are pending (`--check` is the CI gate).
+- **FR-5.3** `prim fmt --diff` shall print a unified diff of pending changes and
+  write nothing; it shall exit `0` whether or not changes are pending (`--check`
+  is the CI gate). `prim fix --diff` shares `fix --check`'s gated contract
+  instead (FR-5.2): it also prints the diff and writes nothing, but exits
+  non-zero when a fixable finding is pending, since `fix`'s `--check` and
+  `--diff` are both format-drift gates, unlike `fmt --diff`'s preview-only
+  behaviour (AD-0007 §4).
 - **FR-5.4** With `--stdin-filepath <path>` (valid on `fmt`, `lint`, and `fix`),
   prim shall read stdin and, for `fmt`/`fix`, write the formatted result to
   stdout. The flag is mutually exclusive with `--check` and `--diff`.

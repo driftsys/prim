@@ -2,29 +2,55 @@
 //!
 //! clap cannot cleanly disambiguate an optional subcommand from a leading
 //! positional `PATH`, so dispatch is resolved before [`clap::Parser::parse`]:
-//! if the first non-flag argument is a known verb (`fmt`/`lint`/`fix`) or a
-//! global help/version flag, the argv is left as-is; otherwise an implicit
-//! `fmt` is inserted right after the program name. This keeps `prim README.md`,
-//! `prim fmt README.md`, and the deprecated `prim --check` all working.
+//! the argv is scanned, skipping over recognized global flags (and their
+//! values), for the first token that is either a known verb (`fmt`/`lint`/
+//! `fix`) or a global help/version flag — either way the argv is left as-is.
+//! Anything else (a bare path, or an unrecognized flag) means no verb was
+//! given, so an implicit `fmt` is inserted right after the program name.
+//! This keeps `prim README.md`, `prim fmt README.md`,
+//! `prim --color=always fmt README.md`, and the deprecated `prim --check`
+//! all working, regardless of where global flags like `--color`/`--exclude`/
+//! `--completions` (declared `global = true` on `Cli`) appear relative to the
+//! verb.
 
 use crate::cli::FmtArgs;
 
 const VERBS: &[&str] = &["fmt", "lint", "fix"];
 const GLOBAL_ONLY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
+/// Global flags that consume a value — either as a separate following token
+/// (`--color always`) or attached with `=` (`--color=always`) — and so must
+/// be skipped over, value and all, while scanning for a verb.
+const GLOBAL_VALUE_FLAGS: &[&str] = &["--exclude", "--color", "--completions"];
 
 /// Insert an implicit `fmt` verb into `args` (a full argv, including the
 /// program name at index 0) when the caller did not name a verb. Returns the
 /// (possibly adjusted) argv and whether `fmt` was injected.
 pub fn inject_default_verb(args: Vec<String>) -> (Vec<String>, bool) {
-    let first = args.get(1).map(String::as_str);
-    let needs_fmt = match first {
-        None => true,
-        Some(token) if VERBS.contains(&token) => false,
-        Some(token) if GLOBAL_ONLY_FLAGS.contains(&token) => false,
-        Some(_) => true,
-    };
+    let mut index = 1;
+    let mut leave_unchanged = false;
 
-    if !needs_fmt {
+    while index < args.len() {
+        let token = args[index].as_str();
+
+        if VERBS.contains(&token) || GLOBAL_ONLY_FLAGS.contains(&token) {
+            leave_unchanged = true;
+            break;
+        }
+
+        let flag_name = token.split('=').next().unwrap_or(token);
+        if GLOBAL_VALUE_FLAGS.contains(&flag_name) {
+            // `--flag=value` is one token; `--flag value` is two.
+            index += if token.contains('=') { 1 } else { 2 };
+            continue;
+        }
+
+        // The first token that isn't a recognized global flag: either a bare
+        // path, an unrecognized flag, or (per clap's `--` convention) the
+        // start of the positional tail. No verb precedes it.
+        break;
+    }
+
+    if leave_unchanged {
         return (args, false);
     }
 
@@ -90,6 +116,42 @@ mod tests {
             assert_eq!(adjusted, vec!["prim".to_string(), verb.to_string()]);
             assert!(!injected, "verb: {verb}");
         }
+    }
+
+    #[test]
+    fn global_value_flag_before_an_explicit_verb_does_not_shadow_it() {
+        // Regression: `--color`/`--exclude`/`--completions` are `global =
+        // true` (valid before or after the verb); the preprocessor must scan
+        // past them, both in `--flag value` and `--flag=value` form, to find
+        // the real verb rather than injecting a second, spurious `fmt`.
+        let cases: &[&[&str]] = &[
+            &["--color", "always", "fmt", "doc.txt"],
+            &["--color=always", "fmt", "doc.txt"],
+            &["--color", "always", "lint", "doc.txt"],
+            &["--exclude", "*.md", "fmt", "doc.txt"],
+            &["--exclude", "*.md", "--exclude", "*.json", "fmt", "doc.txt"],
+            &["--completions", "bash", "fmt"],
+        ];
+        for rest in cases {
+            let (adjusted, injected) = inject_default_verb(argv(rest));
+            let expected: Vec<String> = std::iter::once("prim".to_string())
+                .chain(rest.iter().map(|s| s.to_string()))
+                .collect();
+            assert_eq!(adjusted, expected, "rest: {rest:?}");
+            assert!(!injected, "rest: {rest:?}");
+        }
+    }
+
+    #[test]
+    fn global_value_flag_alone_still_injects_fmt() {
+        // No verb anywhere in argv: `fmt` must still be injected even though
+        // scanning has to step over a global value flag first.
+        let (adjusted, injected) = inject_default_verb(argv(&["--color", "always", "doc.txt"]));
+        assert_eq!(
+            adjusted,
+            vec!["prim", "fmt", "--color", "always", "doc.txt"]
+        );
+        assert!(injected);
     }
 
     #[test]

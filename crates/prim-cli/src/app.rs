@@ -33,16 +33,20 @@ pub fn run(cli: &Cli) -> i32 {
     match &cli.verb {
         // `fix` is `fmt` plus autofixable content rules; those rules don't
         // exist yet (story G2), so `fix` is byte-for-byte `fmt` for now.
-        Verb::Fmt(args) | Verb::Fix(args) => run_fmt(args, &cli.exclude),
+        // Exit codes still differ (AD-0007 §4): unlike `fmt --diff` (always
+        // `0`, preview-only), `fix --check`/`--diff` share one gated
+        // contract, so `is_fix` is threaded through to `run_fmt`.
+        Verb::Fmt(args) => run_fmt(args, &cli.exclude, false),
+        Verb::Fix(args) => run_fmt(args, &cli.exclude, true),
         Verb::Lint(args) => run_lint(args, &cli.exclude),
     }
 }
 
-fn run_fmt(args: &FmtArgs, excludes: &[String]) -> i32 {
+fn run_fmt(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
     if let Some(path) = args.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
-    run_fmt_paths(args, excludes)
+    run_fmt_paths(args, excludes, is_fix)
 }
 
 fn run_lint(args: &LintArgs, excludes: &[String]) -> i32 {
@@ -179,7 +183,7 @@ fn load_and_format(
     Ok((results, had_error))
 }
 
-fn run_fmt_paths(args: &FmtArgs, excludes: &[String]) -> i32 {
+fn run_fmt_paths(args: &FmtArgs, excludes: &[String], is_fix: bool) -> i32 {
     let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
         Ok(outcome) => outcome,
         Err(err) => {
@@ -207,9 +211,14 @@ fn run_fmt_paths(args: &FmtArgs, excludes: &[String]) -> i32 {
         }
     }
 
+    // AD-0007 §4: `fmt --diff` is always a `0`-exit preview, but `fix
+    // --check`/`--diff` share one gated contract — both report whether a
+    // fixable finding is pending.
+    let gates_on_pending_findings = args.check || (is_fix && args.diff);
+
     if had_error {
         EXIT_ERROR
-    } else if args.check && any_would_change {
+    } else if gates_on_pending_findings && any_would_change {
         EXIT_ACTIONABLE
     } else {
         EXIT_OK

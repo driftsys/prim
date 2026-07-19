@@ -148,7 +148,7 @@ fn fix_formats_in_place_like_fmt_today() {
 }
 
 #[test]
-fn fix_check_and_diff_mirror_fmt() {
+fn fix_check_and_diff_gate_on_pending_findings() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("doc.txt");
     std::fs::write(&file, "title  \n").unwrap();
@@ -161,6 +161,23 @@ fn fix_check_and_diff_mirror_fmt() {
         .stdout(predicates::str::contains("doc.txt"));
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "title  \n");
+
+    // Unlike `fmt --diff` (always exit 0), `fix --diff` shares `fix
+    // --check`'s gated contract (AD-0007 §4): it must exit 1 when a fixable
+    // finding is pending, even though it only prints a preview.
+    prim()
+        .args(["fix", "--diff"])
+        .arg(&file)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.txt"));
+
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "title  \n");
+
+    // Once clean, both modes exit 0.
+    std::fs::write(&file, "title\n").unwrap();
+    prim().args(["fix", "--check"]).arg(&file).assert().code(0);
+    prim().args(["fix", "--diff"]).arg(&file).assert().code(0);
 }
 
 #[test]

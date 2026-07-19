@@ -21,16 +21,16 @@ for `prim fmt [PATH]...` — no verb is required for the common case.
 
 ## Options
 
-| Flag                            | Verbs                | Description                                                                                                                |
-| ------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--check`                       | `fmt`, `fix`         | Write nothing; exit non-zero if any file would change, and list it.                                                        |
-| `--diff`                        | `fmt`, `fix`         | Print a unified diff of pending changes; write nothing.                                                                    |
-| `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix` | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`. |
-| `--exclude <GLOB>`              | all                  | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                           |
-| `--color <auto\|always\|never>` | all                  | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                                    |
-| `--completions <SHELL>`         | global               | Generate a shell completion script and print it to stdout.                                                                 |
-| `-h, --help`                    | global               | Print help.                                                                                                                |
-| `-V, --version`                 | global               | Print version.                                                                                                             |
+| Flag                            | Verbs                | Description                                                                                                                                                                                              |
+| ------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--check`                       | `fmt`, `fix`         | Write nothing; exit non-zero if any file would change, and list it.                                                                                                                                      |
+| `--diff`                        | `fmt`, `fix`         | Print a unified diff of pending changes; write nothing. Exit `0` on `fmt` regardless of pending changes; exit non-zero on `fix` if a fixable finding is pending (shares `fix --check`'s gated contract). |
+| `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix` | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`.                                                                               |
+| `--exclude <GLOB>`              | all                  | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                                                                                                         |
+| `--color <auto\|always\|never>` | all                  | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                                                                                                                  |
+| `--completions <SHELL>`         | global               | Generate a shell completion script and print it to stdout.                                                                                                                                               |
+| `-h, --help`                    | global               | Print help.                                                                                                                                                                                              |
+| `-V, --version`                 | global               | Print version.                                                                                                                                                                                           |
 
 The top-level `--check`, `--diff`, and `--stdin-filepath` flags remain accepted
 directly on bare `prim` as **deprecated sugar** for the `fmt` forms: the first
@@ -52,8 +52,12 @@ Warnings never raise the exit code; only errors do.
 - **`fmt` (default)** — format the given files in place.
 - **`fmt --check`** (also `fix --check`) — a CI gate: exit `1` and list the
   files that would change.
-- **`fmt --diff`** (also `fix --diff`) — preview pending changes without
-  writing.
+- **`fmt --diff`** — preview pending changes without writing; always exits `0`
+  (`--check` is the CI gate).
+- **`fix --diff`** — preview pending changes without writing, like `fmt --diff`,
+  but exits `1` if a fixable finding is pending — `fix`'s `--check` and `--diff`
+  share one gated contract (AD-0007 §4), unlike `fmt --diff`'s preview-only
+  behaviour.
 - **`lint`** — report-only: prints one finding per violation and never rewrites.
   Today's findings are hygiene/format drift only (the same drift `fmt --check`
   reports); stable diagnostic codes and Markdown content rules land with stories
