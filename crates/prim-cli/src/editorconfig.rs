@@ -351,4 +351,127 @@ mod tests {
         // One directory cached.
         assert_eq!(resolver.cache.len(), 1);
     }
+
+    // --- SPIKE #41: custom `prim_*` keys + glob-section precedence ---
+    //
+    // Proves prim's real cascade (`build_cascade` + `apply`) exposes namespaced
+    // custom keys per matching section, with EditorConfig's more-specific /
+    // later-wins precedence. This is the resolver recipe story C1 (#46) and the
+    // G3/G4 strict-glob map (#59/#60) build on. Reading is via
+    // `Properties::get_raw_for_key`, which prim already links through `ec4rs`.
+
+    /// Resolve a `prim_*` boolean custom key for `relative` under `dir`, exactly
+    /// as C1 will: build prim's cascade, apply the glob sections, then read the
+    /// raw value. `None` when the key is unset for that path.
+    fn resolve_prim_bool(dir: &Path, relative: &str, key: &str) -> Option<bool> {
+        let path = dir.join(relative);
+        // Mirror `Resolver::resolve`: the cascade is built for the file's parent
+        // directory, so a nearer config in a subdirectory is discovered.
+        let parent = path.parent().unwrap_or(dir);
+        let cascade = build_cascade(parent);
+        let props = apply(&cascade, &path);
+        props
+            .get_raw_for_key(key)
+            .into_option()
+            .map(|value| value.eq_ignore_ascii_case("true"))
+    }
+
+    #[test]
+    fn prim_custom_key_resolves_per_glob_more_specific_later_wins() {
+        // The default G4 placement map: a floor for all Markdown, a strict tier
+        // under docs/, and SUMMARY.md pulled back to the floor. EditorConfig has
+        // no specificity ranking — "more specific" is expressed by ordering the
+        // narrower section later, so the last matching section wins.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n\
+             [*.md]\n\
+             prim_mdlint_strict = false\n\
+             [docs/**.md]\n\
+             prim_mdlint_strict = true\n\
+             [**/SUMMARY.md]\n\
+             prim_mdlint_strict = false\n",
+        )
+        .unwrap();
+
+        let key = "prim_mdlint_strict";
+        // A top-level doc matches only [*.md] → floor.
+        assert_eq!(
+            resolve_prim_bool(dir.path(), "README.md", key),
+            Some(false),
+            "top-level doc is floor"
+        );
+        // A doc under docs/ matches [*.md] then [docs/**.md] → strict wins.
+        assert_eq!(
+            resolve_prim_bool(dir.path(), "docs/guide.md", key),
+            Some(true),
+            "docs/ doc is strict"
+        );
+        // SUMMARY.md also matches the narrowest, latest section → back to floor.
+        assert_eq!(
+            resolve_prim_bool(dir.path(), "docs/SUMMARY.md", key),
+            Some(false),
+            "SUMMARY.md is floor (SUMMARY-safe)"
+        );
+    }
+
+    #[test]
+    fn nearer_config_overrides_prim_key_from_a_farther_one() {
+        // The cascade's later-wins rule (nearer config beats farther) applies to
+        // custom keys just as it does to standard ones.
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n[*.md]\nprim_mdlint_strict = false\n",
+        )
+        .unwrap();
+        let sub = dir.path().join("pkg");
+        fs::create_dir(&sub).unwrap();
+        fs::write(
+            sub.join(".editorconfig"),
+            "[*.md]\nprim_mdlint_strict = true\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_prim_bool(dir.path(), "pkg/child.md", "prim_mdlint_strict"),
+            Some(true),
+            "nearer config overrides the farther one for custom keys"
+        );
+    }
+
+    #[test]
+    fn unset_prim_key_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n[*.md]\nindent_size = 2\n",
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_prim_bool(dir.path(), "a.md", "prim_mdlint_strict"),
+            None,
+            "an unset custom key resolves to None"
+        );
+    }
+
+    #[test]
+    fn unknown_prim_keys_do_not_disturb_standard_style() {
+        // A custom key alongside standard keys must not break Style resolution
+        // (fail-safe: prim ignores keys it does not understand).
+        let (_d, style) = resolve_in(
+            "root = true\n[*.md]\nprim_mdlint_strict = true\nmax_line_length = 100\n",
+            "a.md",
+        );
+        assert_eq!(style.max_line_length, Some(100));
+        assert_eq!(
+            style,
+            Style {
+                max_line_length: Some(100),
+                ..Style::default()
+            },
+            "custom keys are ignored; only standard keys shape Style"
+        );
+    }
 }
