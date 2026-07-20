@@ -100,8 +100,19 @@ pub struct FmtArgs {
     #[command(flatten)]
     pub write: WriteArgs,
 
+    /// Verify that prim reaches a fixed point after one formatting pass:
+    /// format(format(x)) == format(x). Writes nothing and reports any file
+    /// whose second pass still changes bytes.
+    #[arg(long, conflicts_with_all = ["check", "diff", "stdin_filepath"])]
+    pub check_idempotence: bool,
+
     /// Machine-readable report format for `--check`.
-    #[arg(long, value_enum, requires = "check", conflicts_with = "diff")]
+    #[arg(
+        long,
+        value_enum,
+        requires = "check",
+        conflicts_with_all = ["diff", "check_idempotence"]
+    )]
     pub format: Option<OutputFormat>,
 }
 

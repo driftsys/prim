@@ -54,6 +54,9 @@ fn run_fmt(args: &FmtArgs, excludes: &[String]) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
+    if args.check_idempotence {
+        return run_check_idempotence_paths(&args.write, excludes);
+    }
     run_fmt_paths(&args.write, args.format, excludes, false)
 }
 
@@ -323,6 +326,57 @@ fn run_fmt_paths(
     } else {
         EXIT_OK
     }
+}
+
+fn run_check_idempotence_paths(args: &WriteArgs, excludes: &[String]) -> i32 {
+    let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&format!("--exclude: {err}"));
+            return EXIT_ERROR;
+        }
+    };
+
+    let mut any_non_idempotent = false;
+    for (path, kind, style, _markdown_strict, _original, formatted) in results {
+        let reformatted = match prim_fmt::format(kind, &formatted, &style) {
+            Ok(text) => text,
+            Err(err) => {
+                ui::error(&format!(
+                    "{}: second formatting pass failed: {err}",
+                    path.display()
+                ));
+                had_error = true;
+                continue;
+            }
+        };
+
+        if forced_idempotence_failure(&path) || reformatted != formatted {
+            any_non_idempotent = true;
+            ui::would_reformat(&path);
+        }
+    }
+
+    if had_error {
+        EXIT_ERROR
+    } else if any_non_idempotent {
+        EXIT_ACTIONABLE
+    } else {
+        EXIT_OK
+    }
+}
+
+#[cfg(debug_assertions)]
+fn forced_idempotence_failure(path: &Path) -> bool {
+    // Acceptance tests need a stable way to exercise the exit-1 branch without
+    // depending on a real formatter regression existing in the fixture corpus.
+    std::env::var_os("PRIM_TEST_FORCE_IDEMPOTENCE_FAILURE")
+        .is_some_and(|value| PathBuf::from(value).as_path() == path)
+}
+
+#[cfg(not(debug_assertions))]
+fn forced_idempotence_failure(_: &Path) -> bool {
+    false
 }
 
 fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {

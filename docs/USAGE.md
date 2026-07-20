@@ -25,6 +25,7 @@ for `prim fmt [PATH]...` — no verb is required for the common case.
 | ------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--check`                       | `fmt`, `fix`          | Write nothing; exit non-zero if any file would change, and list it.                                                                                                                                      |
 | `--diff`                        | `fmt`, `fix`          | Print a unified diff of pending changes; write nothing. Exit `0` on `fmt` regardless of pending changes; exit non-zero on `fix` if a fixable finding is pending (shares `fix --check`'s gated contract). |
+| `--check-idempotence`           | `fmt`                 | Write nothing; for each matched prim-owned file, format it in memory twice with the resolved `.editorconfig` style and exit non-zero if the second pass still changes bytes.                             |
 | `--format <json\|sarif>`        | `fmt --check`, `lint` | Emit machine-readable findings to stdout instead of the default plain-text report. Valid only on `fmt --check` and `lint`.                                                                               |
 | `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix`  | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`.                                                                               |
 | `--exclude <GLOB>`              | all                   | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                                                                                                         |
@@ -56,6 +57,12 @@ Warnings never raise the exit code; only errors do.
   same findings as a machine-readable report instead of the default path list.
 - **`fmt --diff`** — preview pending changes without writing; always exits `0`
   (`--check` is the CI gate).
+- **`fmt --check-idempotence`** — a formatter self-check: prim formats each
+  matched file in memory, reformats that output with the same resolved style,
+  and exits `1` only if the second pass still changes bytes. It never writes to
+  disk, even when the original file is not already in canonical form. Bare
+  `prim --check-idempotence [PATH]...` works too through the permanent `fmt`
+  alias.
 - **`fix --diff`** — preview pending changes without writing, like `fmt --diff`,
   but exits `1` if a fixable finding is pending — `fix`'s `--check` and `--diff`
   share one gated contract (AD-0007 §4), unlike `fmt --diff`'s preview-only
