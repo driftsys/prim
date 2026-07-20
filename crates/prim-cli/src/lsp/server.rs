@@ -156,10 +156,8 @@ fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     // Skip an optional authority ("host") so both `file:///path` (empty
     // authority) and `file://host/path` resolve to the absolute path.
-    let path = match rest.find('/') {
-        Some(index) => &rest[index..],
-        None => return None,
-    };
+    let index = rest.find('/')?;
+    let path = &rest[index..];
     Some(PathBuf::from(percent_decode(path)?))
 }
 
