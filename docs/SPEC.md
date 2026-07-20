@@ -305,13 +305,24 @@ dependency upgrade (`dprint-plugin-json`, `dprint-plugin-markdown`, `taplo`,
 while prim is pre-1.0, a **major** bump once prim reaches 1.0. The release notes
 must call out the changed output explicitly so downstream `prim --check` gates
 upgrade deliberately. The fixture harness
-(`crates/prim-fmt/tests/correctness/fixtures/`) enforces this: its
+(`crates/prim-fmt/tests/correctness/fixtures/`) is prim's **golden corpus**: its
 `spec_cases_format_as_expected` test byte-compares formatter output against each
 fixture's committed `-- expected --` section, so canonical-output drift fails
 the build until it is reverted, or deliberately regenerated with
 `PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness
 spec_cases_format_as_expected`,
-reviewed in the diff, and released as above.
+reviewed in the diff, and released as above. CI runs the plain, ungated
+`cargo test --workspace` (no `PRIM_SPEC_UPDATE`), so an unreviewed golden-corpus
+regeneration can never merge silently.
+
+Because releases are generated from Conventional Commits (`convco`), the policy
+above only holds if commit types match intent: a commit that changes a golden
+fixture's `-- expected --` section (or otherwise changes canonical output) must
+be typed `feat` (or `feat!` for a breaking, post-1.0 change) — never `fix`,
+`refactor`, or `chore` — so the generated `CHANGELOG.md` surfaces it under the
+right heading and `convco`'s version bump matches the compatibility contract
+above. A reviewer who sees a fixture's `-- expected --` section change in a
+non-`feat` commit should request re-typing before merge.
 
 ## Non-goals
 
