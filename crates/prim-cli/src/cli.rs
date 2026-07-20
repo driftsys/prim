@@ -83,6 +83,9 @@ pub enum Verb {
     /// Print the `.editorconfig` settings that apply to a single file and
     /// where each came from (a `.editorconfig` section, or prim's default).
     Explain(ExplainArgs),
+    /// Run a Language Server Protocol server over stdin/stdout, exposing
+    /// prim's formatter as a format-on-save provider for editors.
+    Lsp,
 }
 
 /// Shared arguments for `fmt` and `fix`: both write in place by default and

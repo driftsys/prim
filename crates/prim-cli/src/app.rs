@@ -15,6 +15,7 @@ use crate::diff;
 use crate::editorconfig;
 use crate::explain;
 use crate::init;
+use crate::lsp;
 use crate::provenance;
 use crate::report::{self, Finding, ReportMode};
 use crate::ui;
@@ -54,6 +55,7 @@ pub fn run(cli: &Cli) -> i32 {
         Verb::Lint(args) => run_lint(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
         Verb::Init(args) => run_init(args),
         Verb::Explain(args) => run_explain(args),
+        Verb::Lsp => lsp::run(),
     }
 }
 
