@@ -295,15 +295,15 @@ configuration — there is no `prim.toml` and there are no per-rule flags. With 
 trailing whitespace stripped, exactly one final newline, two-space indent).
 
 Markdown content lint does not add a second config source: `.editorconfig`
-remains prim's only user-facing configuration file, including the strict-tier
-toggle below.
+remains prim's only user-facing configuration file, including the documented
+`prim_*` keys below.
 
 prim resolves the standard `.editorconfig` cascade for each file: it walks up
 the directory tree, stops at the nearest `root = true`, and applies matching
 per-glob sections (e.g. `[*.md]`). With `--stdin-filepath`, the cascade is
 resolved relative to that path's directory.
 
-Honored keys:
+Honored keys (standard EditorConfig keys plus prim's closed custom-key set):
 
 | Key                        | Effect                                                                      |
 | -------------------------- | --------------------------------------------------------------------------- |
@@ -320,6 +320,11 @@ Scope notes:
 - prim treats files as UTF-8; `charset` values other than `utf-8` are not
   supported (a non-UTF-8 file is left unchanged and reported).
 - `end_of_line = cr` (bare carriage return) is treated as `lf`.
+- `prim_mdlint_strict` is currently the **only** documented `prim_*` key.
+- Any other `prim_*` entry is silently ignored. That is intentional: `prim_*` is
+  a closed allowlist, not a generic extension hook or a second config file.
+- Standard EditorConfig keys and documented `prim_*` keys resolve together for
+  the same file; custom keys do not interfere with `Style` resolution.
 - An unreadable or malformed `.editorconfig` is ignored with a warning, and the
   built-in canonical style applies.
 

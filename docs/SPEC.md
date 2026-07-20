@@ -69,11 +69,17 @@ source-code formatter and has **no plugin system**.
 - **FR-3.1** prim shall apply its built-in canonical style with no config file
   present.
 - **FR-3.2** prim shall read `.editorconfig` and honor `indent_style`,
-  `indent_size`, `max_line_length`, `end_of_line`, `insert_final_newline`,
-  `trim_trailing_whitespace`, plus the custom Markdown-lint tier key
-  `prim_mdlint_strict = true|false` (default `false`) — including the
-  `root=true` chain and per-glob sections. (`charset` is out of scope: prim
-  processes UTF-8 only — FR-6.5, AD-0002.)
+  `indent_size`, `max_line_length`, `end_of_line`, `insert_final_newline`, and
+  `trim_trailing_whitespace` through the normal `root=true` chain and per-glob
+  sections. (`charset` is out of scope: prim processes UTF-8 only — FR-6.5,
+  AD-0002.)
+- **FR-3.2a** prim shall also read a small, closed, documented set of namespaced
+  `prim_*` keys from the same `.editorconfig` cascade. The current set contains
+  exactly one key: `prim_mdlint_strict = true|false` (default `false`) for
+  Markdown lint-tier selection.
+- **FR-3.2b** Any other `prim_*` key is ignored silently. Unknown custom keys
+  must never error, widen the public configuration surface, or interfere with
+  standard EditorConfig-key resolution.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags).
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
