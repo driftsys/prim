@@ -30,6 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo run -q -p prim-cli -- --check .
+      - run: cargo run -q -p prim-cli -- fmt --check-idempotence .
 
   clippy:
     name: Clippy

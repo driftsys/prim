@@ -54,6 +54,9 @@ fn run_fmt(args: &FmtArgs, excludes: &[String]) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
+    if args.check_idempotence {
+        return run_check_idempotence_paths(&args.write, excludes);
+    }
     run_fmt_paths(&args.write, args.format, excludes, false)
 }
 
@@ -325,6 +328,57 @@ fn run_fmt_paths(
     }
 }
 
+fn run_check_idempotence_paths(args: &WriteArgs, excludes: &[String]) -> i32 {
+    let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&format!("--exclude: {err}"));
+            return EXIT_ERROR;
+        }
+    };
+
+    let mut any_non_idempotent = false;
+    for (path, kind, style, _markdown_strict, _original, formatted) in results {
+        let stable = match is_idempotent_second_pass(kind, &formatted, &style) {
+            Ok(stable) => stable,
+            Err(err) => {
+                ui::error(&format!(
+                    "{}: second formatting pass failed: {err}",
+                    path.display()
+                ));
+                had_error = true;
+                continue;
+            }
+        };
+
+        if !stable {
+            any_non_idempotent = true;
+            ui::would_reformat(&path);
+        }
+    }
+
+    if had_error {
+        EXIT_ERROR
+    } else if any_non_idempotent {
+        EXIT_ACTIONABLE
+    } else {
+        EXIT_OK
+    }
+}
+
+fn is_idempotent_second_pass(
+    kind: FileKind,
+    formatted: &str,
+    style: &Style,
+) -> Result<bool, prim_fmt::FormatError> {
+    let reformatted = prim_fmt::format(kind, formatted, style)?;
+    Ok(second_pass_matches_first(formatted, &reformatted))
+}
+
+fn second_pass_matches_first(formatted: &str, reformatted: &str) -> bool {
+    formatted == reformatted
+}
+
 fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
     let (results, had_error) = match load_and_format(&args.paths, excludes) {
         Ok(outcome) => outcome,
@@ -390,4 +444,23 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
 
 fn emit_report(format: OutputFormat, mode: ReportMode, findings: &[Finding]) {
     print!("{}", report::render(format, mode, findings));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_idempotent_second_pass, second_pass_matches_first};
+    use prim_fmt::{FileKind, Style};
+
+    #[test]
+    fn comparison_flags_a_changed_second_pass() {
+        assert!(!second_pass_matches_first("once\n", "twice\n"));
+    }
+
+    #[test]
+    fn json_output_is_stable_on_a_second_pass() {
+        let style = Style::default();
+        let formatted = prim_fmt::format(FileKind::Json, "{\"a\":1}\n", &style).unwrap();
+
+        assert!(is_idempotent_second_pass(FileKind::Json, &formatted, &style).unwrap());
+    }
 }

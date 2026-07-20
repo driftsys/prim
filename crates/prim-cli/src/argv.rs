@@ -183,6 +183,7 @@ mod tests {
                 diff: false,
                 stdin_filepath: None,
             },
+            check_idempotence: false,
             format: None,
         };
         assert_eq!(deprecated_flag(&args), None);

@@ -118,6 +118,14 @@ default, format-in-place action.
   non-zero when a fixable finding is pending, since `fix`'s `--check` and
   `--diff` are both format-drift gates, unlike `fmt --diff`'s preview-only
   behaviour (AD-0007 §4).
+- **FR-5.3a** `prim fmt --check-idempotence` (also reachable as bare
+  `prim --check-idempotence` through the permanent `fmt` alias) shall write
+  nothing and verify FR-6.1 across the matched corpus: for each discovered file
+  prim owns, it formats the current bytes in memory, formats that output a
+  second time with the same resolved `.editorconfig` style, and exits `1` if any
+  second pass still changes bytes. It lists each failing file on stdout, exits
+  `0` when every second pass is stable, and uses the normal discovery/classify
+  rules (structured formats plus the orphan hygiene allowlist only).
 - **FR-5.4** With `--stdin-filepath <path>` (valid on `fmt`, `lint`, and `fix`),
   prim shall read stdin and, for `fmt`/`fix`, write the formatted result to
   stdout. The flag is mutually exclusive with `--check` and `--diff`.
@@ -219,7 +227,8 @@ default, format-in-place action.
 ## FR-6 — Correctness & safety
 
 - **FR-6.1** _(idempotency)_ Running prim on its own output shall produce zero
-  further changes.
+  further changes. `prim fmt --check-idempotence` is the CLI-facing verification
+  surface for this guarantee and never writes to disk.
 - **FR-6.2** _(semantic preservation)_ Formatting shall not change the parsed
   data model of a JSON/JSONC/YAML/TOML document.
 - **FR-6.3** _(fail-safe)_ An unparseable file shall be left byte-for-byte
