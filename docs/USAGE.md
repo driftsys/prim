@@ -2,16 +2,19 @@
 
 ```text
 prim [fmt|lint|fix] [OPTIONS] [PATH]...
+prim init [PATH]
 ```
 
-prim exposes three verbs (AD-0007). Bare `prim [PATH]...` is a permanent alias
-for `prim fmt [PATH]...` — no verb is required for the common case.
+prim exposes three formatting verbs (AD-0007) plus one repo-setup utility. Bare
+`prim [PATH]...` is a permanent alias for `prim fmt [PATH]...` — no verb is
+required for the common case.
 
-| Verb   | Writes?        | Purpose                                                                                    |
-| ------ | -------------- | ------------------------------------------------------------------------------------------ |
-| `fmt`  | yes (in place) | Format the parsed formats + whitespace hygiene. Default action.                            |
-| `lint` | never          | Report hygiene and content violations only.                                                |
-| `fix`  | yes (in place) | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
+| Command | Writes?              | Purpose                                                                                    |
+| ------- | -------------------- | ------------------------------------------------------------------------------------------ |
+| `fmt`   | yes (in place)       | Format the parsed formats + whitespace hygiene. Default action.                            |
+| `lint`  | never                | Report hygiene and content violations only.                                                |
+| `fix`   | yes (in place)       | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
+| `init`  | `.editorconfig` only | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
 
 ## Arguments
 
@@ -136,6 +139,50 @@ Warnings never raise the exit code; only errors do.
   (`fmt`/`fix`), or a report (`lint`).
 - Naming a path explicitly is strict: a missing file is an error (exit `2`); an
   existing file prim does not own is skipped with a warning.
+
+## `prim init`
+
+`prim init [PATH]` scaffolds or minimally merges `.editorconfig` in `PATH`
+(default `.`). It writes no other file.
+
+With no existing `.editorconfig`, prim writes this exact placement map when no
+mdBook is detected:
+
+```ini
+root = true
+[*.md]
+prim_mdlint_strict = false
+[docs/**.md]
+prim_mdlint_strict = true
+[**/SUMMARY.md]
+prim_mdlint_strict = false
+```
+
+Section order is part of the contract: EditorConfig has no specificity ranking,
+so the broader `[*.md]` floor must appear before the stricter middle section,
+and `[**/SUMMARY.md]` must come last to opt mdBook summaries back down.
+
+If `PATH/book.toml` exists, prim reads `[book].src` and uses that directory for
+the strict middle glob instead of `docs/`; for example, `src = "guide"` yields
+`[guide/**.md]`. If `book.toml` is present but omits `src`, or is malformed,
+prim falls back to mdBook's conventional `src/**.md`.
+
+If `.editorconfig` already exists, prim merges in place without reordering
+unrelated content:
+
+- leaves an existing top-level `root = ...` untouched; otherwise prepends
+  `root = true` and a blank line
+- for `[*.md]`, the detected strict glob, and `[**/SUMMARY.md]`, leaves an
+  existing explicit `prim_mdlint_strict = ...` untouched
+- if one of those sections exists but lacks the key, appends the key inside that
+  section immediately before the next section (or end-of-file)
+- if one of those sections is missing entirely, inserts a new block without
+  moving existing bytes so the final prim-managed order still reads `[*.md]` →
+  strict glob → `[**/SUMMARY.md]` (falling back to end-of-file only when no
+  later prim-managed section needs to stay after it)
+
+Running `prim init` twice is idempotent: once the map is present, the second run
+reports a no-op and leaves `.editorconfig` byte-identical.
 
 ## Machine-readable output
 

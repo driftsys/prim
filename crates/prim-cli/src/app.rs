@@ -1,13 +1,14 @@
-//! Operating-mode dispatch over the prim formatting engine (AD-0007): `fmt`
-//! and `fix` write, `lint` only ever reports.
+//! Operating-mode dispatch over prim's formatting verbs (`fmt`/`lint`/`fix`,
+//! AD-0007) plus the one-shot `init` scaffolder.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use crate::cli::{Cli, FixArgs, FmtArgs, LintArgs, OutputFormat, Verb, WriteArgs};
+use crate::cli::{Cli, FixArgs, FmtArgs, InitArgs, LintArgs, OutputFormat, Verb, WriteArgs};
 use crate::diff;
 use crate::discover;
 use crate::editorconfig;
+use crate::init;
 use crate::report::{self, Finding, ReportMode};
 use crate::ui;
 use crate::write;
@@ -47,6 +48,7 @@ pub fn run(cli: &Cli) -> i32 {
         Verb::Fmt(args) => run_fmt(args, &cli.exclude),
         Verb::Fix(args) => run_fix(args, &cli.exclude),
         Verb::Lint(args) => run_lint(args, &cli.exclude),
+        Verb::Init(args) => run_init(args),
     }
 }
 
@@ -72,6 +74,20 @@ fn run_lint(args: &LintArgs, excludes: &[String]) -> i32 {
         return run_lint_stdin(path, args.format);
     }
     run_lint_paths(args, excludes)
+}
+
+fn run_init(args: &InitArgs) -> i32 {
+    let target = args.path.as_deref().unwrap_or_else(|| Path::new("."));
+    match init::run(target) {
+        Ok(outcome) => {
+            ui::status(&outcome.message);
+            EXIT_OK
+        }
+        Err(err) => {
+            ui::error(&err.to_string());
+            EXIT_ERROR
+        }
+    }
 }
 
 /// Read stdin, format it, and write the result to stdout (format-on-save).

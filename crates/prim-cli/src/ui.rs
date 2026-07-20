@@ -19,6 +19,11 @@ pub fn warning(msg: &str) {
     eprintln!("{} {msg}", "warning:".yellow().bold());
 }
 
+/// Print a human-readable status message to stderr.
+pub fn status(msg: &str) {
+    eprintln!("{msg}");
+}
+
 /// Report, on stdout, that `path` would be reformatted (`--check`).
 pub fn would_reformat(path: &Path) {
     println!("{}", path.display());

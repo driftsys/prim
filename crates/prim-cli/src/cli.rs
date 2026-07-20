@@ -50,9 +50,9 @@ pub struct Cli {
     pub completions: Option<Shell>,
 }
 
-/// The three operating verbs (AD-0007). Each has its own exit-code contract:
-/// `fmt`/`fix` write and gate on format drift; `lint` never writes and gates
-/// on error-severity findings only.
+/// prim's formatting verbs plus the one-shot `init` scaffolder. AD-0007 still
+/// governs only the formatting verbs: `fmt`/`fix` write and gate on format
+/// drift; `lint` never writes and gates on error-severity findings only.
 #[derive(Subcommand, Debug)]
 pub enum Verb {
     /// Format the parsed formats and apply whitespace hygiene (writes in
@@ -62,6 +62,9 @@ pub enum Verb {
     Lint(LintArgs),
     /// Format, plus autofixable content rules on top of `fmt`.
     Fix(FixArgs),
+    /// Scaffold or minimally merge prim's Markdown strict-glob map into
+    /// `.editorconfig`.
+    Init(InitArgs),
 }
 
 /// Shared arguments for `fmt` and `fix`: both write in place by default and
@@ -143,4 +146,14 @@ pub struct LintArgs {
     /// Machine-readable report format for lint findings.
     #[arg(long, value_enum)]
     pub format: Option<OutputFormat>,
+}
+
+/// Arguments for `init`: scaffold or minimally merge `.editorconfig` in the
+/// target directory, defaulting to the current working directory.
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// The repository root to scaffold or update in place. prim reads
+    /// `book.toml` and writes only `.editorconfig` in this directory.
+    #[arg(value_name = "PATH")]
+    pub path: Option<PathBuf>,
 }

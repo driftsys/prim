@@ -83,6 +83,33 @@ source-code formatter and has **no plugin system**.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags).
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
+- **FR-3.5** prim shall provide `prim init [PATH]` as a one-time `.editorconfig`
+  scaffolder for Markdown lint-tier placement. With no existing `.editorconfig`,
+  it writes exactly:
+
+  ```ini
+  root = true
+  [*.md]
+  prim_mdlint_strict = false
+  [docs/**.md]
+  prim_mdlint_strict = true
+  [**/SUMMARY.md]
+  prim_mdlint_strict = false
+  ```
+
+  When `PATH/book.toml` exists, the strict middle glob shall use mdBook's
+  `[book].src` directory instead of `docs/`, defaulting to `src/**.md` when the
+  key is absent or the TOML is malformed. When `PATH/.editorconfig` already
+  exists, `prim init` shall merge minimally and never reorder or rewrite
+  unrelated bytes: leave an existing top-level `root = ...` untouched, otherwise
+  prepend `root = true` plus one blank line; for `[*.md]`, the detected strict
+  glob, and `[**/SUMMARY.md]`, leave any existing explicit
+  `prim_mdlint_strict = ...` untouched, append the missing key inside an
+  existing section, and insert any missing sections without moving existing
+  bytes so the final relative order still reads `[*.md]` → strict glob →
+  `[**/SUMMARY.md]` (appending at end-of-file only when no later prim section
+  needs to stay after it). Running `prim init` twice shall be a byte-identical
+  no-op on the second run.
 
 ## FR-4 — File discovery
 
