@@ -11,6 +11,13 @@
 //! warnings to errors. prim's severity is derived from that matrix, not from
 //! rumdl's built-in defaults.
 //!
+//! Story G5 (#61) adds the surgical override surface on top: a standalone
+//! `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
+//! overrides the `.editorconfig`-resolved strict tier for that file only.
+//! rumdl's own inline directives (`rumdl-disable`/`markdownlint-disable` +
+//! line/next-line/file scoping) need no wiring here — `rumdl_lib::lint`
+//! already applies them internally regardless of prim's `source_file: None`.
+//!
 //! Key guarantees:
 //!
 //! - `rumdl = "=0.2.35"` links with `default-features = false` (no
@@ -133,10 +140,17 @@ fn effective_severity(rule: &str, strict: bool) -> Option<PrimSeverity> {
 /// Lint `source` as Markdown content, returning prim's own diagnostics.
 ///
 /// `strict = false` runs the always-on floor tier; `strict = true` adds the
-/// strict tier and escalates warning-tier floor rules to errors. Lint-only:
-/// `source` is never modified. Rules are filtered from the full rumdl set by
-/// name so off/formatter-territory rules never run.
+/// strict tier and escalates warning-tier floor rules to errors. A file-level
+/// `<!-- prim-mdlint-strict: true|false -->` directive (story G5, #61)
+/// overrides `strict` for this file only — a surgical, per-file escape hatch
+/// on top of the `.editorconfig`-resolved default, matching the same
+/// precedence rumdl's own `rumdl-disable`/`markdownlint-disable` inline
+/// directives already get (rumdl applies those inside `rumdl_lib::lint`
+/// itself, independent of prim's `strict` matrix). Lint-only: `source` is
+/// never modified. Rules are filtered from the full rumdl set by name so
+/// off/formatter-territory rules never run.
 pub fn lint(source: &str, strict: bool) -> Vec<MdDiagnostic> {
+    let strict = file_level_strict_override(source).unwrap_or(strict);
     let cfg = Config::default();
     let rules: Vec<_> = all_rules(&cfg)
         .into_iter()
@@ -172,6 +186,36 @@ pub fn lint(source: &str, strict: bool) -> Vec<MdDiagnostic> {
             })
         })
         .collect()
+}
+
+/// Scan `source` for a standalone `<!-- prim-mdlint-strict: true|false -->`
+/// line (the whole line, once trimmed, must be exactly that comment) and
+/// return its boolean, or `None` if no such line is present. When several
+/// occurrences exist, the last one wins — consistent with a flat, top-to-
+/// bottom read of the file rather than a cascade. An unparseable value (e.g.
+/// `yes`) is ignored so a typo silently falls back to the caller's `strict`
+/// rather than erroring the whole lint run.
+fn file_level_strict_override(source: &str) -> Option<bool> {
+    source
+        .lines()
+        .filter_map(|line| directive_value(line.trim()))
+        .next_back()
+}
+
+/// Parse one standalone `<!-- prim-mdlint-strict: <value> -->` line into its
+/// boolean, or `None` if `line` isn't exactly that directive (wrong key,
+/// missing comment delimiters, or an unrecognized value).
+fn directive_value(line: &str) -> Option<bool> {
+    let inner = line.strip_prefix("<!--")?.strip_suffix("-->")?.trim();
+    let (key, value) = inner.split_once(':')?;
+    if key.trim() != "prim-mdlint-strict" {
+        return None;
+    }
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -332,5 +376,73 @@ This is an intentionally long line that would violate line-length linting if pri
         let before = src.to_string();
         let _ = lint(src, false);
         assert_eq!(src, before, "lint is read-only");
+    }
+
+    #[test]
+    fn file_level_directive_false_overrides_editorconfig_strict_true() {
+        // MD041 is strict-only; the directive drops the file back to floor
+        // even though the caller (an .editorconfig `prim_mdlint_strict =
+        // true` glob) asked for strict.
+        let src = "<!-- prim-mdlint-strict: false -->\nIntro\n\n# Title\n";
+        let diags = lint(src, true);
+        assert!(
+            diags.iter().all(|d| d.rule != "MD041"),
+            "directive drops the file to floor: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn file_level_directive_true_overrides_editorconfig_strict_false() {
+        // MD041 is strict-only; the directive raises this file to strict even
+        // though the caller (an .editorconfig floor-tier glob) asked for
+        // floor.
+        let src = "<!-- prim-mdlint-strict: true -->\nIntro\n\n# Title\n";
+        let diags = lint(src, false);
+        assert!(
+            diags.iter().any(|d| d.rule == "MD041"),
+            "directive raises the file to strict: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn last_file_level_directive_wins_when_several_are_present() {
+        let src = "<!-- prim-mdlint-strict: true -->\n\
+                    Intro\n\n# Title\n\n\
+                    <!-- prim-mdlint-strict: false -->\n";
+        let diags = lint(src, false);
+        assert!(
+            diags.iter().all(|d| d.rule != "MD041"),
+            "the later directive wins: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn directive_boolean_is_case_insensitive() {
+        let src = "<!-- prim-mdlint-strict: TRUE -->\nIntro\n\n# Title\n";
+        let diags = lint(src, false);
+        assert!(
+            diags.iter().any(|d| d.rule == "MD041"),
+            "TRUE is accepted: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn malformed_directive_value_is_ignored() {
+        let src = "<!-- prim-mdlint-strict: yes -->\nIntro\n\n# Title\n";
+        let diags = lint(src, true);
+        assert!(
+            diags.iter().any(|d| d.rule == "MD041"),
+            "a bad value falls back to the caller's strict setting: {diags:?}"
+        );
+    }
+
+    #[test]
+    fn a_look_alike_comment_that_is_not_the_sole_line_content_is_ignored() {
+        let src = "Some text <!-- prim-mdlint-strict: false --> more text\nIntro\n\n# Title\n";
+        let diags = lint(src, true);
+        assert!(
+            diags.iter().any(|d| d.rule == "MD041"),
+            "an inline (non-standalone) comment is not a directive: {diags:?}"
+        );
     }
 }

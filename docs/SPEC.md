@@ -239,6 +239,19 @@ default, format-in-place action.
     - **Exit-code implication:** warn-tier Markdown findings are still printed
       (and appear in JSON/SARIF output), but only error-tier findings raise
       `prim lint`'s exit code to `1`.
+  - **FR-5.5c** _(override surface, story G5)_ A standalone
+    `<!-- prim-mdlint-strict: true|false -->` line anywhere in a Markdown file
+    (the whole line, once trimmed) overrides FR-5.5b's `.editorconfig`-resolved
+    `prim_mdlint_strict` for that file only. When several such lines are
+    present, the last one (top-to-bottom) wins; an unrecognized value falls back
+    to the `.editorconfig`-resolved tier rather than erroring the lint run.
+    rumdl's own inline directives (`rumdl-disable`/`rumdl-enable`,
+    `markdownlint-disable`/`-enable`, and their line/next-line/file-scoped
+    forms) require no additional wiring: `rumdl_lib::lint` applies them
+    internally before returning findings, independent of the `source_file` prim
+    passes (`None`). No second config source is introduced — the override
+    surface is the strict boolean plus these two inline mechanisms, never a
+    per-rule matrix.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
   could not do its job (parse/IO/usage error). Warnings never raise the exit
