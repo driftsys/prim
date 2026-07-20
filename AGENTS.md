@@ -100,7 +100,10 @@ review flow.
 - **Single PR = code + tests + docs.** Every pull request ships implementation,
   tests, and updated documentation together.
 - **Commits.** Use Conventional Commits — `feat`, `fix`, `refactor`, `docs`,
-  `test`, `chore`. Imperative mood.
+  `test`, `chore`. Imperative mood. A commit that changes prim's canonical
+  output (see `docs/SPEC.md` § Style stability) must be `feat`/`feat!`, never
+  `fix`/`refactor`/`chore` — the changelog and version bump are generated from
+  commit type.
 - **Before PR.** Run `just verify` — all must pass.
 - **PR-based workflow — never push directly to `main`.**
 
