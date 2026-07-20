@@ -30,6 +30,11 @@ curl -sSfL https://raw.githubusercontent.com/driftsys/prim/main/install.sh | bas
 cargo install prim-cli
 ```
 
+Prebuilt binaries are published for Linux (x86-64/ARM64), macOS (Intel/Apple
+Silicon), and Windows (x86-64). For the full platform matrix, manual download
+with checksum verification, and building from source, see
+[docs/installation.md](docs/installation.md).
+
 ## Usage
 
 ```bash

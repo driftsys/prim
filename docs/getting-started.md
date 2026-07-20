@@ -19,14 +19,8 @@ cargo install prim-cli
 
 The crate is `prim-cli`; the installed binary is `prim`.
 
-### From source
-
-```bash
-git clone https://github.com/driftsys/prim
-cd prim
-./bootstrap          # installs git-std and configures git hooks
-cargo build --release
-```
+For the full platform matrix, manual download with checksum verification, and
+building from source, see [Installation](installation.md).
 
 ## First run
 
