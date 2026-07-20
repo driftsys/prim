@@ -339,8 +339,8 @@ fn run_check_idempotence_paths(args: &WriteArgs, excludes: &[String]) -> i32 {
 
     let mut any_non_idempotent = false;
     for (path, kind, style, _markdown_strict, _original, formatted) in results {
-        let reformatted = match prim_fmt::format(kind, &formatted, &style) {
-            Ok(text) => text,
+        let stable = match is_idempotent_second_pass(kind, &formatted, &style) {
+            Ok(stable) => stable,
             Err(err) => {
                 ui::error(&format!(
                     "{}: second formatting pass failed: {err}",
@@ -351,7 +351,7 @@ fn run_check_idempotence_paths(args: &WriteArgs, excludes: &[String]) -> i32 {
             }
         };
 
-        if forced_idempotence_failure(&path) || reformatted != formatted {
+        if !stable {
             any_non_idempotent = true;
             ui::would_reformat(&path);
         }
@@ -366,17 +366,17 @@ fn run_check_idempotence_paths(args: &WriteArgs, excludes: &[String]) -> i32 {
     }
 }
 
-#[cfg(debug_assertions)]
-fn forced_idempotence_failure(path: &Path) -> bool {
-    // Acceptance tests need a stable way to exercise the exit-1 branch without
-    // depending on a real formatter regression existing in the fixture corpus.
-    std::env::var_os("PRIM_TEST_FORCE_IDEMPOTENCE_FAILURE")
-        .is_some_and(|value| PathBuf::from(value).as_path() == path)
+fn is_idempotent_second_pass(
+    kind: FileKind,
+    formatted: &str,
+    style: &Style,
+) -> Result<bool, prim_fmt::FormatError> {
+    let reformatted = prim_fmt::format(kind, formatted, style)?;
+    Ok(second_pass_matches_first(formatted, &reformatted))
 }
 
-#[cfg(not(debug_assertions))]
-fn forced_idempotence_failure(_: &Path) -> bool {
-    false
+fn second_pass_matches_first(formatted: &str, reformatted: &str) -> bool {
+    formatted == reformatted
 }
 
 fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
@@ -444,4 +444,23 @@ fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
 
 fn emit_report(format: OutputFormat, mode: ReportMode, findings: &[Finding]) {
     print!("{}", report::render(format, mode, findings));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_idempotent_second_pass, second_pass_matches_first};
+    use prim_fmt::{FileKind, Style};
+
+    #[test]
+    fn comparison_flags_a_changed_second_pass() {
+        assert!(!second_pass_matches_first("once\n", "twice\n"));
+    }
+
+    #[test]
+    fn json_output_is_stable_on_a_second_pass() {
+        let style = Style::default();
+        let formatted = prim_fmt::format(FileKind::Json, "{\"a\":1}\n", &style).unwrap();
+
+        assert!(is_idempotent_second_pass(FileKind::Json, &formatted, &style).unwrap());
+    }
 }

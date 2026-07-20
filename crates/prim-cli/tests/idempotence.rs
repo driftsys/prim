@@ -40,10 +40,10 @@ fn check_idempotence_covers_hygiene_only_files_without_writing_them() {
 }
 
 #[test]
-fn check_idempotence_reports_a_non_idempotent_file_without_writing_it() {
+fn check_idempotence_ignores_hidden_environment_overrides() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("doc.json");
-    let original = "{\"a\":1}\n";
+    let original = "{ \"a\": 1 }\n";
     fs::write(&file, original).unwrap();
 
     prim()
@@ -51,8 +51,9 @@ fn check_idempotence_reports_a_non_idempotent_file_without_writing_it() {
         .env("PRIM_TEST_FORCE_IDEMPOTENCE_FAILURE", &file)
         .arg(&file)
         .assert()
-        .code(1)
-        .stdout(predicates::str::contains("doc.json"));
+        .success()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::is_empty());
 
     assert_eq!(fs::read_to_string(&file).unwrap(), original);
 }
