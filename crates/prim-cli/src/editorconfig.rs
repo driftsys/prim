@@ -1,15 +1,9 @@
-//! Resolve prim's [`Style`] from the `.editorconfig` cascade (FR-3).
+//! Resolve prim's [`Style`] and documented `prim_*` keys from the
+//! `.editorconfig` cascade (FR-3).
 //!
-//! Walking the directory tree and reading files is I/O, so resolution lives in
-//! the CLI crate; the engine consumes only the resolved [`Style`]. A missing
-//! `.editorconfig` yields the built-in canonical style (FR-3.1); an unreadable
-//! or malformed one falls back to it with a warning.
-//!
-//! [`Resolver`] caches the parsed cascade per directory: a repository with many
-//! files under the same tree parses each `.editorconfig` once instead of once
-//! per file. Per-glob sections still resolve per file (two files in one
-//! directory can differ), so only the file-reading and parsing is cached, never
-//! the glob matching — the result is byte-identical to an uncached resolve.
+//! Resolution lives in the CLI crate because it does I/O; `prim-fmt` consumes
+//! only the resolved [`Style`]. [`Resolver`] caches parsed cascades per
+//! directory, but still resolves glob sections per file.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -66,11 +60,19 @@ impl Resolver {
         style_from(self.properties_for(path))
     }
 
+    /// Resolve one documented `prim_*` boolean key for `path`. This stays
+    /// private so prim keeps a closed allowlist rather than exposing a generic
+    /// custom-key lookup API.
+    fn resolve_prim_bool_key(&mut self, path: &Path, key: &str) -> Option<bool> {
+        prim_bool_from(&self.properties_for(path), key)
+    }
+
     /// Resolve `prim_mdlint_strict` for `path`, reusing the cached cascade for
     /// its directory when one is present. Unset or non-`true` values fall back
     /// to `false`, matching story G3's floor-by-default contract.
     pub fn resolve_mdlint_strict(&mut self, path: &Path) -> bool {
-        mdlint_strict_from(&self.properties_for(path))
+        self.resolve_prim_bool_key(path, MDLINT_STRICT_KEY)
+            .unwrap_or(false)
     }
 }
 
@@ -87,15 +89,8 @@ pub fn resolve_mdlint_strict(path: &Path) -> bool {
 }
 
 /// Parse the `.editorconfig` cascade that applies to files in `dir`, once.
-///
-/// Uses [`ConfigFiles::open`] to find and open the applicable configs (walking
-/// up to the nearest `root = true`), then collects each config's sections into
-/// an owned, reusable list. The iteration yields configs root-first, which is
-/// the order [`apply`] must replay. A config that cannot be read or parsed is
-/// reported once (per directory, not per file) and dropped.
 fn build_cascade(dir: &Path) -> Cascade {
-    // A probe filename makes `ConfigFiles` walk upward from `dir`; the configs
-    // found depend only on the directory, so the probe's name never matters.
+    // The probe name is irrelevant; only the directory controls the walk.
     let probe = dir.join(".editorconfig");
     let files = match ConfigFiles::open(&probe, Option::<&Path>::None) {
         Ok(files) => files,
@@ -116,10 +111,8 @@ fn build_cascade(dir: &Path) -> Cascade {
             match section {
                 Ok(section) => sections.push(section),
                 Err(err) => {
-                    // A malformed config anywhere in the chain discards the whole
-                    // cascade and falls back to canonical style, matching
-                    // `ec4rs::properties_of` — which fails the entire resolution
-                    // on a parse error, not just the offending file.
+                    // Match `ec4rs::properties_of`: one malformed config drops
+                    // the whole cascade back to canonical style.
                     ui::warning(&format!(
                         "{}: ignoring malformed .editorconfig ({err}); using canonical style",
                         file.path.display()
@@ -136,16 +129,12 @@ fn build_cascade(dir: &Path) -> Cascade {
     cascade
 }
 
-/// Apply a cascade to `path`, mirroring `ec4rs`: each config's sections are
-/// matched against the path made relative to that config's directory, applied
-/// root-first so nearer configs win, then EditorConfig fallbacks are filled in.
+/// Apply a cascade to `path`, matching `ec4rs`.
 fn apply(cascade: &Cascade, path: &Path) -> Properties {
     let mut props = Properties::new();
     for cfg in cascade {
         let relative = path.strip_prefix(&cfg.dir).unwrap_or(path);
         for section in &cfg.sections {
-            // Applying a pre-parsed section only matches a glob and writes keys;
-            // it cannot fail the way parsing can.
             let _ = section.apply_to(&mut props, relative);
         }
     }
@@ -153,12 +142,10 @@ fn apply(cascade: &Cascade, path: &Path) -> Properties {
     props
 }
 
-/// Map resolved [`Properties`] onto prim's [`Style`], keeping canonical defaults
-/// for any key the cascade did not set.
+/// Map resolved [`Properties`] onto prim's [`Style`].
 fn style_from(cfg: Properties) -> Style {
     let mut style = Style::default();
     if let Ok(eol) = cfg.get::<EndOfLine>() {
-        // FR-2.3 carves out crlf only; deprecated bare `cr` falls back to LF.
         style.end_of_line = match eol {
             EndOfLine::CrLf => LineEnding::CrLf,
             EndOfLine::Lf | EndOfLine::Cr => LineEnding::Lf,
@@ -180,11 +167,7 @@ fn style_from(cfg: Properties) -> Style {
     style
 }
 
-fn mdlint_strict_from(cfg: &Properties) -> bool {
-    raw_bool_from(cfg, MDLINT_STRICT_KEY).unwrap_or(false)
-}
-
-fn raw_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
+fn prim_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
     cfg.get_raw_for_key(key)
         .into_option()
         .map(|value| value.eq_ignore_ascii_case("true"))
@@ -334,10 +317,6 @@ mod tests {
 
     #[test]
     fn malformed_config_in_cascade_discards_the_whole_cascade() {
-        // A valid root config with a malformed child: `ec4rs::properties_of`
-        // fails the entire resolution, so old prim fell back to canonical style.
-        // The cache must match that — dropping just the broken child (and
-        // keeping the root's `indent_style=tab`) would change output bytes.
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join(".editorconfig"),
@@ -362,8 +341,6 @@ mod tests {
 
     #[test]
     fn cache_serves_same_directory_from_one_parse() {
-        // Two files in the same directory share the cascade but keep their own
-        // per-glob resolution.
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join(".editorconfig"),
@@ -377,36 +354,19 @@ mod tests {
         assert_eq!(md.indent, Indent::Spaces(2));
         assert_eq!(toml.indent, Indent::Tab);
         assert_eq!(toml.max_line_length, None);
-        // One directory cached.
         assert_eq!(resolver.cache.len(), 1);
     }
 
-    // --- SPIKE #41: custom `prim_*` keys + glob-section precedence ---
-    //
-    // Proves prim's real cascade (`build_cascade` + `apply`) exposes namespaced
-    // custom keys per matching section, with EditorConfig's more-specific /
-    // later-wins precedence. This is the resolver recipe story C1 (#46) and the
-    // G3/G4 strict-glob map (#59/#60) build on. Reading is via
-    // `Properties::get_raw_for_key`, which prim already links through `ec4rs`.
+    // --- Custom `prim_*` keys + glob-section precedence ---
 
-    /// Resolve a `prim_*` boolean custom key for `relative` under `dir`, exactly
-    /// as C1 will: build prim's cascade, apply the glob sections, then read the
-    /// raw value. `None` when the key is unset for that path.
+    /// Test-only helper over the production resolver.
     fn resolve_prim_bool(dir: &Path, relative: &str, key: &str) -> Option<bool> {
         let path = dir.join(relative);
-        // Mirror `Resolver::resolve`: the cascade is built for the file's parent
-        // directory, so a nearer config in a subdirectory is discovered.
-        let parent = path.parent().unwrap_or(dir);
-        let cascade = build_cascade(parent);
-        raw_bool_from(&apply(&cascade, &path), key)
+        Resolver::new().resolve_prim_bool_key(&path, key)
     }
 
     #[test]
     fn prim_custom_key_resolves_per_glob_more_specific_later_wins() {
-        // The default G4 placement map: a floor for all Markdown, a strict tier
-        // under docs/, and SUMMARY.md pulled back to the floor. EditorConfig has
-        // no specificity ranking — "more specific" is expressed by ordering the
-        // narrower section later, so the last matching section wins.
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join(".editorconfig"),
@@ -421,19 +381,16 @@ mod tests {
         .unwrap();
 
         let key = "prim_mdlint_strict";
-        // A top-level doc matches only [*.md] → floor.
         assert_eq!(
             resolve_prim_bool(dir.path(), "README.md", key),
             Some(false),
             "top-level doc is floor"
         );
-        // A doc under docs/ matches [*.md] then [docs/**.md] → strict wins.
         assert_eq!(
             resolve_prim_bool(dir.path(), "docs/guide.md", key),
             Some(true),
             "docs/ doc is strict"
         );
-        // SUMMARY.md also matches the narrowest, latest section → back to floor.
         assert_eq!(
             resolve_prim_bool(dir.path(), "docs/SUMMARY.md", key),
             Some(false),
@@ -443,8 +400,6 @@ mod tests {
 
     #[test]
     fn nearer_config_overrides_prim_key_from_a_farther_one() {
-        // The cascade's later-wins rule (nearer config beats farther) applies to
-        // custom keys just as it does to standard ones.
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join(".editorconfig"),
@@ -482,13 +437,17 @@ mod tests {
     }
 
     #[test]
-    fn unknown_prim_keys_do_not_disturb_standard_style() {
-        // A custom key alongside standard keys must not break Style resolution
-        // (fail-safe: prim ignores keys it does not understand).
+    fn unknown_prim_keys_are_ignored_without_affecting_known_keys_or_style() {
         let (_d, style) = resolve_in(
-            "root = true\n[*.md]\nprim_mdlint_strict = true\nmax_line_length = 100\n",
+            "root = true\n\
+             [*.md]\n\
+             prim_totally_made_up_key = true\n\
+             prim_mdlint_strict = true\n\
+             max_line_length = 100\n",
             "a.md",
         );
+        let path = _d.path().join("a.md");
+        assert!(resolve_mdlint_strict(&path));
         assert_eq!(style.max_line_length, Some(100));
         assert_eq!(
             style,
@@ -496,7 +455,35 @@ mod tests {
                 max_line_length: Some(100),
                 ..Style::default()
             },
-            "custom keys are ignored; only standard keys shape Style"
+            "unknown prim_* keys are ignored; only standard keys shape Style"
+        );
+    }
+
+    #[test]
+    fn standard_and_documented_prim_keys_resolve_together_for_the_same_file() {
+        let (_d, style) = resolve_in(
+            "root = true\n\
+             [*.md]\n\
+             indent_style = space\n\
+             indent_size = 4\n\
+             end_of_line = crlf\n\
+             insert_final_newline = false\n\
+             trim_trailing_whitespace = false\n\
+             max_line_length = 120\n\
+             prim_mdlint_strict = true\n",
+            "guide.md",
+        );
+        let path = _d.path().join("guide.md");
+        assert!(resolve_mdlint_strict(&path));
+        assert_eq!(
+            style,
+            Style {
+                end_of_line: LineEnding::CrLf,
+                trim_trailing_whitespace: false,
+                insert_final_newline: false,
+                indent: Indent::Spaces(4),
+                max_line_length: Some(120),
+            }
         );
     }
 }

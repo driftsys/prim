@@ -53,13 +53,18 @@ props
 
 ## Notes for story C1 (#46)
 
-- **Where it lands.** `Style` gains namespaced fields (e.g. a
-  `prim_mdlint_strict: bool`), populated in `style_from` from `get_raw_for_key`,
-  mirroring how standard keys are mapped today. The spike read the raw value in
-  a test helper to avoid prematurely widening `Style`.
-- **Key set is a closed allowlist.** C1 documents the exact `prim_*` keys it
-  reads (`prim_mdlint_strict`, `prim_md_list_marker`, …); anything else is
+- **Where it landed.** G3 established the right boundary: formatting keys still
+  resolve into `prim_fmt::Style`, while lint-only `prim_*` keys resolve
+  separately in `crates/prim-cli/src/editorconfig.rs`. C1 keeps that split and
+  generalizes it with a shared private helper for documented boolean `prim_*`
+  keys; `Style` does **not** grow lint-only fields.
+- **Key set is a closed allowlist.** C1 documents the exact `prim_*` keys prim
+  reads. Today that set contains only `prim_mdlint_strict`; anything else is
   ignored (proven fail-safe).
+- **Scope decision recorded.** The AC's `prim_md_list_marker` text was
+  illustrative, not a committed deliverable. C1 deliberately does not add that
+  key because prim has no list-marker consumer today, and this story is about
+  hardening the resolver pattern rather than inventing new behavior.
 - **Keys are case-insensitive (lowercased by EditorConfig); parse values
   case-insensitively.** The spike compares with `eq_ignore_ascii_case`.
 - **No AC change.** C1 and G3/G4 acceptance criteria hold as written; ec4rs
