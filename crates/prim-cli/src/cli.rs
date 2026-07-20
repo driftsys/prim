@@ -40,6 +40,10 @@ pub struct Cli {
     #[arg(long, value_name = "GLOB", global = true)]
     pub exclude: Vec<String>,
 
+    /// Ignore VCS ignore files (.gitignore, global gitignore, .git/info/exclude).
+    #[arg(long, global = true)]
+    pub no_ignore: bool,
+
     /// When to use coloured output.
     #[arg(long, default_value = "auto", global = true)]
     pub color: ColorWhen,
@@ -156,4 +160,28 @@ pub struct InitArgs {
     /// `book.toml` and writes only `.editorconfig` in this directory.
     #[arg(value_name = "PATH")]
     pub path: Option<PathBuf>,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::{Cli, Verb};
+
+    #[test]
+    fn no_ignore_is_accepted_before_formatting_verbs() {
+        for argv in [
+            ["prim", "--no-ignore", "fmt", "."].as_slice(),
+            ["prim", "--no-ignore", "lint", "."].as_slice(),
+            ["prim", "--no-ignore", "fix", "."].as_slice(),
+        ] {
+            let cli =
+                Cli::try_parse_from(argv).unwrap_or_else(|err| panic!("argv {argv:?}: {err}"));
+            assert!(cli.no_ignore, "argv: {argv:?}");
+            assert!(matches!(
+                cli.verb,
+                Verb::Fmt(_) | Verb::Lint(_) | Verb::Fix(_)
+            ));
+        }
+    }
 }

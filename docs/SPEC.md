@@ -115,8 +115,13 @@ source-code formatter and has **no plugin system**.
 
 - **FR-4.1** prim shall default to the current working directory, recursively,
   when given no paths.
-- **FR-4.2** prim shall respect `.gitignore` and `.ignore` (via the `ignore`
-  crate) without invoking git, and shall function in non-git directories.
+- **FR-4.2** prim shall respect `.gitignore`, `.git/info/exclude`, global
+  gitignore rules, and `.ignore` (via the `ignore` crate) without invoking git,
+  and shall function in non-git directories.
+- **FR-4.2a** `--no-ignore` shall disable only the git-family ignore rules from
+  FR-4.2 (`.gitignore`, global gitignore, `.git/info/exclude`). It shall not
+  disable `.primignore`, CLI `--exclude` globs, or the `.git/`
+  metadata-directory prune.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax).
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
@@ -270,9 +275,13 @@ default, format-in-place action.
 - **NFR-1** One statically linked binary, zero runtime dependencies.
 - **NFR-2** Linux/macOS/Windows on `amd64` + `arm64`.
 - **NFR-3** _(determinism)_ identical input → byte-identical output on every
-  supported platform.
+  supported platform. Parallel file processing must preserve discovery order for
+  reports and deferred warnings/errors so output stays byte-identical across
+  runs.
 - **NFR-4** _(throughput)_ format a 5,000-file repository in under 2 s on an
-  8-core machine with warm cache, parallelized across files.
+  8-core machine with warm cache, parallelized across files. prim satisfies this
+  by parallelizing the per-file read → style-resolution → format pipeline across
+  discovered files.
 - **NFR-5** _(footprint)_ peak memory scales with the largest single file, not
   repository size.
 

@@ -11,13 +11,14 @@
 //! This keeps `prim README.md`, `prim fmt README.md`,
 //! `prim --color=always fmt README.md`, and the deprecated `prim --check`
 //! all working, regardless of where global flags like `--color`/`--exclude`/
-//! `--completions` (declared `global = true` on `Cli`) appear relative to the
-//! verb.
+//! `--completions`/`--no-ignore` (declared `global = true` on `Cli`) appear
+//! relative to the verb.
 
 use crate::cli::FmtArgs;
 
 const VERBS: &[&str] = &["fmt", "lint", "fix", "init"];
 const GLOBAL_ONLY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
+const GLOBAL_BOOL_FLAGS: &[&str] = &["--no-ignore"];
 /// Global flags that consume a value — either as a separate following token
 /// (`--color always`) or attached with `=` (`--color=always`) — and so must
 /// be skipped over, value and all, while scanning for a verb.
@@ -36,6 +37,11 @@ pub fn inject_default_verb(args: Vec<String>) -> (Vec<String>, bool) {
         if VERBS.contains(&token) || GLOBAL_ONLY_FLAGS.contains(&token) {
             leave_unchanged = true;
             break;
+        }
+
+        if GLOBAL_BOOL_FLAGS.contains(&token) {
+            index += 1;
+            continue;
         }
 
         let flag_name = token.split('=').next().unwrap_or(token);
@@ -143,6 +149,20 @@ mod tests {
             assert_eq!(adjusted, expected, "rest: {rest:?}");
             assert!(!injected, "rest: {rest:?}");
         }
+    }
+
+    #[test]
+    fn global_boolean_flag_before_an_explicit_verb_does_not_shadow_it() {
+        let (adjusted, injected) = inject_default_verb(argv(&["--no-ignore", "lint", "doc.txt"]));
+        assert_eq!(adjusted, argv(&["--no-ignore", "lint", "doc.txt"]));
+        assert!(!injected);
+    }
+
+    #[test]
+    fn global_boolean_flag_without_a_verb_still_injects_fmt() {
+        let (adjusted, injected) = inject_default_verb(argv(&["--no-ignore", "doc.txt"]));
+        assert_eq!(adjusted, argv(&["fmt", "--no-ignore", "doc.txt"]));
+        assert!(injected);
     }
 
     #[test]

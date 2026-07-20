@@ -67,3 +67,25 @@ fn malformed_exclude_glob_is_a_usage_error() {
         .code(2)
         .stderr(predicates::str::contains("--exclude"));
 }
+
+#[test]
+fn no_ignore_includes_git_info_exclude_matches_in_fmt_check() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git/info")).unwrap();
+    std::fs::write(dir.path().join(".git/info/exclude"), "hidden.json\n").unwrap();
+    std::fs::write(dir.path().join("hidden.json"), "{\"a\":1}\n").unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["fmt", "--check"])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+
+    prim()
+        .current_dir(dir.path())
+        .args(["--no-ignore", "fmt", "--check"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("hidden.json"));
+}

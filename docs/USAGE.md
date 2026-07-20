@@ -18,9 +18,9 @@ required for the common case.
 
 ## Arguments
 
-| Argument    | Description                                                                                                                                                            |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[PATH]...` | Files or directories to process. Directories are searched recursively (honoring `.gitignore`/`.ignore`/`.primignore`); defaults to the current directory when omitted. |
+| Argument    | Description                                                                                                                                                                                                            |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[PATH]...` | Files or directories to process. Directories are searched recursively (honoring `.gitignore`/`.git/info/exclude`/global gitignore/`.ignore`/`.primignore` by default); defaults to the current directory when omitted. |
 
 ## Options
 
@@ -32,6 +32,7 @@ required for the common case.
 | `--format <json\|sarif>`        | `fmt --check`, `lint` | Emit machine-readable findings to stdout instead of the default plain-text report. Valid only on `fmt --check` and `lint`.                                                                               |
 | `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix`  | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`.                                                                               |
 | `--exclude <GLOB>`              | all                   | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                                                                                                         |
+| `--no-ignore`                   | `fmt`, `lint`, `fix`  | Disable only VCS ignore files (`.gitignore`, global gitignore, `.git/info/exclude`). `.primignore`, `--exclude`, and the `.git/` directory prune still apply.                                            |
 | `--color <auto\|always\|never>` | all                   | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                                                                                                                  |
 | `--completions <SHELL>`         | global                | Generate a shell completion script and print it to stdout.                                                                                                                                               |
 | `-h, --help`                    | global                | Print help.                                                                                                                                                                                              |
@@ -58,6 +59,9 @@ Warnings never raise the exit code; only errors do.
 - **`fmt --check`** (also `fix --check`) — a CI gate: exit `1` and list the
   files that would change. Add `--format json` or `--format sarif` to emit the
   same findings as a machine-readable report instead of the default path list.
+- **`--no-ignore`** — keep prim's own filters (`.primignore`, `--exclude`, and
+  `.git/` pruning) but ignore VCS ignore files so paths hidden by `.gitignore`,
+  global gitignore, or `.git/info/exclude` are walked again.
 - **`fmt --diff`** — preview pending changes without writing; always exits `0`
   (`--check` is the CI gate).
 - **`fmt --check-idempotence`** — a formatter self-check: prim formats each

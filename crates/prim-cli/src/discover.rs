@@ -22,23 +22,28 @@ pub struct Discovered {
 ///
 /// With no `paths`, walks the current directory recursively. Explicit file
 /// arguments are taken directly; explicit directories (and the cwd) are walked,
-/// honoring `.gitignore`, `.ignore`, `.primignore`, and `--exclude` globs.
+/// honoring `.ignore`, `.primignore`, `--exclude` globs, and (unless disabled)
+/// git-family ignore files like `.gitignore` and `.git/info/exclude`.
 /// Results are sorted and de-duplicated; a path reached both explicitly and via
 /// a walk is marked explicit.
 /// Fails when an `--exclude` glob is malformed (FR-4.5): a typo'd filter must
 /// be a usage error, not a silently ignored one.
-pub fn collect(paths: &[PathBuf], excludes: &[String]) -> Result<Vec<Discovered>, ignore::Error> {
+pub fn collect(
+    paths: &[PathBuf],
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+) -> Result<Vec<Discovered>, ignore::Error> {
     validate_excludes(excludes)?;
     // BTreeMap keeps results sorted by path and de-duplicated; the bool is the
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
 
     if paths.is_empty() {
-        walk_into(Path::new("."), excludes, &mut selected);
+        walk_into(Path::new("."), excludes, respect_vcs_ignore, &mut selected);
     } else {
         for path in paths {
             if path.is_dir() {
-                walk_into(path, excludes, &mut selected);
+                walk_into(path, excludes, respect_vcs_ignore, &mut selected);
             } else {
                 // A file, or a non-existent path: include it as explicit and
                 // let the caller surface any read error (FR-6 fail-safe).
@@ -69,12 +74,22 @@ fn validate_excludes(excludes: &[String]) -> Result<(), ignore::Error> {
 }
 
 /// Walk `root` recursively, adding every regular file with walked provenance.
-fn walk_into(root: &Path, excludes: &[String], selected: &mut BTreeMap<PathBuf, bool>) {
+fn walk_into(
+    root: &Path,
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+    selected: &mut BTreeMap<PathBuf, bool>,
+) {
     let mut walker = WalkBuilder::new(root);
     walker
-        // Honor .gitignore/.ignore even outside a git repo, without invoking
-        // git (FR-4.2).
-        .standard_filters(true)
+        // Keep `.ignore` support and parent-directory matching on, but let
+        // `--no-ignore` disable only the git-family ignore files.
+        .standard_filters(false)
+        .parents(true)
+        .ignore(true)
+        .git_ignore(respect_vcs_ignore)
+        .git_global(respect_vcs_ignore)
+        .git_exclude(respect_vcs_ignore)
         .require_git(false)
         // Include dotfiles so allowlisted ones (.gitignore, .editorconfig,
         // .mailmap, …) are reachable; the VCS metadata directory is pruned below.
@@ -133,7 +148,7 @@ mod tests {
         write(&dir.path().join("a.md"), "a\n");
         write(&dir.path().join("sub/b.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
+        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
         let mut got = names(&found);
         got.sort();
         assert_eq!(got, vec!["a.md", "b.json"]);
@@ -150,10 +165,34 @@ mod tests {
         write(&dir.path().join("ignored.md"), "x\n");
         write(&dir.path().join("kept.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
+        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
         let got = names(&found);
         assert!(got.contains(&"kept.md".to_string()));
         assert!(!got.contains(&"ignored.md".to_string()));
+    }
+
+    #[test]
+    fn respects_git_info_exclude_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".git/info/exclude"), "ignored.md\n");
+        write(&dir.path().join("ignored.md"), "x\n");
+        write(&dir.path().join("kept.md"), "x\n");
+
+        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let got = names(&found);
+        assert!(got.contains(&"kept.md".to_string()));
+        assert!(!got.contains(&"ignored.md".to_string()));
+    }
+
+    #[test]
+    fn no_ignore_reincludes_git_info_exclude_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".git/info/exclude"), "ignored.md\n");
+        write(&dir.path().join("ignored.md"), "x\n");
+
+        let found = collect(&[dir.path().to_path_buf()], &[], false).unwrap();
+        let got = names(&found);
+        assert!(got.contains(&"ignored.md".to_string()));
     }
 
     #[test]
@@ -163,10 +202,20 @@ mod tests {
         write(&dir.path().join("skip.json"), "{}\n");
         write(&dir.path().join("keep.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
+        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
         let got = names(&found);
         assert!(got.contains(&"keep.json".to_string()));
         assert!(!got.contains(&"skip.json".to_string()));
+    }
+
+    #[test]
+    fn no_ignore_does_not_bypass_primignore() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".primignore"), "skip.json\n");
+        write(&dir.path().join("skip.json"), "{}\n");
+
+        let found = collect(&[dir.path().to_path_buf()], &[], false).unwrap();
+        assert!(!names(&found).contains(&"skip.json".to_string()));
     }
 
     #[test]
@@ -175,7 +224,7 @@ mod tests {
         write(&dir.path().join("keep.md"), "x\n");
         write(&dir.path().join("drop.log"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &["*.log".to_string()]).unwrap();
+        let found = collect(&[dir.path().to_path_buf()], &["*.log".to_string()], true).unwrap();
         let got = names(&found);
         assert!(got.contains(&"keep.md".to_string()));
         assert!(!got.contains(&"drop.log".to_string()));
@@ -187,7 +236,7 @@ mod tests {
         let file = dir.path().join("named.toml");
         write(&file, "x = 1\n");
 
-        let found = collect(std::slice::from_ref(&file), &[]).unwrap();
+        let found = collect(std::slice::from_ref(&file), &[], true).unwrap();
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
         assert_eq!(found[0].path, file);
@@ -195,7 +244,7 @@ mod tests {
 
     #[test]
     fn nonexistent_explicit_path_is_included_as_explicit() {
-        let found = collect(&[PathBuf::from("/no/such/prim/fixture.md")], &[]).unwrap();
+        let found = collect(&[PathBuf::from("/no/such/prim/fixture.md")], &[], true).unwrap();
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
     }
@@ -206,7 +255,7 @@ mod tests {
         write(&dir.path().join(".editorconfig"), "root = true\n");
         write(&dir.path().join("a.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
+        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
         let got = names(&found);
         assert!(
             got.contains(&".editorconfig".to_string()),
@@ -220,7 +269,7 @@ mod tests {
         write(&dir.path().join(".git/config"), "[core]\n");
         write(&dir.path().join("a.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[]).unwrap();
+        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
         let paths: Vec<String> = found
             .iter()
             .map(|d| d.path.to_string_lossy().replace('\\', "/"))
@@ -232,6 +281,22 @@ mod tests {
     }
 
     #[test]
+    fn no_ignore_still_prunes_dot_git_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".git/info/exclude"), "ignored.md\n");
+        write(&dir.path().join(".git/hooks/post-checkout.md"), "# hook\n");
+        write(&dir.path().join("kept.md"), "x\n");
+
+        let found = collect(&[dir.path().to_path_buf()], &[], false).unwrap();
+        let paths: Vec<String> = found
+            .iter()
+            .map(|d| d.path.to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert!(paths.iter().all(|path| !path.contains("/.git/")));
+        assert!(paths.iter().any(|path| path.ends_with("/kept.md")));
+    }
+
+    #[test]
     fn results_are_sorted_and_deduped_with_explicit_winning() {
         let dir = tempfile::tempdir().unwrap();
         write(&dir.path().join("a.md"), "a\n");
@@ -239,7 +304,7 @@ mod tests {
         let a = dir.path().join("a.md");
 
         // a.md reached both via the walk and named explicitly.
-        let found = collect(&[dir.path().to_path_buf(), a.clone()], &[]).unwrap();
+        let found = collect(&[dir.path().to_path_buf(), a.clone()], &[], true).unwrap();
 
         // De-duplicated: a.md appears once.
         assert_eq!(found.iter().filter(|d| d.path == a).count(), 1);
