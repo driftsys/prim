@@ -5,6 +5,11 @@
 //! The server advertises **Full** document sync (never splicing incremental
 //! deltas) and `documentFormattingProvider`; it runs the same engine as
 //! `prim fmt`, so an editor save and a CLI run produce identical bytes.
+//!
+//! The surface is deliberately format-only: no diagnostics, hover, or semantic
+//! highlighting (prim is a formatter, not a general language server).
+//! Surfacing prim's existing lint findings (B1/G2) as LSP diagnostics is
+//! tracked debt — see issue #83.
 
 mod protocol;
 mod server;
