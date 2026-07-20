@@ -11,6 +11,7 @@ mod discover;
 mod editorconfig;
 mod explain;
 mod init;
+mod lsp;
 mod provenance;
 mod report;
 mod ui;

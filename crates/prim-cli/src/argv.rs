@@ -17,7 +17,7 @@
 
 use crate::cli::FmtArgs;
 
-const VERBS: &[&str] = &["fmt", "lint", "fix", "init", "explain"];
+const VERBS: &[&str] = &["fmt", "lint", "fix", "init", "explain", "lsp"];
 const GLOBAL_ONLY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
 const GLOBAL_BOOL_FLAGS: &[&str] = &["--no-ignore", "--staged"];
 /// Global flags that consume a value — either as a separate following token

@@ -4,20 +4,22 @@
 prim [fmt|lint|fix] [OPTIONS] [PATH]...
 prim init [PATH]
 prim explain <PATH>
+prim lsp
 ```
 
-prim exposes three formatting verbs (AD-0007) plus two utilities: `init` (repo
-setup) and `explain` (config introspection). Bare `prim [PATH]...` is a
-permanent alias for `prim fmt [PATH]...` — no verb is required for the common
-case.
+prim exposes three formatting verbs (AD-0007) plus three utilities: `init` (repo
+setup), `explain` (config introspection), and `lsp` (a format-on-save language
+server). Bare `prim [PATH]...` is a permanent alias for `prim fmt [PATH]...` —
+no verb is required for the common case.
 
-| Command   | Writes?              | Purpose                                                                                    |
-| --------- | -------------------- | ------------------------------------------------------------------------------------------ |
-| `fmt`     | yes (in place)       | Format the parsed formats + whitespace hygiene. Default action.                            |
-| `lint`    | never                | Report hygiene and content violations only.                                                |
-| `fix`     | yes (in place)       | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
-| `init`    | `.editorconfig` only | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
-| `explain` | never                | Print the `.editorconfig` settings that apply to one file, and where each came from.       |
+| Command   | Writes?               | Purpose                                                                                    |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------ |
+| `fmt`     | yes (in place)        | Format the parsed formats + whitespace hygiene. Default action.                            |
+| `lint`    | never                 | Report hygiene and content violations only.                                                |
+| `fix`     | yes (in place)        | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
+| `init`    | `.editorconfig` only  | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
+| `explain` | never                 | Print the `.editorconfig` settings that apply to one file, and where each came from.       |
+| `lsp`     | never (returns edits) | Run an LSP formatting server over stdio for editor format-on-save.                         |
 
 ## Arguments
 
@@ -233,6 +235,86 @@ settings (`end_of_line`, `trim_trailing_whitespace`, `insert_final_newline`);
 Markdown additionally shows `prim_mdlint_strict`. A path prim does not format at
 all reports a warning (`not a file type prim formats; skipped`) and prints no
 settings, but still exits `0` — `explain` never gates a build.
+
+## `prim lsp`
+
+`prim lsp` runs a
+[Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+server over stdin/stdout, exposing prim's formatter as a **document formatting
+provider**. Point an editor's LSP client at it and prim formats prim-owned files
+through the editor's native format-on-save, running the exact same engine as
+`prim fmt` — an editor save and a CLI run produce byte-identical output.
+
+It is deliberately narrow: it advertises **only** whole-document formatting and
+**Full** document sync. It never publishes diagnostics, completions, or hovers,
+and it never splices incremental edits — prim is a formatter, not a general
+language server. Requesting to format a file prim does not own, or one that is
+already canonical, returns no edits; a file prim cannot parse is left untouched
+(no edits), matching `--stdin-filepath`'s fail-safe contract.
+
+The server honors `.editorconfig` exactly as the CLI does; the client's
+`FormattingOptions` (tab size, insert-spaces) are ignored in favour of prim's
+resolved style.
+
+### VS Code
+
+prim has no bundled extension yet; wire it through a generic LSP client such as
+[`vscode-glspc`](https://marketplace.visualstudio.com/items?itemName=eirikpre.vscode-glspc)
+or any "generic LSP" bridge, pointing its server command at `prim lsp` and its
+document selector at the prim-owned languages (`json`, `jsonc`, `yaml`, `toml`,
+`markdown`, `plaintext`). Then enable format-on-save:
+
+```jsonc
+// settings.json
+{
+  "glspc.languageId": "markdown",
+  "glspc.serverCommand": "prim",
+  "glspc.serverCommandArguments": ["lsp"],
+  "editor.formatOnSave": true
+}
+```
+
+### Neovim (0.8+)
+
+Register prim as a formatting-only server with the built-in LSP client:
+
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "json", "jsonc", "yaml", "toml", "markdown", "text" },
+  callback = function(args)
+    vim.lsp.start({
+      name = "prim",
+      cmd = { "prim", "lsp" },
+      root_dir = vim.fs.dirname(vim.fs.find({ ".editorconfig", ".git" }, { upward = true })[1]),
+    }, { bufnr = args.buf })
+  end,
+})
+
+-- Format the prim-owned buffer on save.
+vim.api.nvim_create_autocmd("BufWritePre", {
+  pattern = { "*.json", "*.jsonc", "*.yaml", "*.yml", "*.toml", "*.md" },
+  callback = function() vim.lsp.buf.format() end,
+})
+```
+
+### Zed
+
+Add prim as a formatter-only language server and select it per language in
+`settings.json`:
+
+```jsonc
+{
+  "lsp": {
+    "prim": { "binary": { "path": "prim", "arguments": ["lsp"] } }
+  },
+  "languages": {
+    "Markdown": { "format_on_save": "on", "language_servers": ["prim"] },
+    "JSON": { "format_on_save": "on", "language_servers": ["prim"] },
+    "YAML": { "format_on_save": "on", "language_servers": ["prim"] },
+    "TOML": { "format_on_save": "on", "language_servers": ["prim"] }
+  }
+}
+```
 
 ## Machine-readable output
 
