@@ -1599,6 +1599,7 @@ dependencies = [
  "jsonschema",
  "predicates",
  "prim-fmt",
+ "rayon",
  "serde",
  "serde_json",
  "similar",

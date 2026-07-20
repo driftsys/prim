@@ -2,11 +2,13 @@
 //! AD-0007) plus the one-shot `init` scaffolder.
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+mod load;
+
+use self::load::load_and_format;
 use crate::cli::{Cli, FixArgs, FmtArgs, InitArgs, LintArgs, OutputFormat, Verb, WriteArgs};
 use crate::diff;
-use crate::discover;
 use crate::editorconfig;
 use crate::init;
 use crate::report::{self, Finding, ReportMode};
@@ -32,10 +34,6 @@ const FORMAT_DRIFT_CODE: &str = "format::drift";
 const FORMAT_CHECK_FINDING: &str = "would be reformatted";
 const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix)";
 
-/// A file that formatted successfully: its path, kind, resolved style,
-/// the resolved Markdown strict-tier toggle, original text, and formatted text.
-type FormattedFile = (PathBuf, FileKind, Style, bool, String, String);
-
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
     match &cli.verb {
@@ -45,35 +43,41 @@ pub fn run(cli: &Cli) -> i32 {
         // `0`, preview-only), `fix --check`/`--diff` share one gated
         // contract, so `run_fix` still dispatches through the shared
         // `run_fmt_paths(..., is_fix = true)` helper.
-        Verb::Fmt(args) => run_fmt(args, &cli.exclude),
-        Verb::Fix(args) => run_fix(args, &cli.exclude),
-        Verb::Lint(args) => run_lint(args, &cli.exclude),
+        Verb::Fmt(args) => run_fmt(args, &cli.exclude, !cli.no_ignore),
+        Verb::Fix(args) => run_fix(args, &cli.exclude, !cli.no_ignore),
+        Verb::Lint(args) => run_lint(args, &cli.exclude, !cli.no_ignore),
         Verb::Init(args) => run_init(args),
     }
 }
 
-fn run_fmt(args: &FmtArgs, excludes: &[String]) -> i32 {
+fn run_fmt(args: &FmtArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
     if args.check_idempotence {
-        return run_check_idempotence_paths(&args.write, excludes);
+        return run_check_idempotence_paths(&args.write, excludes, respect_vcs_ignore);
     }
-    run_fmt_paths(&args.write, args.format, excludes, false)
+    run_fmt_paths(
+        &args.write,
+        args.format,
+        excludes,
+        false,
+        respect_vcs_ignore,
+    )
 }
 
-fn run_fix(args: &FixArgs, excludes: &[String]) -> i32 {
+fn run_fix(args: &FixArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
-    run_fmt_paths(&args.write, None, excludes, true)
+    run_fmt_paths(&args.write, None, excludes, true, respect_vcs_ignore)
 }
 
-fn run_lint(args: &LintArgs, excludes: &[String]) -> i32 {
+fn run_lint(args: &LintArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
     if let Some(path) = args.stdin_filepath.as_deref() {
         return run_lint_stdin(path, args.format);
     }
-    run_lint_paths(args, excludes)
+    run_lint_paths(args, excludes, respect_vcs_ignore)
 }
 
 fn run_init(args: &InitArgs) -> i32 {
@@ -209,90 +213,15 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
     }
 }
 
-/// Discover the target files and format each with its resolved style.
-///
-/// Files prim does not own are left byte-for-byte unchanged (FR-2.4): walked
-/// files are skipped silently, an explicitly named path is answered — a
-/// missing one is an error, an unowned one a warning. An owned file that
-/// fails to read (non-UTF-8) or parse is likewise skipped and reported.
-/// Returns the (path, original, formatted) triples for every file that
-/// formatted successfully, plus whether a hard error occurred.
-fn load_and_format(
-    paths: &[PathBuf],
-    excludes: &[String],
-) -> Result<(Vec<FormattedFile>, bool), ignore::Error> {
-    let mut had_error = false;
-    let mut results = Vec::new();
-    // Caches each directory's `.editorconfig` cascade so a repository parses
-    // every config once, not once per file.
-    let mut resolver = editorconfig::Resolver::new();
-
-    let files = discover::collect(paths, excludes)?;
-
-    for file in files {
-        let Some(kind) = prim_fmt::classify(&file.path) else {
-            if file.explicit {
-                if file.path.exists() {
-                    ui::warning(&format!(
-                        "{}: not a file type prim formats; skipped",
-                        file.path.display()
-                    ));
-                } else {
-                    ui::error(&format!("{}: no such file", file.path.display()));
-                    had_error = true;
-                }
-            }
-            continue;
-        };
-
-        let original = match std::fs::read_to_string(&file.path) {
-            Ok(text) => text,
-            Err(err) => {
-                let message = format!("{}: {err}", file.path.display());
-                if file.explicit {
-                    ui::error(&message);
-                    had_error = true;
-                } else {
-                    ui::warning(&message);
-                }
-                continue;
-            }
-        };
-
-        let style = resolver.resolve(&file.path);
-        let formatted = match prim_fmt::format(kind, &original, &style) {
-            Ok(text) => text,
-            Err(err) => {
-                let message = format!("{}: {err}", file.path.display());
-                if file.explicit {
-                    ui::error(&message);
-                    had_error = true;
-                } else {
-                    ui::warning(&message);
-                }
-                continue;
-            }
-        };
-
-        let markdown_strict = if kind == FileKind::Markdown {
-            resolver.resolve_mdlint_strict(&file.path)
-        } else {
-            false
-        };
-
-        results.push((file.path, kind, style, markdown_strict, original, formatted));
-    }
-
-    Ok((results, had_error))
-}
-
 fn run_fmt_paths(
     args: &WriteArgs,
     format: Option<OutputFormat>,
     excludes: &[String],
     is_fix: bool,
+    respect_vcs_ignore: bool,
 ) -> i32 {
-    let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
+    let (results, mut had_error) = match load_and_format(&args.paths, excludes, respect_vcs_ignore)
+    {
         Ok(outcome) => outcome,
         Err(err) => {
             ui::error(&format!("--exclude: {err}"));
@@ -344,8 +273,13 @@ fn run_fmt_paths(
     }
 }
 
-fn run_check_idempotence_paths(args: &WriteArgs, excludes: &[String]) -> i32 {
-    let (results, mut had_error) = match load_and_format(&args.paths, excludes) {
+fn run_check_idempotence_paths(
+    args: &WriteArgs,
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+) -> i32 {
+    let (results, mut had_error) = match load_and_format(&args.paths, excludes, respect_vcs_ignore)
+    {
         Ok(outcome) => outcome,
         Err(err) => {
             ui::error(&format!("--exclude: {err}"));
@@ -395,8 +329,8 @@ fn second_pass_matches_first(formatted: &str, reformatted: &str) -> bool {
     formatted == reformatted
 }
 
-fn run_lint_paths(args: &LintArgs, excludes: &[String]) -> i32 {
-    let (results, had_error) = match load_and_format(&args.paths, excludes) {
+fn run_lint_paths(args: &LintArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
+    let (results, had_error) = match load_and_format(&args.paths, excludes, respect_vcs_ignore) {
         Ok(outcome) => outcome,
         Err(err) => {
             ui::error(&format!("--exclude: {err}"));
