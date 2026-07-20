@@ -16,7 +16,7 @@ use prim_fmt::{Indent, LineEnding, Style};
 
 use crate::ui;
 
-const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
+pub(crate) const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
 
 /// One parsed `.editorconfig` in a cascade: the directory that contains it
 /// (globs match relative to it) and its sections, parsed once and reused.
@@ -42,7 +42,7 @@ impl Resolver {
         Self::default()
     }
 
-    fn properties_for(&mut self, path: &Path) -> Properties {
+    pub(crate) fn properties_for(&mut self, path: &Path) -> Properties {
         let dir = path
             .parent()
             .unwrap_or_else(|| Path::new("."))
@@ -74,18 +74,6 @@ impl Resolver {
         self.resolve_prim_bool_key(path, MDLINT_STRICT_KEY)
             .unwrap_or(false)
     }
-}
-
-/// One-shot resolution without caching — for `--stdin-filepath` (a single file)
-/// and unit tests.
-pub fn resolve(path: &Path) -> Style {
-    Resolver::new().resolve(path)
-}
-
-/// One-shot resolution of `prim_mdlint_strict` without caching — used by
-/// `lint --stdin-filepath` and unit tests.
-pub fn resolve_mdlint_strict(path: &Path) -> bool {
-    Resolver::new().resolve_mdlint_strict(path)
 }
 
 /// Parse the `.editorconfig` cascade that applies to files in `dir`, once.
@@ -143,7 +131,7 @@ fn apply(cascade: &Cascade, path: &Path) -> Properties {
 }
 
 /// Map resolved [`Properties`] onto prim's [`Style`].
-fn style_from(cfg: Properties) -> Style {
+pub(crate) fn style_from(cfg: Properties) -> Style {
     let mut style = Style::default();
     if let Ok(eol) = cfg.get::<EndOfLine>() {
         style.end_of_line = match eol {
@@ -167,7 +155,7 @@ fn style_from(cfg: Properties) -> Style {
     style
 }
 
-fn prim_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
+pub(crate) fn prim_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
     cfg.get_raw_for_key(key)
         .into_option()
         .map(|value| value.eq_ignore_ascii_case("true"))
@@ -192,6 +180,18 @@ fn indent_width(cfg: &Properties) -> Option<usize> {
         },
         Err(_) => None,
     }
+}
+
+/// One-shot resolution without caching — for `--stdin-filepath` (a single file)
+/// and unit tests.
+pub fn resolve(path: &Path) -> Style {
+    Resolver::new().resolve(path)
+}
+
+/// One-shot resolution of `prim_mdlint_strict` without caching — used by
+/// `lint --stdin-filepath` and unit tests.
+pub fn resolve_mdlint_strict(path: &Path) -> bool {
+    Resolver::new().resolve_mdlint_strict(path)
 }
 
 #[cfg(test)]

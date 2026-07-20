@@ -8,10 +8,14 @@ mod load;
 
 use self::load::load_and_format;
 use crate::changed_files::ChangedFilesScope;
-use crate::cli::{Cli, FixArgs, FmtArgs, InitArgs, LintArgs, OutputFormat, Verb, WriteArgs};
+use crate::cli::{
+    Cli, ExplainArgs, FixArgs, FmtArgs, InitArgs, LintArgs, OutputFormat, Verb, WriteArgs,
+};
 use crate::diff;
 use crate::editorconfig;
+use crate::explain;
 use crate::init;
+use crate::provenance;
 use crate::report::{self, Finding, ReportMode};
 use crate::ui;
 use crate::write;
@@ -49,6 +53,7 @@ pub fn run(cli: &Cli) -> i32 {
         Verb::Fix(args) => run_fix(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
         Verb::Lint(args) => run_lint(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
         Verb::Init(args) => run_init(args),
+        Verb::Explain(args) => run_explain(args),
     }
 }
 
@@ -130,6 +135,28 @@ fn run_init(args: &InitArgs) -> i32 {
         Err(err) => {
             ui::error(&err.to_string());
             EXIT_ERROR
+        }
+    }
+}
+
+/// Print the `.editorconfig` settings that apply to `args.path`, and where
+/// each came from (story C2). `explain` never reads `args.path` itself —
+/// classification is name/extension-based, so it works for files that don't
+/// exist yet.
+fn run_explain(args: &ExplainArgs) -> i32 {
+    let path = &args.path;
+    match prim_fmt::classify(path) {
+        Some(kind) => {
+            let settings = provenance::explain(path, kind);
+            print!("{}", explain::render(path, &settings));
+            EXIT_OK
+        }
+        None => {
+            ui::warning(&format!(
+                "{}: not a file type prim formats; skipped",
+                path.display()
+            ));
+            EXIT_OK
         }
     }
 }

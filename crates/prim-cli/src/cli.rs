@@ -80,6 +80,9 @@ pub enum Verb {
     /// Scaffold or minimally merge prim's Markdown strict-glob map into
     /// `.editorconfig`.
     Init(InitArgs),
+    /// Print the `.editorconfig` settings that apply to a single file and
+    /// where each came from (a `.editorconfig` section, or prim's default).
+    Explain(ExplainArgs),
 }
 
 /// Shared arguments for `fmt` and `fix`: both write in place by default and
@@ -171,6 +174,17 @@ pub struct InitArgs {
     /// `book.toml` and writes only `.editorconfig` in this directory.
     #[arg(value_name = "PATH")]
     pub path: Option<PathBuf>,
+}
+
+/// Arguments for `explain`: a single target file, unlike every other verb's
+/// `paths: Vec<PathBuf>` — `explain` reports on exactly one file at a time.
+#[derive(Args, Debug)]
+pub struct ExplainArgs {
+    /// The file to resolve `.editorconfig` settings for. Need not exist:
+    /// resolution is name/extension-based, like the rest of prim's file-kind
+    /// classification.
+    #[arg(value_name = "PATH")]
+    pub path: PathBuf,
 }
 
 #[cfg(test)]
