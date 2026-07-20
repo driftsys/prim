@@ -7,6 +7,7 @@ use std::path::Path;
 mod load;
 
 use self::load::load_and_format;
+use crate::changed_files::ChangedFilesScope;
 use crate::cli::{Cli, FixArgs, FmtArgs, InitArgs, LintArgs, OutputFormat, Verb, WriteArgs};
 use crate::diff;
 use crate::editorconfig;
@@ -36,6 +37,7 @@ const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run 
 
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
+    let changed_files_scope = changed_files_scope(cli);
     match &cli.verb {
         // `fix` is `fmt` plus autofixable content rules; those rules don't
         // exist yet, so `fix` is byte-for-byte `fmt` for now.
@@ -43,19 +45,39 @@ pub fn run(cli: &Cli) -> i32 {
         // `0`, preview-only), `fix --check`/`--diff` share one gated
         // contract, so `run_fix` still dispatches through the shared
         // `run_fmt_paths(..., is_fix = true)` helper.
-        Verb::Fmt(args) => run_fmt(args, &cli.exclude, !cli.no_ignore),
-        Verb::Fix(args) => run_fix(args, &cli.exclude, !cli.no_ignore),
-        Verb::Lint(args) => run_lint(args, &cli.exclude, !cli.no_ignore),
+        Verb::Fmt(args) => run_fmt(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
+        Verb::Fix(args) => run_fix(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
+        Verb::Lint(args) => run_lint(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
         Verb::Init(args) => run_init(args),
     }
 }
 
-fn run_fmt(args: &FmtArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
+fn changed_files_scope(cli: &Cli) -> ChangedFilesScope {
+    if cli.staged {
+        ChangedFilesScope::Staged
+    } else if let Some(reference) = &cli.since {
+        ChangedFilesScope::Since(reference.clone())
+    } else {
+        ChangedFilesScope::All
+    }
+}
+
+fn run_fmt(
+    args: &FmtArgs,
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+    changed_files_scope: &ChangedFilesScope,
+) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
     if args.check_idempotence {
-        return run_check_idempotence_paths(&args.write, excludes, respect_vcs_ignore);
+        return run_check_idempotence_paths(
+            &args.write,
+            excludes,
+            respect_vcs_ignore,
+            changed_files_scope,
+        );
     }
     run_fmt_paths(
         &args.write,
@@ -63,21 +85,39 @@ fn run_fmt(args: &FmtArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32
         excludes,
         false,
         respect_vcs_ignore,
+        changed_files_scope,
     )
 }
 
-fn run_fix(args: &FixArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
+fn run_fix(
+    args: &FixArgs,
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+    changed_files_scope: &ChangedFilesScope,
+) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
-    run_fmt_paths(&args.write, None, excludes, true, respect_vcs_ignore)
+    run_fmt_paths(
+        &args.write,
+        None,
+        excludes,
+        true,
+        respect_vcs_ignore,
+        changed_files_scope,
+    )
 }
 
-fn run_lint(args: &LintArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
+fn run_lint(
+    args: &LintArgs,
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+    changed_files_scope: &ChangedFilesScope,
+) -> i32 {
     if let Some(path) = args.stdin_filepath.as_deref() {
         return run_lint_stdin(path, args.format);
     }
-    run_lint_paths(args, excludes, respect_vcs_ignore)
+    run_lint_paths(args, excludes, respect_vcs_ignore, changed_files_scope)
 }
 
 fn run_init(args: &InitArgs) -> i32 {
@@ -219,12 +259,17 @@ fn run_fmt_paths(
     excludes: &[String],
     is_fix: bool,
     respect_vcs_ignore: bool,
+    changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, mut had_error) = match load_and_format(&args.paths, excludes, respect_vcs_ignore)
-    {
+    let (results, mut had_error) = match load_and_format(
+        &args.paths,
+        excludes,
+        respect_vcs_ignore,
+        changed_files_scope,
+    ) {
         Ok(outcome) => outcome,
         Err(err) => {
-            ui::error(&format!("--exclude: {err}"));
+            ui::error(&err.to_string());
             return EXIT_ERROR;
         }
     };
@@ -277,12 +322,17 @@ fn run_check_idempotence_paths(
     args: &WriteArgs,
     excludes: &[String],
     respect_vcs_ignore: bool,
+    changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, mut had_error) = match load_and_format(&args.paths, excludes, respect_vcs_ignore)
-    {
+    let (results, mut had_error) = match load_and_format(
+        &args.paths,
+        excludes,
+        respect_vcs_ignore,
+        changed_files_scope,
+    ) {
         Ok(outcome) => outcome,
         Err(err) => {
-            ui::error(&format!("--exclude: {err}"));
+            ui::error(&err.to_string());
             return EXIT_ERROR;
         }
     };
@@ -329,11 +379,21 @@ fn second_pass_matches_first(formatted: &str, reformatted: &str) -> bool {
     formatted == reformatted
 }
 
-fn run_lint_paths(args: &LintArgs, excludes: &[String], respect_vcs_ignore: bool) -> i32 {
-    let (results, had_error) = match load_and_format(&args.paths, excludes, respect_vcs_ignore) {
+fn run_lint_paths(
+    args: &LintArgs,
+    excludes: &[String],
+    respect_vcs_ignore: bool,
+    changed_files_scope: &ChangedFilesScope,
+) -> i32 {
+    let (results, had_error) = match load_and_format(
+        &args.paths,
+        excludes,
+        respect_vcs_ignore,
+        changed_files_scope,
+    ) {
         Ok(outcome) => outcome,
         Err(err) => {
-            ui::error(&format!("--exclude: {err}"));
+            ui::error(&err.to_string());
             return EXIT_ERROR;
         }
     };

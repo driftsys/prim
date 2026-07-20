@@ -44,6 +44,17 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub no_ignore: bool,
 
+    /// Limit the file set to paths reported by `git diff --name-only <REF>`:
+    /// files that differ between `<REF>` and the current working tree (staged
+    /// + unstaged; plain two-way diff, no merge-base).
+    #[arg(long, value_name = "REF", global = true, conflicts_with = "staged")]
+    pub since: Option<String>,
+
+    /// Limit the file set to paths reported by `git diff --name-only --cached`:
+    /// files staged in the git index relative to `HEAD`.
+    #[arg(long, global = true, conflicts_with = "since")]
+    pub staged: bool,
+
     /// When to use coloured output.
     #[arg(long, default_value = "auto", global = true)]
     pub color: ColorWhen,
@@ -183,5 +194,18 @@ mod tests {
                 Verb::Fmt(_) | Verb::Lint(_) | Verb::Fix(_)
             ));
         }
+    }
+
+    #[test]
+    fn changed_file_flags_are_accepted_before_formatting_verbs() {
+        let staged =
+            Cli::try_parse_from(["prim", "--staged", "fmt", "."]).expect("--staged parses");
+        assert!(staged.staged);
+        assert!(matches!(staged.verb, Verb::Fmt(_)));
+
+        let since =
+            Cli::try_parse_from(["prim", "--since", "main", "lint", "."]).expect("--since parses");
+        assert_eq!(since.since.as_deref(), Some("main"));
+        assert!(matches!(since.verb, Verb::Lint(_)));
     }
 }

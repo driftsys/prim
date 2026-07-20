@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use rayon::prelude::*;
 
+use crate::changed_files::ChangedFilesScope;
 use crate::{discover, editorconfig, ui};
 use prim_fmt::{FileKind, Style};
 
@@ -29,8 +30,9 @@ pub(super) fn load_and_format(
     paths: &[PathBuf],
     excludes: &[String],
     respect_vcs_ignore: bool,
-) -> Result<(Vec<FormattedFile>, bool), ignore::Error> {
-    let files = discover::collect(paths, excludes, respect_vcs_ignore)?;
+    changed_files_scope: &ChangedFilesScope,
+) -> Result<(Vec<FormattedFile>, bool), discover::Error> {
+    let files = discover::collect(paths, excludes, respect_vcs_ignore, changed_files_scope)?;
     let outcomes = load_discovered(files);
     let (results, messages, had_error) = summarize_outcomes(outcomes);
     emit_messages(&messages);
@@ -181,7 +183,13 @@ mod tests {
         write(&dir.path().join("a.json"), &uneven_json(2_000));
         write(&dir.path().join("c.json"), &uneven_json(40));
 
-        let discovered = discover::collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let discovered = discover::collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let expected = discovered
             .iter()
             .map(|file| {
@@ -211,8 +219,13 @@ mod tests {
         let missing = dir.path().join("b.json");
         write_bytes(&dir.path().join("a.json"), &[0xFF, 0xFE, 0x00, 0x01]);
 
-        let discovered =
-            discover::collect(&[dir.path().to_path_buf(), missing.clone()], &[], true).unwrap();
+        let discovered = discover::collect(
+            &[dir.path().to_path_buf(), missing.clone()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let outcomes = ThreadPoolBuilder::new()
             .num_threads(4)
             .build()
