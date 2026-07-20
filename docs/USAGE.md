@@ -3,18 +3,21 @@
 ```text
 prim [fmt|lint|fix] [OPTIONS] [PATH]...
 prim init [PATH]
+prim explain <PATH>
 ```
 
-prim exposes three formatting verbs (AD-0007) plus one repo-setup utility. Bare
-`prim [PATH]...` is a permanent alias for `prim fmt [PATH]...` — no verb is
-required for the common case.
+prim exposes three formatting verbs (AD-0007) plus two utilities: `init` (repo
+setup) and `explain` (config introspection). Bare `prim [PATH]...` is a
+permanent alias for `prim fmt [PATH]...` — no verb is required for the common
+case.
 
-| Command | Writes?              | Purpose                                                                                    |
-| ------- | -------------------- | ------------------------------------------------------------------------------------------ |
-| `fmt`   | yes (in place)       | Format the parsed formats + whitespace hygiene. Default action.                            |
-| `lint`  | never                | Report hygiene and content violations only.                                                |
-| `fix`   | yes (in place)       | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
-| `init`  | `.editorconfig` only | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
+| Command   | Writes?              | Purpose                                                                                    |
+| --------- | -------------------- | ------------------------------------------------------------------------------------------ |
+| `fmt`     | yes (in place)       | Format the parsed formats + whitespace hygiene. Default action.                            |
+| `lint`    | never                | Report hygiene and content violations only.                                                |
+| `fix`     | yes (in place)       | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
+| `init`    | `.editorconfig` only | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
+| `explain` | never                | Print the `.editorconfig` settings that apply to one file, and where each came from.       |
 
 ## Arguments
 
@@ -201,6 +204,35 @@ unrelated content:
 
 Running `prim init` twice is idempotent: once the map is present, the second run
 reports a no-op and leaves `.editorconfig` byte-identical.
+
+## `prim explain`
+
+`prim explain <PATH>` prints every `.editorconfig` setting that applies to
+`PATH`, its effective value, and where that value came from: a specific
+`.editorconfig` file and line (with the `[glob]` section it came from, when one
+could be recovered), or `prim's default` when no `.editorconfig` entry set it.
+`PATH` need not exist — resolution is name/extension-based, the same
+classification `fmt`/`lint`/`fix` use, so `explain` also works for a
+not-yet-created file to preview what settings it would get.
+
+```console
+$ prim explain docs/USAGE.md
+docs/USAGE.md
+  end_of_line              = lf         (/repo/.editorconfig:5 [*])
+  trim_trailing_whitespace = true       (/repo/.editorconfig:7 [*])
+  insert_final_newline     = true       (/repo/.editorconfig:6 [*])
+  indent_style             = space      (/repo/.editorconfig:8 [*])
+  indent_size              = 2          (/repo/.editorconfig:9 [*])
+  max_line_length          = 80         (/repo/.editorconfig:12 [*.md])
+  prim_mdlint_strict       = false      (prim's default)
+```
+
+The settings shown depend on the file's kind: un-owned text files (the
+[Orphan allowlist](#what-prim-formats)) only get the three universal hygiene
+settings (`end_of_line`, `trim_trailing_whitespace`, `insert_final_newline`);
+Markdown additionally shows `prim_mdlint_strict`. A path prim does not format at
+all reports a warning (`not a file type prim formats; skipped`) and prints no
+settings, but still exits `0` — `explain` never gates a build.
 
 ## Machine-readable output
 

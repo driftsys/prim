@@ -1,0 +1,3 @@
+bin.name = "prim"
+args = ["explain", "--help"]
+status = "success"
