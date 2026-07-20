@@ -2,10 +2,13 @@
 //! files to format.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 use ignore::overrides::OverrideBuilder;
+
+use crate::changed_files::{self, ChangedFilesScope};
 
 /// A file selected for processing, tagged with how it was reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +19,12 @@ pub struct Discovered {
     /// files are processed strictly (read failures are reported as errors);
     /// walked files are processed leniently (unreadable files are skipped).
     pub explicit: bool,
+}
+
+#[derive(Debug)]
+pub(crate) enum Error {
+    Exclude(ignore::Error),
+    ChangedFiles(changed_files::Error),
 }
 
 /// Collect the set of files to process.
@@ -32,22 +41,36 @@ pub fn collect(
     paths: &[PathBuf],
     excludes: &[String],
     respect_vcs_ignore: bool,
-) -> Result<Vec<Discovered>, ignore::Error> {
+    changed_files_scope: &ChangedFilesScope,
+) -> Result<Vec<Discovered>, Error> {
     validate_excludes(excludes)?;
+    let changed_files = changed_files::ChangedFiles::resolve(changed_files_scope)?;
     // BTreeMap keeps results sorted by path and de-duplicated; the bool is the
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
 
     if paths.is_empty() {
-        walk_into(Path::new("."), excludes, respect_vcs_ignore, &mut selected);
+        walk_into(
+            Path::new("."),
+            excludes,
+            respect_vcs_ignore,
+            &changed_files,
+            &mut selected,
+        );
     } else {
         for path in paths {
             if path.is_dir() {
-                walk_into(path, excludes, respect_vcs_ignore, &mut selected);
+                walk_into(
+                    path,
+                    excludes,
+                    respect_vcs_ignore,
+                    &changed_files,
+                    &mut selected,
+                );
             } else {
                 // A file, or a non-existent path: include it as explicit and
                 // let the caller surface any read error (FR-6 fail-safe).
-                mark(&mut selected, path.clone(), true);
+                mark_if_changed(&mut selected, path.clone(), true, &changed_files);
             }
         }
     }
@@ -60,16 +83,16 @@ pub fn collect(
 
 /// Reject malformed exclude globs up front; `walk_into` re-builds the same
 /// set per walk root, which cannot fail after this check.
-fn validate_excludes(excludes: &[String]) -> Result<(), ignore::Error> {
+fn validate_excludes(excludes: &[String]) -> Result<(), Error> {
     let mut builder = OverrideBuilder::new(".");
     for glob in excludes {
         // Validate the glob as the user typed it. `walk_into` later negates it
         // with a `!` prefix, but the marker does not affect glob parsing, so
         // validating the raw form catches the same errors while keeping the
         // user's exact input in any error message.
-        builder.add(glob)?;
+        builder.add(glob).map_err(Error::Exclude)?;
     }
-    builder.build()?;
+    builder.build().map_err(Error::Exclude)?;
     Ok(())
 }
 
@@ -78,6 +101,7 @@ fn walk_into(
     root: &Path,
     excludes: &[String],
     respect_vcs_ignore: bool,
+    changed_files: &changed_files::ChangedFiles,
     selected: &mut BTreeMap<PathBuf, bool>,
 ) {
     let mut walker = WalkBuilder::new(root);
@@ -112,14 +136,40 @@ fn walk_into(
 
     for entry in walker.build().flatten() {
         if entry.file_type().is_some_and(|ft| ft.is_file()) {
-            mark(selected, entry.into_path(), false);
+            mark_if_changed(selected, entry.into_path(), false, changed_files);
         }
+    }
+}
+
+fn mark_if_changed(
+    selected: &mut BTreeMap<PathBuf, bool>,
+    path: PathBuf,
+    explicit: bool,
+    changed_files: &changed_files::ChangedFiles,
+) {
+    if changed_files.contains(&path) {
+        mark(selected, path, explicit);
     }
 }
 
 /// Record `path`, OR-ing in its explicit provenance.
 fn mark(selected: &mut BTreeMap<PathBuf, bool>, path: PathBuf, explicit: bool) {
     *selected.entry(path).or_insert(false) |= explicit;
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Exclude(err) => write!(f, "--exclude: {err}"),
+            Self::ChangedFiles(err) => err.fmt(f),
+        }
+    }
+}
+
+impl From<changed_files::Error> for Error {
+    fn from(value: changed_files::Error) -> Self {
+        Self::ChangedFiles(value)
+    }
 }
 
 #[cfg(test)]
@@ -148,7 +198,13 @@ mod tests {
         write(&dir.path().join("a.md"), "a\n");
         write(&dir.path().join("sub/b.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let mut got = names(&found);
         got.sort();
         assert_eq!(got, vec!["a.md", "b.json"]);
@@ -165,7 +221,13 @@ mod tests {
         write(&dir.path().join("ignored.md"), "x\n");
         write(&dir.path().join("kept.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let got = names(&found);
         assert!(got.contains(&"kept.md".to_string()));
         assert!(!got.contains(&"ignored.md".to_string()));
@@ -178,7 +240,13 @@ mod tests {
         write(&dir.path().join("ignored.md"), "x\n");
         write(&dir.path().join("kept.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let got = names(&found);
         assert!(got.contains(&"kept.md".to_string()));
         assert!(!got.contains(&"ignored.md".to_string()));
@@ -190,7 +258,13 @@ mod tests {
         write(&dir.path().join(".git/info/exclude"), "ignored.md\n");
         write(&dir.path().join("ignored.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], false).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            false,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let got = names(&found);
         assert!(got.contains(&"ignored.md".to_string()));
     }
@@ -202,7 +276,13 @@ mod tests {
         write(&dir.path().join("skip.json"), "{}\n");
         write(&dir.path().join("keep.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let got = names(&found);
         assert!(got.contains(&"keep.json".to_string()));
         assert!(!got.contains(&"skip.json".to_string()));
@@ -214,7 +294,13 @@ mod tests {
         write(&dir.path().join(".primignore"), "skip.json\n");
         write(&dir.path().join("skip.json"), "{}\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], false).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            false,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         assert!(!names(&found).contains(&"skip.json".to_string()));
     }
 
@@ -224,7 +310,13 @@ mod tests {
         write(&dir.path().join("keep.md"), "x\n");
         write(&dir.path().join("drop.log"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &["*.log".to_string()], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &["*.log".to_string()],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let got = names(&found);
         assert!(got.contains(&"keep.md".to_string()));
         assert!(!got.contains(&"drop.log".to_string()));
@@ -236,7 +328,13 @@ mod tests {
         let file = dir.path().join("named.toml");
         write(&file, "x = 1\n");
 
-        let found = collect(std::slice::from_ref(&file), &[], true).unwrap();
+        let found = collect(
+            std::slice::from_ref(&file),
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
         assert_eq!(found[0].path, file);
@@ -244,7 +342,13 @@ mod tests {
 
     #[test]
     fn nonexistent_explicit_path_is_included_as_explicit() {
-        let found = collect(&[PathBuf::from("/no/such/prim/fixture.md")], &[], true).unwrap();
+        let found = collect(
+            &[PathBuf::from("/no/such/prim/fixture.md")],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
     }
@@ -255,7 +359,13 @@ mod tests {
         write(&dir.path().join(".editorconfig"), "root = true\n");
         write(&dir.path().join("a.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let got = names(&found);
         assert!(
             got.contains(&".editorconfig".to_string()),
@@ -269,7 +379,13 @@ mod tests {
         write(&dir.path().join(".git/config"), "[core]\n");
         write(&dir.path().join("a.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let paths: Vec<String> = found
             .iter()
             .map(|d| d.path.to_string_lossy().replace('\\', "/"))
@@ -287,7 +403,13 @@ mod tests {
         write(&dir.path().join(".git/hooks/post-checkout.md"), "# hook\n");
         write(&dir.path().join("kept.md"), "x\n");
 
-        let found = collect(&[dir.path().to_path_buf()], &[], false).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            false,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
         let paths: Vec<String> = found
             .iter()
             .map(|d| d.path.to_string_lossy().replace('\\', "/"))
@@ -304,7 +426,13 @@ mod tests {
         let a = dir.path().join("a.md");
 
         // a.md reached both via the walk and named explicitly.
-        let found = collect(&[dir.path().to_path_buf(), a.clone()], &[], true).unwrap();
+        let found = collect(
+            &[dir.path().to_path_buf(), a.clone()],
+            &[],
+            true,
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
 
         // De-duplicated: a.md appears once.
         assert_eq!(found.iter().filter(|d| d.path == a).count(), 1);

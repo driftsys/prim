@@ -24,19 +24,21 @@ required for the common case.
 
 ## Options
 
-| Flag                            | Verbs                 | Description                                                                                                                                                                                              |
-| ------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--check`                       | `fmt`, `fix`          | Write nothing; exit non-zero if any file would change, and list it.                                                                                                                                      |
-| `--diff`                        | `fmt`, `fix`          | Print a unified diff of pending changes; write nothing. Exit `0` on `fmt` regardless of pending changes; exit non-zero on `fix` if a fixable finding is pending (shares `fix --check`'s gated contract). |
-| `--check-idempotence`           | `fmt`                 | Write nothing; for each matched prim-owned file, format it in memory twice with the resolved `.editorconfig` style and exit non-zero if the second pass still changes bytes.                             |
-| `--format <json\|sarif>`        | `fmt --check`, `lint` | Emit machine-readable findings to stdout instead of the default plain-text report. Valid only on `fmt --check` and `lint`.                                                                               |
-| `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix`  | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`.                                                                               |
-| `--exclude <GLOB>`              | all                   | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                                                                                                         |
-| `--no-ignore`                   | `fmt`, `lint`, `fix`  | Disable only VCS ignore files (`.gitignore`, global gitignore, `.git/info/exclude`). `.primignore`, `--exclude`, and the `.git/` directory prune still apply.                                            |
-| `--color <auto\|always\|never>` | all                   | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                                                                                                                  |
-| `--completions <SHELL>`         | global                | Generate a shell completion script and print it to stdout.                                                                                                                                               |
-| `-h, --help`                    | global                | Print help.                                                                                                                                                                                              |
-| `-V, --version`                 | global                | Print version.                                                                                                                                                                                           |
+| Flag                            | Verbs                 | Description                                                                                                                                                                                               |
+| ------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--check`                       | `fmt`, `fix`          | Write nothing; exit non-zero if any file would change, and list it.                                                                                                                                       |
+| `--diff`                        | `fmt`, `fix`          | Print a unified diff of pending changes; write nothing. Exit `0` on `fmt` regardless of pending changes; exit non-zero on `fix` if a fixable finding is pending (shares `fix --check`'s gated contract).  |
+| `--check-idempotence`           | `fmt`                 | Write nothing; for each matched prim-owned file, format it in memory twice with the resolved `.editorconfig` style and exit non-zero if the second pass still changes bytes.                              |
+| `--format <json\|sarif>`        | `fmt --check`, `lint` | Emit machine-readable findings to stdout instead of the default plain-text report. Valid only on `fmt --check` and `lint`.                                                                                |
+| `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix`  | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`.                                                                                |
+| `--exclude <GLOB>`              | all                   | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                                                                                                          |
+| `--no-ignore`                   | `fmt`, `lint`, `fix`  | Disable only VCS ignore files (`.gitignore`, global gitignore, `.git/info/exclude`). `.primignore`, `--exclude`, and the `.git/` directory prune still apply.                                             |
+| `--since <REF>`                 | `fmt`, `lint`, `fix`  | Limit the file set to `git diff --name-only <REF>`: paths that differ between `<REF>` and the current working tree, including staged and unstaged changes (plain two-way diff, no merge-base comparison). |
+| `--staged`                      | `fmt`, `lint`, `fix`  | Limit the file set to `git diff --name-only --cached`: paths staged in the git index relative to `HEAD`. Mutually exclusive with `--since`.                                                               |
+| `--color <auto\|always\|never>` | all                   | When to use coloured output (default `auto`; `auto` honors `NO_COLOR`).                                                                                                                                   |
+| `--completions <SHELL>`         | global                | Generate a shell completion script and print it to stdout.                                                                                                                                                |
+| `-h, --help`                    | global                | Print help.                                                                                                                                                                                               |
+| `-V, --version`                 | global                | Print version.                                                                                                                                                                                            |
 
 The top-level `--check`, `--diff`, and `--stdin-filepath` flags remain accepted
 directly on bare `prim` as **deprecated sugar** for the `fmt` forms: the first
@@ -62,6 +64,18 @@ Warnings never raise the exit code; only errors do.
 - **`--no-ignore`** — keep prim's own filters (`.primignore`, `--exclude`, and
   `.git/` pruning) but ignore VCS ignore files so paths hidden by `.gitignore`,
   global gitignore, or `.git/info/exclude` are walked again.
+- **`--since <REF>`** — limit discovery to the paths
+  `git diff --name-only <REF>` reports: files that differ between `<REF>` and
+  the current working tree, including both staged and unstaged changes. prim
+  uses the plain two-way `git diff <REF>` semantics here — no merge-base (`...`)
+  comparison.
+- **`--staged`** — limit discovery to the paths `git diff --name-only --cached`
+  reports: files staged in the git index relative to `HEAD`.
+- **Changed-file filters** — `--since` and `--staged` are mutually exclusive.
+  They compose by intersection with `--check`, `--diff`, `lint`, `fix`, explicit
+  path arguments, `.primignore`, `--exclude`, and `--no-ignore`. Deleted paths
+  reported by git are skipped silently, and both flags require the current
+  working directory to be inside a git working tree.
 - **`fmt --diff`** — preview pending changes without writing; always exits `0`
   (`--check` is the CI gate).
 - **`fmt --check-idempotence`** — a formatter self-check: prim formats each

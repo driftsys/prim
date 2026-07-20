@@ -11,18 +11,19 @@
 //! This keeps `prim README.md`, `prim fmt README.md`,
 //! `prim --color=always fmt README.md`, and the deprecated `prim --check`
 //! all working, regardless of where global flags like `--color`/`--exclude`/
-//! `--completions`/`--no-ignore` (declared `global = true` on `Cli`) appear
+//! `--completions`/`--no-ignore`/`--since`/`--staged` (declared `global = true`
+//! on `Cli`) appear
 //! relative to the verb.
 
 use crate::cli::FmtArgs;
 
 const VERBS: &[&str] = &["fmt", "lint", "fix", "init"];
 const GLOBAL_ONLY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
-const GLOBAL_BOOL_FLAGS: &[&str] = &["--no-ignore"];
+const GLOBAL_BOOL_FLAGS: &[&str] = &["--no-ignore", "--staged"];
 /// Global flags that consume a value — either as a separate following token
 /// (`--color always`) or attached with `=` (`--color=always`) — and so must
 /// be skipped over, value and all, while scanning for a verb.
-const GLOBAL_VALUE_FLAGS: &[&str] = &["--exclude", "--color", "--completions"];
+const GLOBAL_VALUE_FLAGS: &[&str] = &["--exclude", "--color", "--completions", "--since"];
 
 /// Insert an implicit `fmt` verb into `args` (a full argv, including the
 /// program name at index 0) when the caller did not name a verb. Returns the
@@ -159,9 +160,23 @@ mod tests {
     }
 
     #[test]
+    fn staged_before_an_explicit_verb_does_not_shadow_it() {
+        let (adjusted, injected) = inject_default_verb(argv(&["--staged", "lint", "doc.txt"]));
+        assert_eq!(adjusted, argv(&["--staged", "lint", "doc.txt"]));
+        assert!(!injected);
+    }
+
+    #[test]
     fn global_boolean_flag_without_a_verb_still_injects_fmt() {
         let (adjusted, injected) = inject_default_verb(argv(&["--no-ignore", "doc.txt"]));
         assert_eq!(adjusted, argv(&["fmt", "--no-ignore", "doc.txt"]));
+        assert!(injected);
+    }
+
+    #[test]
+    fn staged_without_a_verb_still_injects_fmt() {
+        let (adjusted, injected) = inject_default_verb(argv(&["--staged", "doc.txt"]));
+        assert_eq!(adjusted, argv(&["fmt", "--staged", "doc.txt"]));
         assert!(injected);
     }
 
@@ -174,6 +189,25 @@ mod tests {
             adjusted,
             vec!["prim", "fmt", "--color", "always", "doc.txt"]
         );
+        assert!(injected);
+    }
+
+    #[test]
+    fn since_before_an_explicit_verb_does_not_shadow_it() {
+        for rest in [
+            ["--since", "main", "fmt", "--check"].as_slice(),
+            ["--since=main", "lint", "doc.txt"].as_slice(),
+        ] {
+            let (adjusted, injected) = inject_default_verb(argv(rest));
+            assert_eq!(adjusted, argv(rest), "rest: {rest:?}");
+            assert!(!injected, "rest: {rest:?}");
+        }
+    }
+
+    #[test]
+    fn since_without_a_verb_still_injects_fmt() {
+        let (adjusted, injected) = inject_default_verb(argv(&["--since", "main", "doc.txt"]));
+        assert_eq!(adjusted, argv(&["fmt", "--since", "main", "doc.txt"]));
         assert!(injected);
     }
 

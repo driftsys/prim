@@ -122,6 +122,17 @@ source-code formatter and has **no plugin system**.
   FR-4.2 (`.gitignore`, global gitignore, `.git/info/exclude`). It shall not
   disable `.primignore`, CLI `--exclude` globs, or the `.git/`
   metadata-directory prune.
+- **FR-4.2b** `--since <REF>` and `--staged` shall further restrict the matched
+  file set through git-native diffs, and they shall be mutually exclusive.
+  `--since <REF>` uses plain two-way `git diff --name-only <REF>` semantics:
+  paths that differ between `<REF>` and the current working tree, including both
+  staged and unstaged changes, with no merge-base (`...`) comparison. `--staged`
+  uses `git diff --name-only --cached` semantics: paths staged in the index
+  relative to `HEAD`. Both intersect with FR-4.2/4.2a/4.3/4.4/4.5 filtering
+  rather than replacing it, silently drop deleted paths that no longer exist on
+  disk, and shall raise a usage error (exit `2`) if git is unavailable, the
+  current working directory is not inside a git working tree, or `<REF>` is
+  invalid.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax).
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage

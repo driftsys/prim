@@ -4,6 +4,7 @@ use clap::{CommandFactory, Parser};
 
 mod app;
 mod argv;
+mod changed_files;
 mod cli;
 mod diff;
 mod discover;
