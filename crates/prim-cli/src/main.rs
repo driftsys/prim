@@ -8,6 +8,7 @@ mod cli;
 mod diff;
 mod discover;
 mod editorconfig;
+mod init;
 mod report;
 mod ui;
 mod write;

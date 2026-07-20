@@ -41,7 +41,8 @@ test in `crates/prim-cli/src/editorconfig.rs` (`SPIKE #41` block).
 
 EditorConfig has **no specificity ranking** — "more specific wins" is achieved
 by authoring the narrower section _later_ in the file (which G4's `prim init`
-scaffolds). Reading a `prim_*` value for a path:
+now scaffolds/merges in exactly this order). Reading a `prim_*` value for a
+path:
 
 ```rust
 let props = apply(&cascade, &path);        // prim's real per-file resolution

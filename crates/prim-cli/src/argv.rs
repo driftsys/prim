@@ -4,7 +4,8 @@
 //! positional `PATH`, so dispatch is resolved before [`clap::Parser::parse`]:
 //! the argv is scanned, skipping over recognized global flags (and their
 //! values), for the first token that is either a known verb (`fmt`/`lint`/
-//! `fix`) or a global help/version flag — either way the argv is left as-is.
+//! `fix`/`init`) or a global help/version flag — either way the argv is left
+//! as-is.
 //! Anything else (a bare path, or an unrecognized flag) means no verb was
 //! given, so an implicit `fmt` is inserted right after the program name.
 //! This keeps `prim README.md`, `prim fmt README.md`,
@@ -15,7 +16,7 @@
 
 use crate::cli::FmtArgs;
 
-const VERBS: &[&str] = &["fmt", "lint", "fix"];
+const VERBS: &[&str] = &["fmt", "lint", "fix", "init"];
 const GLOBAL_ONLY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
 /// Global flags that consume a value — either as a separate following token
 /// (`--color always`) or attached with `=` (`--color=always`) — and so must
