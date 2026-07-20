@@ -58,3 +58,44 @@ explicitly on the command line is always processed.
 `git-std` generates `CHANGELOG.md`, which prim would otherwise hard-wrap as
 Markdown. In repositories using both tools, add `CHANGELOG.md` to `.primignore`
 (prim ships this entry by default).
+
+### Wiring prim into a git-std pre-commit hook
+
+`git-std hook run` already resolves the staged-file list for you — a glob at the
+end of a `.githooks/pre-commit.hooks` line restricts `$@` to matching staged
+files, and the `~` (fix) sigil stashes unstaged changes, runs the command, then
+re-stages the result. prim needs none of that plumbing duplicated: pass it
+whatever files git-std gives it, and prim's own file-type detection skips
+anything it doesn't own (a `.rs`/`.sh` file, for example) with a warning instead
+of failing:
+
+```text
+# .githooks/pre-commit.hooks
+~ prim fmt $@
+```
+
+No glob is required — an explicit glob like `*.{md,json,yaml,toml}` also works
+and avoids invoking prim on staged files it will just skip, but it is an
+optimization, not a correctness requirement. prim's own repository wires itself
+this way; see `.githooks/pre-commit.hooks`.
+
+### Using prim with the `pre-commit` framework
+
+For repositories using the separate [pre-commit](https://pre-commit.com)
+framework instead of (or alongside) git-std, prim ships a
+`.pre-commit-hooks.yaml` manifest at the root of this repository. Reference it
+from a consumer repository's `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/driftsys/prim
+    rev: v0.2.2 # pin to a released tag
+    hooks:
+      - id: prim
+```
+
+The hook uses `language: system`, so prim must already be on `PATH` (install it
+with the [install script](getting-started.md) or `cargo install`). The
+`pre-commit` framework itself narrows the argument list to staged files matching
+the hook's `types`, the same way git-std's `$@` does — prim never needs to
+re-derive that list itself.

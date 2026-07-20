@@ -8,4 +8,5 @@
 #   ?  advisory   warn on failure, never abort
 #
 ~ cargo fmt
+~ cargo run -q -p prim-cli -- fmt $@
 ! cargo clippy --workspace --all-targets -- -D warnings
