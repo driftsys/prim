@@ -160,6 +160,51 @@ fn markdown_strict_mode_escalates_warnings_via_editorconfig() {
 }
 
 #[test]
+fn file_level_directive_drops_a_strict_glob_back_to_floor() {
+    // Story G5 (#61): a per-file `<!-- prim-mdlint-strict: false -->`
+    // overrides the .editorconfig-resolved strict tier for this file only.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(
+        &file,
+        "<!-- prim-mdlint-strict: false -->\nIntro\n\n# Title\n",
+    )
+    .unwrap();
+
+    // MD041 (first-line-heading) is strict-only; the directive drops this
+    // file back to floor, so it must not fire despite the strict glob.
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("[MD041]").not());
+}
+
+#[test]
+fn file_level_directive_raises_a_floor_glob_to_strict() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(
+        &file,
+        "<!-- prim-mdlint-strict: true -->\nIntro\n\n# Title\n",
+    )
+    .unwrap();
+
+    // No .editorconfig at all (floor by default); the directive raises this
+    // file to strict on its own. MD041 is strict-tier warning severity, so
+    // the finding is printed but the exit code stays 0.
+    prim().arg("lint").arg(&file).assert().code(0).stdout(
+        predicates::str::contains("[MD041]").and(predicates::str::contains("level 1 heading")),
+    );
+}
+
+#[test]
 fn clean_orphan_file_reports_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("notes.txt");

@@ -153,6 +153,20 @@ Warnings never raise the exit code; only errors do.
       semantics-preserving), MD074, MD078, MD079, MD081.
     - Warn-tier Markdown findings still print, but they do **not** raise the
       `prim lint` exit code; only error-tier findings do.
+    - **Per-file override (story G5):** a standalone
+      `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
+      overrides `.editorconfig`'s resolved tier for that file only — an escape
+      hatch for the rare file that needs to differ from its glob (e.g. opt a
+      legacy doc out of a `docs/**.md` strict glob, or opt one file into strict
+      without a matching glob). The line must be the whole line once trimmed; if
+      several are present, the last one wins; an unrecognized value (anything
+      but `true`/`false`, case-insensitive) is ignored and falls back to the
+      `.editorconfig`-resolved tier.
+    - **rumdl's own inline directives** (`<!-- rumdl-disable MD034 -->` /
+      `<!-- rumdl-enable MD034 -->`, `markdownlint-disable`/`-enable`, and their
+      line/next-line/file-scoped forms) work as-is — prim calls
+      `rumdl_lib::lint` directly, which applies them before returning findings,
+      so no prim-side wiring was needed.
   - JSON/JSONC/YAML/TOML still report the coarser format drift `fmt --check`
     would report; their own content diagnostics are future work.
   - Add `--format json` or `--format sarif` to switch stdout from the plain-text
