@@ -259,12 +259,22 @@ provider**. Point an editor's LSP client at it and prim formats prim-owned files
 through the editor's native format-on-save, running the exact same engine as
 `prim fmt` — an editor save and a CLI run produce byte-identical output.
 
-It is deliberately narrow: it advertises **only** whole-document formatting and
-**Full** document sync. It never publishes diagnostics, completions, or hovers,
-and it never splices incremental edits — prim is a formatter, not a general
-language server. Requesting to format a file prim does not own, or one that is
-already canonical, returns no edits; a file prim cannot parse is left untouched
-(no edits), matching `--stdin-filepath`'s fail-safe contract.
+It is deliberately narrow: it advertises only whole-document formatting and
+**Full** document sync (it never splices incremental edits) — plus, as of G5's
+follow-up story, `textDocument/publishDiagnostics` for the same findings
+`prim lint` already reports: whitespace-hygiene diagnostics (B1) for un-owned
+text files and rumdl Markdown content diagnostics (G2), reprojected onto LSP's
+range/severity shape. It still does **not** publish completions, hover, or
+semantic highlighting — prim is a formatter, not a general language server.
+Diagnostics are republished (even as an empty list) on every
+`didOpen`/`didChange`, and cleared with an empty list on `didClose`, so stale
+findings never linger once a file is fixed or closed. Structured formats
+(JSON/JSONC/YAML/TOML) have no itemized diagnostics yet — the same scope
+`prim lint` covers for those kinds today.
+
+Requesting to format a file prim does not own, or one that is already canonical,
+returns no edits; a file prim cannot parse is left untouched (no edits),
+matching `--stdin-filepath`'s fail-safe contract.
 
 The server honors `.editorconfig` exactly as the CLI does; the client's
 `FormattingOptions` (tab size, insert-spaces) are ignored in favour of prim's
