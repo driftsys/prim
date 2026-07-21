@@ -6,11 +6,12 @@
 //! deltas) and `documentFormattingProvider`; it runs the same engine as
 //! `prim fmt`, so an editor save and a CLI run produce identical bytes.
 //!
-//! The surface is deliberately format-only: no diagnostics, hover, or semantic
-//! highlighting (prim is a formatter, not a general language server).
-//! Surfacing prim's existing lint findings (B1/G2) as LSP diagnostics is
-//! tracked debt — see issue #83.
+//! The surface is deliberately narrow: only whole-document formatting and
+//! whitespace-hygiene/Markdown-content diagnostics (issue #83). No hover or
+//! semantic highlighting (prim is a formatter, not a general language
+//! server) — those remain tracked debt pending an explicit scope decision.
 
+mod diagnostics;
 mod protocol;
 mod server;
 mod transport;
@@ -41,9 +42,9 @@ pub fn run() -> i32 {
         };
 
         match server.handle(&message) {
-            Reaction::Reply(reply) => {
-                if let Err(err) = transport::write_message(&mut writer, &reply) {
-                    eprintln!("prim lsp: failed to write response: {err}");
+            Reaction::Reply(message) | Reaction::Notify(message) => {
+                if let Err(err) = transport::write_message(&mut writer, &message) {
+                    eprintln!("prim lsp: failed to write message: {err}");
                     return 2;
                 }
             }

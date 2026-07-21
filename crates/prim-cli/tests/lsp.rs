@@ -147,3 +147,73 @@ fn find_response(responses: &[Value], id: i64) -> &Value {
         .find(|response| response["id"] == id)
         .unwrap_or_else(|| panic!("no response with id {id}"))
 }
+
+fn find_notification<'a>(messages: &'a [Value], method: &str) -> &'a Value {
+    messages
+        .iter()
+        .find(|message| message["method"] == method && message.get("id").is_none())
+        .unwrap_or_else(|| panic!("no {method} notification: {messages:#?}"))
+}
+
+#[test]
+fn did_open_publishes_diagnostics_for_a_dirty_orphan_file() {
+    // Story G5's follow-up (issue #83): prim lsp surfaces hygiene diagnostics
+    // (B1) over LSP as textDocument/publishDiagnostics.
+    let uri = "file:///tmp/prim-lsp-diagnostics-behaviour.txt";
+    let (messages, code) = run_session(&[
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "plaintext", "version": 1,
+                "text": "a  \nb\n"
+            }}
+        }),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "shutdown"}),
+        json!({"jsonrpc": "2.0", "method": "exit"}),
+    ]);
+
+    assert_eq!(code, 0);
+
+    let publish = find_notification(&messages, "textDocument/publishDiagnostics");
+    assert_eq!(publish["params"]["uri"], uri);
+    let diagnostics = publish["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics array");
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0]["code"], "hygiene::trailing-whitespace");
+    assert_eq!(diagnostics[0]["severity"], 1);
+    assert_eq!(diagnostics[0]["source"], "prim");
+    assert_eq!(
+        diagnostics[0]["range"]["start"],
+        json!({"line": 0, "character": 1})
+    );
+}
+
+#[test]
+fn did_close_clears_previously_published_diagnostics() {
+    let uri = "file:///tmp/prim-lsp-diagnostics-close.txt";
+    let (messages, code) = run_session(&[
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "plaintext", "version": 1, "text": "a  \n"}}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didClose",
+            "params": {"textDocument": {"uri": uri}}
+        }),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "shutdown"}),
+        json!({"jsonrpc": "2.0", "method": "exit"}),
+    ]);
+
+    assert_eq!(code, 0);
+
+    let publishes: Vec<&Value> = messages
+        .iter()
+        .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+        .collect();
+    assert_eq!(publishes.len(), 2, "one for didOpen, one for didClose");
+    let last = publishes.last().unwrap();
+    assert_eq!(last["params"]["diagnostics"].as_array().unwrap().len(), 0);
+}

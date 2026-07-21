@@ -13,11 +13,18 @@ use super::protocol::{
     full_document_range, initialize_result,
 };
 use crate::editorconfig;
+use crate::lsp::diagnostics;
+use crate::lsp::protocol;
 
 /// What the stdio loop should do with a handled message.
 pub enum Reaction {
-    /// Send this JSON-RPC response back to the client.
+    /// Send this JSON-RPC response back to the client, tied to the incoming
+    /// request's `id`.
     Reply(Value),
+    /// Send this unsolicited JSON-RPC notification to the client — not a
+    /// reply to any particular request (e.g. `textDocument/publishDiagnostics`
+    /// pushed after `didOpen`/`didChange`/`didClose`).
+    Notify(Value),
     /// The message was a notification (or otherwise needs no reply).
     None,
     /// Stop the loop and exit the process with this code.
@@ -59,18 +66,9 @@ impl Server {
                 Reaction::Reply(success(id, Value::Null))
             }
             (Some("exit"), _) => Reaction::Exit(if self.shutdown_requested { 0 } else { 1 }),
-            (Some("textDocument/didOpen"), _) => {
-                self.did_open(params);
-                Reaction::None
-            }
-            (Some("textDocument/didChange"), _) => {
-                self.did_change(params);
-                Reaction::None
-            }
-            (Some("textDocument/didClose"), _) => {
-                self.did_close(params);
-                Reaction::None
-            }
+            (Some("textDocument/didOpen"), _) => self.did_open(params),
+            (Some("textDocument/didChange"), _) => self.did_change(params),
+            (Some("textDocument/didClose"), _) => self.did_close(params),
             (Some("textDocument/formatting"), Some(id)) => {
                 Reaction::Reply(success(id, self.formatting(params)))
             }
@@ -80,28 +78,59 @@ impl Server {
         }
     }
 
-    fn did_open(&mut self, params: Value) {
-        if let Ok(params) = serde_json::from_value::<DidOpenParams>(params) {
-            self.documents
-                .insert(params.text_document.uri, params.text_document.text);
-        }
+    fn did_open(&mut self, params: Value) -> Reaction {
+        let Ok(params) = serde_json::from_value::<DidOpenParams>(params) else {
+            return Reaction::None;
+        };
+        let uri = params.text_document.uri;
+        let text = params.text_document.text;
+        let reaction = self.diagnostics_reaction(&uri, &text);
+        self.documents.insert(uri, text);
+        reaction
     }
 
-    fn did_change(&mut self, params: Value) {
+    fn did_change(&mut self, params: Value) -> Reaction {
         let Ok(params) = serde_json::from_value::<DidChangeParams>(params) else {
-            return;
+            return Reaction::None;
         };
         // Full sync (the only mode prim advertises): the last change carries
         // the entire new document, so prim never splices deltas.
-        if let Some(change) = params.content_changes.into_iter().next_back() {
-            self.documents.insert(params.text_document.uri, change.text);
-        }
+        let Some(change) = params.content_changes.into_iter().next_back() else {
+            return Reaction::None;
+        };
+        let uri = params.text_document.uri;
+        let reaction = self.diagnostics_reaction(&uri, &change.text);
+        self.documents.insert(uri, change.text);
+        reaction
     }
 
-    fn did_close(&mut self, params: Value) {
-        if let Ok(params) = serde_json::from_value::<DidCloseParams>(params) {
-            self.documents.remove(&params.text_document.uri);
-        }
+    fn did_close(&mut self, params: Value) -> Reaction {
+        let Ok(params) = serde_json::from_value::<DidCloseParams>(params) else {
+            return Reaction::None;
+        };
+        let uri = params.text_document.uri;
+        self.documents.remove(&uri);
+        // Clear any diagnostics the client is still showing for a file that
+        // is no longer open — publishing an empty array is the documented
+        // way to retract prior findings.
+        Reaction::Notify(notification(
+            "textDocument/publishDiagnostics",
+            json!({ "uri": uri, "diagnostics": Vec::<protocol::Diagnostic>::new() }),
+        ))
+    }
+
+    /// Recompute and publish diagnostics for `uri`'s new `text`. Always
+    /// publishes (even an empty array) so a file that becomes clean, or one
+    /// prim can't classify, correctly clears any stale findings client-side.
+    fn diagnostics_reaction(&mut self, uri: &str, text: &str) -> Reaction {
+        let diagnostics = uri_to_path(uri)
+            .and_then(|path| prim_fmt::classify(&path).map(|kind| (path, kind)))
+            .map(|(path, kind)| diagnostics::compute(&mut self.resolver, &path, kind, text))
+            .unwrap_or_default();
+        Reaction::Notify(notification(
+            "textDocument/publishDiagnostics",
+            json!({ "uri": uri, "diagnostics": diagnostics }),
+        ))
     }
 
     /// Format the requested document, returning the `TextEdit[]` result. An
@@ -139,6 +168,12 @@ impl Server {
 
 fn success(id: Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
+
+/// Build a server-initiated JSON-RPC notification: no `id`, since it isn't a
+/// reply to anything the client sent.
+fn notification(method: &str, params: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "method": method, "params": params })
 }
 
 fn method_not_found(id: Value) -> Value {
@@ -322,5 +357,136 @@ mod tests {
             panic!("a request must be answered");
         };
         assert_eq!(reply["error"]["code"], -32601);
+    }
+
+    fn expect_publish(reaction: Reaction) -> Value {
+        let Reaction::Notify(notification) = reaction else {
+            panic!("didOpen/didChange/didClose must publish diagnostics");
+        };
+        assert_eq!(notification["method"], "textDocument/publishDiagnostics");
+        notification
+    }
+
+    #[test]
+    fn did_open_publishes_diagnostics_for_a_dirty_orphan_file() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-diag.txt";
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "a  \nb\n" } }
+        }));
+        let notification = expect_publish(reaction);
+        let diagnostics = notification["params"]["diagnostics"]
+            .as_array()
+            .expect("diagnostics array");
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0]["code"], "hygiene::trailing-whitespace");
+        assert_eq!(diagnostics[0]["severity"], 1);
+        assert_eq!(diagnostics[0]["range"]["start"]["line"], 0);
+    }
+
+    #[test]
+    fn did_open_publishes_no_diagnostics_for_a_clean_file() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-diag-clean.txt";
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "a\nb\n" } }
+        }));
+        let notification = expect_publish(reaction);
+        assert_eq!(
+            notification["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn did_open_publishes_markdown_diagnostics_with_warning_severity() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-diag.md";
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "# Title\n\n![](hero.png)\n" } }
+        }));
+        let notification = expect_publish(reaction);
+        let diagnostics = notification["params"]["diagnostics"]
+            .as_array()
+            .expect("diagnostics array");
+        let md045 = diagnostics
+            .iter()
+            .find(|d| d["code"] == "MD045")
+            .expect("MD045 reported");
+        assert_eq!(md045["severity"], 2, "floor tier is warning: {md045:?}");
+        assert_eq!(md045["source"], "prim");
+    }
+
+    #[test]
+    fn did_open_publishes_no_diagnostics_for_an_unowned_file_type() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-diag.rs";
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "fn  main(){}\n" } }
+        }));
+        let notification = expect_publish(reaction);
+        assert_eq!(
+            notification["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[test]
+    fn did_change_republishes_diagnostics_after_an_edit_fixes_the_file() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-diag-change.txt";
+        server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "a  \n" } }
+        }));
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": { "uri": uri },
+                "contentChanges": [{ "text": "a\n" }]
+            }
+        }));
+        let notification = expect_publish(reaction);
+        assert_eq!(
+            notification["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0,
+            "the fixed buffer republishes an empty diagnostics list"
+        );
+    }
+
+    #[test]
+    fn did_close_clears_diagnostics_with_an_empty_publish() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-diag-close.txt";
+        server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "a  \n" } }
+        }));
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didClose",
+            "params": { "textDocument": { "uri": uri } }
+        }));
+        let notification = expect_publish(reaction);
+        assert_eq!(notification["params"]["uri"], uri);
+        assert_eq!(
+            notification["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 }

@@ -119,6 +119,55 @@ fn end_position(text: &str) -> Position {
     Position { line, character }
 }
 
+/// LSP `DiagnosticSeverity::Error`. prim's error-tier findings map here.
+pub const SEVERITY_ERROR: u8 = 1;
+/// LSP `DiagnosticSeverity::Warning`. prim's warning-tier findings map here.
+pub const SEVERITY_WARNING: u8 = 2;
+
+/// One `textDocument/publishDiagnostics` diagnostic (story G5's follow-up,
+/// issue #83): prim's own hygiene (B1) and Markdown content (G2) findings,
+/// reused as-is and reprojected onto LSP's range/severity shape.
+#[derive(Clone, Debug, Serialize)]
+pub struct Diagnostic {
+    pub range: Range,
+    pub severity: u8,
+    pub code: String,
+    pub source: &'static str,
+    pub message: String,
+}
+
+/// Convert a 1-indexed `(line, column)` position — `column` counting **chars**
+/// from the start of the line, the convention `prim_fmt::line_col` and
+/// `prim_fmt::MdDiagnostic` both use — into an LSP [`Position`]: 0-indexed
+/// line, **UTF-16** code-unit character offset. A `line` past the end of
+/// `text` (should not happen, but diagnostics must never panic) yields an
+/// empty line's worth of characters.
+pub fn position_from_line_col(text: &str, line: usize, column: usize) -> Position {
+    let line_text = text.lines().nth(line.saturating_sub(1)).unwrap_or("");
+    let character = line_text
+        .chars()
+        .take(column.saturating_sub(1))
+        .map(char::len_utf16)
+        .sum::<usize>() as u32;
+    Position {
+        line: line.saturating_sub(1) as u32,
+        character,
+    }
+}
+
+/// A one-character [`Range`] starting at `(line, column)` — prim's own
+/// diagnostics carry only a point position, but LSP diagnostics require a
+/// range, so this widens the point by one character (standard practice for
+/// point diagnostics; clients clamp a range that runs past end-of-line).
+pub fn point_range(text: &str, line: usize, column: usize) -> Range {
+    let start = position_from_line_col(text, line, column);
+    let end = Position {
+        line: start.line,
+        character: start.character + 1,
+    };
+    Range { start, end }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +230,58 @@ mod tests {
                     line: 2,
                     character: 0
                 }
+            }
+        );
+    }
+
+    #[test]
+    fn position_from_line_col_converts_1_indexed_chars_on_the_first_line() {
+        // "héllo": h=1, é=2, l=3 (1-indexed char columns).
+        assert_eq!(
+            position_from_line_col("héllo\n", 1, 3),
+            Position {
+                line: 0,
+                character: 2, // "h" (1 unit) + "é" (1 unit)
+            }
+        );
+    }
+
+    #[test]
+    fn position_from_line_col_finds_a_later_line() {
+        assert_eq!(
+            position_from_line_col("abc\ndéf\n", 2, 2),
+            Position {
+                line: 1,
+                character: 1, // "d" is 1 UTF-16 unit
+            }
+        );
+    }
+
+    #[test]
+    fn position_from_line_col_counts_a_surrogate_pair_as_two_units() {
+        // "a𝄞b": a=1, 𝄞=2 (surrogate pair), b=3 (1-indexed char columns).
+        assert_eq!(
+            position_from_line_col("a𝄞b\n", 1, 3),
+            Position {
+                line: 0,
+                character: 3, // "a" (1) + "𝄞" (2 units)
+            }
+        );
+    }
+
+    #[test]
+    fn point_range_spans_exactly_one_character() {
+        assert_eq!(
+            point_range("abc\n", 1, 2),
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 1
+                },
+                end: Position {
+                    line: 0,
+                    character: 2
+                },
             }
         );
     }
