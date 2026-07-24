@@ -48,18 +48,22 @@ just fmt                # Format Rust + Markdown
 other crates can consume it. `prim-cli` orchestrates: it reads files or stdin,
 routes them through `prim_fmt::format`, and maps the outcome to an exit code.
 
-**Command surface — three verbs (`fmt`/`lint`/`fix`), AD-0007:**
+**Command surface — three formatting verbs (`fmt`/`lint`/`fix`, AD-0007) plus
+three utilities (`init`/`explain`/`lsp`):**
 
-| Invocation                      | Purpose                                                           |
-| ------------------------------- | ----------------------------------------------------------------- |
-| `prim [PATH]...`                | Permanent alias for `prim fmt [PATH]...` (format in place).       |
-| `prim fmt [PATH]...`            | Format the given files in place (default).                        |
-| `prim fmt --check [PATH]...`    | CI gate: exit `1` and list files that would change.               |
-| `prim fmt --diff [PATH]...`     | Print a unified diff of pending changes; write nothing.           |
-| `prim lint [PATH]...`           | Report-only: hygiene + content violations. Never rewrites.        |
-| `prim fix [PATH]...`            | `fmt` plus autofixable content rules (none yet — pending G2).     |
-| `prim fmt --stdin-filepath <p>` | Read stdin, write formatted result to stdout (also `lint`/`fix`). |
-| `prim --completions <shell>`    | Generate shell completion scripts.                                |
+| Invocation                      | Purpose                                                                                |
+| ------------------------------- | -------------------------------------------------------------------------------------- |
+| `prim [PATH]...`                | Permanent alias for `prim fmt [PATH]...` (format in place).                            |
+| `prim fmt [PATH]...`            | Format the given files in place (default).                                             |
+| `prim fmt --check [PATH]...`    | CI gate: exit `1` and list files that would change.                                    |
+| `prim fmt --diff [PATH]...`     | Print a unified diff of pending changes; write nothing.                                |
+| `prim lint [PATH]...`           | Report-only: hygiene + content violations. Never rewrites.                             |
+| `prim fix [PATH]...`            | `fmt` plus autofixable content rules (none yet — content rules are still future work). |
+| `prim fmt --stdin-filepath <p>` | Read stdin, write formatted result to stdout (also `lint`/`fix`).                      |
+| `prim init [PATH]`              | Scaffold or minimally merge `.editorconfig`'s Markdown strict-glob map.                |
+| `prim explain <PATH>`           | Print the `.editorconfig` settings that apply to one file and their source.            |
+| `prim lsp`                      | Run an LSP formatting-and-diagnostics server over stdio.                               |
+| `prim --completions <shell>`    | Generate shell completion scripts.                                                     |
 
 The top-level `--check`/`--diff`/`--stdin-filepath` flags remain accepted
 directly on bare `prim` as deprecated `fmt` sugar (warn once on stderr, removed

@@ -16,10 +16,16 @@ as the tool that tidies the files no other formatter owns.
 
 ## Project status
 
-prim is at an **early** stage. Recursive file discovery and the format-agnostic
-**whitespace hygiene** pass (trailing-whitespace removal, single final
-line-feed, LF endings) are implemented across the parsed formats and the orphan
-allowlist, wired through the [`prim-fmt`](https://docs.rs/prim-fmt) engine. The
-structured per-format passes (JSON/YAML/TOML/Markdown) and `.editorconfig`
-resolution land in later milestones. See the [Specification](SPEC.md) for the
-full v1 scope.
+All v1 requirements are implemented: recursive file discovery, the
+format-agnostic **whitespace hygiene** pass (trailing-whitespace removal, single
+final line-feed, LF endings, leading-BOM strip), `.editorconfig` style
+resolution, and structured formatting for JSON/JSONC, YAML, TOML, and Markdown
+(with prose-wrap guardrails) — all wired through the
+[`prim-fmt`](https://docs.rs/prim-fmt) engine. prim formats its own Markdown.
+
+Beyond v1, prim also ships `prim lint` (hygiene plus Markdown content
+diagnostics, with JSON/SARIF machine-readable output), `prim fix`, `prim init`
+(`.editorconfig` scaffolding), `prim explain` (per-file config provenance), and
+`prim lsp` (an LSP formatting-and-diagnostics server for editor integration).
+See the [Specification](SPEC.md) for the full v1 scope and [Usage](USAGE.md) for
+the complete command reference.

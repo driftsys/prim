@@ -17,7 +17,9 @@ single static binary that tidies the files no other formatter owns.
 > implemented: recursive discovery, whitespace hygiene, `.editorconfig` style
 > resolution, structured JSON/JSONC, TOML, YAML, and Markdown formatting (with
 > prose-wrap guardrails), `fmt`/`lint`/`fix` verbs (with `--check` / `--diff` /
-> `--stdin-filepath` as deprecated top-level sugar), and atomic writes. See
+> `--stdin-filepath` as deprecated top-level sugar), and atomic writes. Beyond
+> v1: Markdown content lint (JSON/SARIF output), `prim init`, `prim explain`,
+> and `prim lsp` (an LSP formatting-and-diagnostics server). See
 > [docs/SPEC.md](docs/SPEC.md).
 
 ## Install
@@ -43,6 +45,8 @@ prim fmt --check .             # CI gate: non-zero if anything would change
 prim fmt --diff config.toml    # preview pending changes
 prim fmt --stdin-filepath x.md # editor format-on-save (stdin → stdout)
 prim lint .                    # report-only: hygiene + content violations
+prim explain config.toml       # show resolved .editorconfig settings + source
+prim lsp                       # LSP formatting-and-diagnostics server
 ```
 
 See the [user guide](https://driftsys.github.io/prim/) and

@@ -359,7 +359,7 @@ prim's JSON report is intentionally small and stable:
     {
       "path": "doc.json",
       "code": "format::drift",
-      "message": "does not match prim's canonical format (run `prim fmt` to fix; content-rule diagnostics land with story G2)"
+      "message": "does not match prim's canonical format (run `prim fmt` to fix)"
     },
     {
       "path": "notes.txt",
