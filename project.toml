@@ -1,7 +1,7 @@
 #:schema https://driftsys.github.io/schemas/project/v1.json
 
 name = "io.driftsys.prim"
-version = "0.2.2"
+version = "0.2.3"
 category = ["tool", "binary"]
 description = "Opinionated, near-zero-config formatter for a repository's connective tissue."
 license = "MIT"

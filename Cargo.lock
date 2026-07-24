@@ -1588,7 +1588,7 @@ dependencies = [
 
 [[package]]
 name = "prim-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1610,7 +1610,7 @@ dependencies = [
 
 [[package]]
 name = "prim-fmt"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "criterion",
  "dprint-plugin-json",
@@ -1627,7 +1627,7 @@ dependencies = [
 
 [[package]]
 name = "prim-spec"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "assert_cmd",
  "predicates",

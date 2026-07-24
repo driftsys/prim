@@ -1,5 +1,129 @@
 # Changelog
 
+## [0.2.3] (2026-07-24)
+
+### Refactoring
+
+- **prim-cli:** formalize prim_* editorconfig key resolution ([#74]) ([2a20ec8])
+
+### Documentation
+
+- **release:** fix stale project-status claims before cutting a release ([#88])
+  ([54af354])
+- **release:** document install methods and prebuilt platform matrix (F3)
+  ([#84]) ([c50014c]), closes [#56]
+- **prim-fmt:** require feat/feat! typing for output-changing commits ([#79])
+  ([c5b3a97]), closes [#53]
+- **prim-cli:** add CLI verb-migration ADR (AD-0007) ([#40]) ([#64]) ([b14258b])
+- **prim-fmt:** add prim v1 architecture recon for v2 spikes ([#62]) ([1219064])
+
+### Bug Fixes
+
+- **ci:** update convco download to its new release asset layout ([#69])
+  ([29fd001])
+
+### Features
+
+- **prim-cli:** surface prim lint findings as LSP diagnostics ([#83]) ([#87])
+  ([dc80aeb]), closes [#83]
+- **prim-fmt:** add per-file Markdown lint strict override (G5) ([#85])
+  ([04469b3]), closes [#61]
+- **prim-cli:** add prim lsp format-on-save language server (D1) ([#82])
+  ([8bb0a7b]), refs 48
+
+* fix(prim-cli): simplify uri_to_path with question-mark operator
+
+CI clippy (1.97) flags clippy::question_mark on the match returning None;
+replace with the ? operator. No behaviour change.
+
+- docs(prim-cli): note deferred LSP diagnostics/hover debt
+
+Point the lsp module doc at issue #83, which tracks surfacing prim's lint
+findings (B1/G2) as LSP diagnostics. D1 ships format-only by design.
+
+- **prim-cli:** add prim explain for .editorconfig provenance (C2) ([#81])
+  ([ad0943b]), closes [#47]
+- **prim-cli:** ship git-std and pre-commit hook shims (D3) ([#80]) ([875e0d5]),
+  closes [#50]
+- **prim-cli:** add changed-file git scopes ([#78]) ([b79c369])
+- **prim-cli:** parallelize file processing and add no-ignore ([#77])
+  ([d2e1201])
+- **prim-cli:** add prim init strict-glob scaffolder ([#76]) ([fde8228])
+- **prim-cli:** add --check-idempotence self-check mode ([#75]) ([089e916])
+- **prim-fmt:** add markdown severity matrix ([#73]) ([d23bd67])
+- **prim-cli:** add json and sarif report formats ([#72]) ([6b92cb9])
+- **prim-cli:** wire markdown lint into prim lint ([#71]) ([2e57a6a])
+- **prim-fmt:** add coded, positioned hygiene diagnostics for prim lint ([#70])
+  ([688ea62]), closes 44.
+- **prim-fmt:** spike rumdl lint-only integration ([#39]) ([#63]) ([2046ba0])
+- **prim-fmt:** strip leading UTF-8 BOM in whitespace hygiene ([#43]) ([#67])
+  ([6ef7258])
+- **prim-cli:** fmt/lint/fix verb model ([#57]) ([#68]) ([9dab1b8]), closes
+  [#57]
+- **prim-fmt:** add line:col mapper for parse diagnostics (spike [#42]) ([#66])
+  ([bf54272])
+
+[0.2.3]: https://github.com/driftsys/prim/compare/v0.2.2...v0.2.3
+[2a20ec8]: https://github.com/driftsys/prim/commit/2a20ec8
+[#74]: https://github.com/driftsys/prim/issues/74
+[54af354]: https://github.com/driftsys/prim/commit/54af354
+[#88]: https://github.com/driftsys/prim/issues/88
+[c50014c]: https://github.com/driftsys/prim/commit/c50014c
+[#84]: https://github.com/driftsys/prim/issues/84
+[#56]: https://github.com/driftsys/prim/issues/56
+[c5b3a97]: https://github.com/driftsys/prim/commit/c5b3a97
+[#79]: https://github.com/driftsys/prim/issues/79
+[#53]: https://github.com/driftsys/prim/issues/53
+[b14258b]: https://github.com/driftsys/prim/commit/b14258b
+[#40]: https://github.com/driftsys/prim/issues/40
+[#64]: https://github.com/driftsys/prim/issues/64
+[1219064]: https://github.com/driftsys/prim/commit/1219064
+[#62]: https://github.com/driftsys/prim/issues/62
+[29fd001]: https://github.com/driftsys/prim/commit/29fd001
+[#69]: https://github.com/driftsys/prim/issues/69
+[dc80aeb]: https://github.com/driftsys/prim/commit/dc80aeb
+[#83]: https://github.com/driftsys/prim/issues/83
+[#87]: https://github.com/driftsys/prim/issues/87
+[04469b3]: https://github.com/driftsys/prim/commit/04469b3
+[#85]: https://github.com/driftsys/prim/issues/85
+[#61]: https://github.com/driftsys/prim/issues/61
+[8bb0a7b]: https://github.com/driftsys/prim/commit/8bb0a7b
+[#82]: https://github.com/driftsys/prim/issues/82
+[ad0943b]: https://github.com/driftsys/prim/commit/ad0943b
+[#81]: https://github.com/driftsys/prim/issues/81
+[#47]: https://github.com/driftsys/prim/issues/47
+[875e0d5]: https://github.com/driftsys/prim/commit/875e0d5
+[#80]: https://github.com/driftsys/prim/issues/80
+[#50]: https://github.com/driftsys/prim/issues/50
+[b79c369]: https://github.com/driftsys/prim/commit/b79c369
+[#78]: https://github.com/driftsys/prim/issues/78
+[d2e1201]: https://github.com/driftsys/prim/commit/d2e1201
+[#77]: https://github.com/driftsys/prim/issues/77
+[fde8228]: https://github.com/driftsys/prim/commit/fde8228
+[#76]: https://github.com/driftsys/prim/issues/76
+[089e916]: https://github.com/driftsys/prim/commit/089e916
+[#75]: https://github.com/driftsys/prim/issues/75
+[d23bd67]: https://github.com/driftsys/prim/commit/d23bd67
+[#73]: https://github.com/driftsys/prim/issues/73
+[6b92cb9]: https://github.com/driftsys/prim/commit/6b92cb9
+[#72]: https://github.com/driftsys/prim/issues/72
+[2e57a6a]: https://github.com/driftsys/prim/commit/2e57a6a
+[#71]: https://github.com/driftsys/prim/issues/71
+[688ea62]: https://github.com/driftsys/prim/commit/688ea62
+[#70]: https://github.com/driftsys/prim/issues/70
+[2046ba0]: https://github.com/driftsys/prim/commit/2046ba0
+[#39]: https://github.com/driftsys/prim/issues/39
+[#63]: https://github.com/driftsys/prim/issues/63
+[6ef7258]: https://github.com/driftsys/prim/commit/6ef7258
+[#43]: https://github.com/driftsys/prim/issues/43
+[#67]: https://github.com/driftsys/prim/issues/67
+[9dab1b8]: https://github.com/driftsys/prim/commit/9dab1b8
+[#57]: https://github.com/driftsys/prim/issues/57
+[#68]: https://github.com/driftsys/prim/issues/68
+[bf54272]: https://github.com/driftsys/prim/commit/bf54272
+[#42]: https://github.com/driftsys/prim/issues/42
+[#66]: https://github.com/driftsys/prim/issues/66
+
 ## [0.2.2] (2026-07-04)
 
 ### Performance
@@ -22,8 +146,8 @@
 
 ### Features
 
-- **prim-fmt:** curate orphan allowlist — drop .env, add CODEOWNERS and
-  .mailmap ([41d9f06])
+- **prim-fmt:** curate orphan allowlist — drop .env, add CODEOWNERS and .mailmap
+  ([41d9f06])
 
 ### Bug Fixes
 
