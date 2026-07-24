@@ -1,8 +1,10 @@
 # Specification (v1)
 
-> This is the human-readable v1 requirements specification for prim. It mirrors
-> [issue #1](https://github.com/driftsys/prim/issues/1). Code and tests remain
-> the source of truth; this document describes the intended system.
+> This is the human-readable v1 requirements specification for prim. It
+> supersedes [issue #1](https://github.com/driftsys/prim/issues/1), which was
+> closed once this document formalized the v1 scope it originally proposed. Code
+> and tests remain the source of truth; this document describes the intended
+> system.
 
 ## Identity
 

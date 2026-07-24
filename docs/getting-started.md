@@ -36,7 +36,7 @@ prim README.md config.yaml   # specific files
 prim .                       # the current directory, recursively
 ```
 
-> **Note:** at this early stage prim applies **whitespace hygiene**
-> (trailing-whitespace removal, single final line-feed, LF endings) to the
-> parsed formats and the orphan allowlist. Structured per-format formatting
-> (JSON/YAML/TOML/Markdown) lands in later milestones.
+> **Note:** prim applies both whitespace hygiene (trailing-whitespace removal,
+> single final line-feed, LF endings, leading-BOM strip) and structured
+> per-format formatting (JSON/JSONC, YAML, TOML, Markdown) to every file it owns
+> — see [What prim formats](USAGE.md#what-prim-formats) for the full allowlist.
