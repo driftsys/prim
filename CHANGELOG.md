@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4] (2026-07-26)
+
+### Features
+
+- **prim-cli:** add cargo audit gate for supply-chain advisories (F2) ([#89])
+  ([9dd9b90])
+
+[0.2.4]: https://github.com/driftsys/prim/compare/v0.2.3...v0.2.4
+[9dd9b90]: https://github.com/driftsys/prim/commit/9dd9b90
+[#89]: https://github.com/driftsys/prim/issues/89
+
 ## [0.2.3] (2026-07-24)
 
 ### Refactoring
