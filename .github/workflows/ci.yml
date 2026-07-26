@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Catch newly-disclosed advisories against the committed Cargo.lock even
+    # when no code changes land.
+    - cron: "0 6 * * *"
 
 permissions:
   contents: read
@@ -75,10 +79,23 @@ jobs:
       - uses: actions/checkout@v7
       - run: bash tools/bash_unit spec/install/install_test.sh
 
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      checks: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   ci:
     name: CI
     if: always()
-    needs: [fmt, prim, clippy, test, convco, install-test]
+    needs: [fmt, prim, clippy, test, convco, install-test, audit]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
