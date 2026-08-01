@@ -21,7 +21,7 @@ pretty_yaml = "0.6"
 # Markdown content linter (lint-only). `default-features = false` drops the
 # `native` feature (tokio/tower-lsp/notify/…) and `parallel` (rayon); prim never
 # invokes rumdl's formatter, LSP, or file walker — only `rumdl_lib::lint`.
-rumdl = { version = "=0.2.35", default-features = false }
+rumdl = { version = "=0.2.45", default-features = false }
 taplo = "0.14"
 thiserror = "2"
 
