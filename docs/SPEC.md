@@ -23,7 +23,7 @@ source-code formatter and has **no plugin system**.
 | Other text files | Hygiene on a curated orphan allowlist, never on source.                |
 | Markdown wrap    | Hard-wrap prose to width (`.editorconfig` `max_line_length`, else 80). |
 | JSON5            | Excluded (JSONC covers comment needs).                                 |
-| `.primignore`    | Yes — committed escape hatch (gitignore syntax).                       |
+| `.primignore`    | Yes — committed escape hatch (gitignore syntax); covers named paths.   |
 | Make / Shell     | Out of v1 allowlist; shell deferred to Phase 2 (shfmt/wasm).           |
 
 ## FR-1 — Structured formatting
@@ -136,7 +136,12 @@ source-code formatter and has **no plugin system**.
   current working directory is not inside a git working tree, or `<REF>` is
   invalid.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
-- **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax).
+- **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax) for
+  every path it is given, whether reached by a directory walk or named on the
+  command line (AD-0009). `--no-primignore` shall process ignored paths anyway.
+- **FR-4.4a** prim shall report on stderr each path that was named on the
+  command line and skipped because `.primignore` covers it. Skipping a path
+  reached by a directory walk shall be silent.
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
   error (exit `2`).
 - **FR-4.6** prim shall handle an explicitly named path strictly: a path that

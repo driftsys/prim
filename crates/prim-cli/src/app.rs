@@ -12,6 +12,7 @@ use crate::cli::{
     Cli, ExplainArgs, FixArgs, FmtArgs, InitArgs, LintArgs, OutputFormat, Verb, WriteArgs,
 };
 use crate::diff;
+use crate::discover;
 use crate::editorconfig;
 use crate::explain;
 use crate::init;
@@ -50,12 +51,34 @@ pub fn run(cli: &Cli) -> i32 {
         // `0`, preview-only), `fix --check`/`--diff` share one gated
         // contract, so `run_fix` still dispatches through the shared
         // `run_fmt_paths(..., is_fix = true)` helper.
-        Verb::Fmt(args) => run_fmt(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
-        Verb::Fix(args) => run_fix(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
-        Verb::Lint(args) => run_lint(args, &cli.exclude, !cli.no_ignore, &changed_files_scope),
+        Verb::Fmt(args) => run_fmt(
+            args,
+            &cli.exclude,
+            ignore_settings(cli),
+            &changed_files_scope,
+        ),
+        Verb::Fix(args) => run_fix(
+            args,
+            &cli.exclude,
+            ignore_settings(cli),
+            &changed_files_scope,
+        ),
+        Verb::Lint(args) => run_lint(
+            args,
+            &cli.exclude,
+            ignore_settings(cli),
+            &changed_files_scope,
+        ),
         Verb::Init(args) => run_init(args),
         Verb::Explain(args) => run_explain(args),
         Verb::Lsp => lsp::run(),
+    }
+}
+
+fn ignore_settings(cli: &Cli) -> discover::IgnoreSettings {
+    discover::IgnoreSettings {
+        vcs: !cli.no_ignore,
+        primignore: !cli.no_primignore,
     }
 }
 
@@ -72,26 +95,21 @@ fn changed_files_scope(cli: &Cli) -> ChangedFilesScope {
 fn run_fmt(
     args: &FmtArgs,
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
     if args.check_idempotence {
-        return run_check_idempotence_paths(
-            &args.write,
-            excludes,
-            respect_vcs_ignore,
-            changed_files_scope,
-        );
+        return run_check_idempotence_paths(&args.write, excludes, ignores, changed_files_scope);
     }
     run_fmt_paths(
         &args.write,
         args.format,
         excludes,
         false,
-        respect_vcs_ignore,
+        ignores,
         changed_files_scope,
     )
 }
@@ -99,7 +117,7 @@ fn run_fmt(
 fn run_fix(
     args: &FixArgs,
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
     if let Some(path) = args.write.stdin_filepath.as_deref() {
@@ -110,7 +128,7 @@ fn run_fix(
         None,
         excludes,
         true,
-        respect_vcs_ignore,
+        ignores,
         changed_files_scope,
     )
 }
@@ -118,13 +136,13 @@ fn run_fix(
 fn run_lint(
     args: &LintArgs,
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
     if let Some(path) = args.stdin_filepath.as_deref() {
         return run_lint_stdin(path, args.format);
     }
-    run_lint_paths(args, excludes, respect_vcs_ignore, changed_files_scope)
+    run_lint_paths(args, excludes, ignores, changed_files_scope)
 }
 
 fn run_init(args: &InitArgs) -> i32 {
@@ -287,21 +305,17 @@ fn run_fmt_paths(
     format: Option<OutputFormat>,
     excludes: &[String],
     is_fix: bool,
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, mut had_error) = match load_and_format(
-        &args.paths,
-        excludes,
-        respect_vcs_ignore,
-        changed_files_scope,
-    ) {
-        Ok(outcome) => outcome,
-        Err(err) => {
-            ui::error(&err.to_string());
-            return EXIT_ERROR;
-        }
-    };
+    let (results, mut had_error) =
+        match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                ui::error(&err.to_string());
+                return EXIT_ERROR;
+            }
+        };
 
     let mut any_would_change = false;
     let mut findings = Vec::new();
@@ -350,21 +364,17 @@ fn run_fmt_paths(
 fn run_check_idempotence_paths(
     args: &WriteArgs,
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, mut had_error) = match load_and_format(
-        &args.paths,
-        excludes,
-        respect_vcs_ignore,
-        changed_files_scope,
-    ) {
-        Ok(outcome) => outcome,
-        Err(err) => {
-            ui::error(&err.to_string());
-            return EXIT_ERROR;
-        }
-    };
+    let (results, mut had_error) =
+        match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                ui::error(&err.to_string());
+                return EXIT_ERROR;
+            }
+        };
 
     let mut any_non_idempotent = false;
     for (path, kind, style, _markdown_strict, _original, formatted) in results {
@@ -411,21 +421,17 @@ fn second_pass_matches_first(formatted: &str, reformatted: &str) -> bool {
 fn run_lint_paths(
     args: &LintArgs,
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, had_error) = match load_and_format(
-        &args.paths,
-        excludes,
-        respect_vcs_ignore,
-        changed_files_scope,
-    ) {
-        Ok(outcome) => outcome,
-        Err(err) => {
-            ui::error(&err.to_string());
-            return EXIT_ERROR;
-        }
-    };
+    let (results, had_error) =
+        match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                ui::error(&err.to_string());
+                return EXIT_ERROR;
+            }
+        };
 
     let mut any_error_finding = false;
     let mut findings = Vec::new();

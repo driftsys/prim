@@ -50,8 +50,13 @@ repository does this for its test fixtures:
 crates/prim-fmt/tests/correctness/fixtures/
 ```
 
-Note: `--exclude` and `.primignore` apply to directory walks; a file named
-explicitly on the command line is always processed.
+Note: `.primignore` applies however prim is invoked — a file it covers is left
+alone whether prim walked to it or you named it on the command line (AD-0009).
+That is what makes the entry worth having in a pre-commit hook, which passes
+prim an explicit list of staged files. Naming an ignored path prints a warning
+so the no-op is visible; pass `--no-primignore` to process it anyway.
+
+`--exclude` globs still apply to directory walks only.
 
 ## Using prim with git-std
 

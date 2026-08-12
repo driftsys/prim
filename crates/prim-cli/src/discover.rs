@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use ignore::Match;
 use ignore::WalkBuilder;
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::overrides::OverrideBuilder;
 
 use crate::changed_files::{self, ChangedFilesScope};
@@ -19,6 +21,35 @@ pub struct Discovered {
     /// files are processed strictly (read failures are reported as errors);
     /// walked files are processed leniently (unreadable files are skipped).
     pub explicit: bool,
+}
+
+/// Which ignore sources apply to a run. Two independent switches, because
+/// `--no-ignore` is about someone else's ignore files and `--no-primignore` is
+/// about prim's own.
+#[derive(Debug, Clone, Copy)]
+pub struct IgnoreSettings {
+    /// `.gitignore`, the global gitignore, and `.git/info/exclude`.
+    pub vcs: bool,
+    /// `.primignore`, for walked *and* explicitly named paths alike (AD-0009).
+    pub primignore: bool,
+}
+
+impl Default for IgnoreSettings {
+    fn default() -> Self {
+        Self {
+            vcs: true,
+            primignore: true,
+        }
+    }
+}
+
+/// The outcome of discovery: the files to process, plus the paths that were
+/// named on the command line and dropped because `.primignore` covers them.
+/// Those are reported (FR-4.4a) so an ignored path never fails silently.
+#[derive(Debug, Default)]
+pub struct Discovery {
+    pub files: Vec<Discovered>,
+    pub ignored: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -35,38 +66,45 @@ pub(crate) enum Error {
 /// git-family ignore files like `.gitignore` and `.git/info/exclude`.
 /// Results are sorted and de-duplicated; a path reached both explicitly and via
 /// a walk is marked explicit.
+///
+/// `.primignore` covers explicitly named paths too (AD-0009): naming a file
+/// cannot make prim touch something walking to it would leave alone, so the
+/// "left byte-for-byte unchanged" promise holds however prim is invoked. The
+/// dropped paths come back in [`Discovery::ignored`] for the caller to report.
+///
 /// Fails when an `--exclude` glob is malformed (FR-4.5): a typo'd filter must
 /// be a usage error, not a silently ignored one.
 pub fn collect(
     paths: &[PathBuf],
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
-) -> Result<Vec<Discovered>, Error> {
+) -> Result<Discovery, Error> {
     validate_excludes(excludes)?;
     let changed_files = changed_files::ChangedFiles::resolve(changed_files_scope)?;
     // BTreeMap keeps results sorted by path and de-duplicated; the bool is the
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
+    let mut ignored = Vec::new();
+    let mut primignore = PrimignoreCache::default();
 
     if paths.is_empty() {
         walk_into(
             Path::new("."),
             excludes,
-            respect_vcs_ignore,
+            ignores,
             &changed_files,
             &mut selected,
         );
     } else {
         for path in paths {
-            if path.is_dir() {
-                walk_into(
-                    path,
-                    excludes,
-                    respect_vcs_ignore,
-                    &changed_files,
-                    &mut selected,
-                );
+            let is_dir = path.is_dir();
+            if ignores.primignore && primignore.covers(path, is_dir) {
+                ignored.push(path.clone());
+                continue;
+            }
+            if is_dir {
+                walk_into(path, excludes, ignores, &changed_files, &mut selected);
             } else {
                 // A file, or a non-existent path: include it as explicit and
                 // let the caller surface any read error (FR-6 fail-safe).
@@ -75,10 +113,70 @@ pub fn collect(
         }
     }
 
-    Ok(selected
-        .into_iter()
-        .map(|(path, explicit)| Discovered { path, explicit })
-        .collect())
+    Ok(Discovery {
+        files: selected
+            .into_iter()
+            .map(|(path, explicit)| Discovered { path, explicit })
+            .collect(),
+        ignored,
+    })
+}
+
+/// Answers "does `.primignore` cover this path?" for paths named on the command
+/// line, which the directory walk never sees.
+///
+/// The walker reads `.primignore` files as it descends; a named path has no
+/// descent, so the matchers are built by climbing from the path's own directory
+/// to the filesystem root. Matchers are cached per directory because a hook
+/// hands prim its whole staged-file list at once.
+#[derive(Default)]
+struct PrimignoreCache {
+    by_directory: BTreeMap<PathBuf, Vec<Gitignore>>,
+}
+
+impl PrimignoreCache {
+    fn covers(&mut self, path: &Path, is_dir: bool) -> bool {
+        let Ok(absolute) = std::path::absolute(path) else {
+            return false;
+        };
+        let Some(directory) = absolute.parent() else {
+            return false;
+        };
+
+        let matchers = self
+            .by_directory
+            .entry(directory.to_path_buf())
+            .or_insert_with(|| matchers_above(directory));
+
+        // Nearest `.primignore` first, so a closer whitelist (`!name`) beats a
+        // more distant ignore — the same precedence the walker applies.
+        for matcher in matchers.iter() {
+            match matcher.matched_path_or_any_parents(&absolute, is_dir) {
+                Match::Ignore(_) => return true,
+                Match::Whitelist(_) => return false,
+                Match::None => {}
+            }
+        }
+        false
+    }
+}
+
+/// Every `.primignore` from `directory` up to the filesystem root, nearest
+/// first, each rooted at the directory that holds it so anchored patterns
+/// (`/CHANGELOG.md`, `fixtures/`) resolve the way gitignore syntax says.
+fn matchers_above(directory: &Path) -> Vec<Gitignore> {
+    directory
+        .ancestors()
+        .filter_map(|ancestor| {
+            let candidate = ancestor.join(".primignore");
+            if !candidate.is_file() {
+                return None;
+            }
+            let mut builder = GitignoreBuilder::new(ancestor);
+            builder.add(&candidate).is_none().then_some(())?;
+            builder.build().ok()
+        })
+        .collect()
 }
 
 /// Reject malformed exclude globs up front; `walk_into` re-builds the same
@@ -100,7 +198,7 @@ fn validate_excludes(excludes: &[String]) -> Result<(), Error> {
 fn walk_into(
     root: &Path,
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: IgnoreSettings,
     changed_files: &changed_files::ChangedFiles,
     selected: &mut BTreeMap<PathBuf, bool>,
 ) {
@@ -111,16 +209,19 @@ fn walk_into(
         .standard_filters(false)
         .parents(true)
         .ignore(true)
-        .git_ignore(respect_vcs_ignore)
-        .git_global(respect_vcs_ignore)
-        .git_exclude(respect_vcs_ignore)
+        .git_ignore(ignores.vcs)
+        .git_global(ignores.vcs)
+        .git_exclude(ignores.vcs)
         .require_git(false)
         // Include dotfiles so allowlisted ones (.gitignore, .editorconfig,
         // .mailmap, …) are reachable; the VCS metadata directory is pruned below.
         .hidden(false)
-        // The committed escape hatch (FR-4.4).
-        .add_custom_ignore_filename(".primignore")
         .filter_entry(|entry| entry.file_name() != ".git");
+
+    // The committed escape hatch (FR-4.4).
+    if ignores.primignore {
+        walker.add_custom_ignore_filename(".primignore");
+    }
 
     if !excludes.is_empty() {
         let mut overrides = OverrideBuilder::new(root);
@@ -201,10 +302,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let mut got = names(&found);
         got.sort();
         assert_eq!(got, vec!["a.md", "b.json"]);
@@ -224,10 +326,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let got = names(&found);
         assert!(got.contains(&"kept.md".to_string()));
         assert!(!got.contains(&"ignored.md".to_string()));
@@ -243,10 +346,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let got = names(&found);
         assert!(got.contains(&"kept.md".to_string()));
         assert!(!got.contains(&"ignored.md".to_string()));
@@ -261,10 +365,14 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            false,
+            IgnoreSettings {
+                vcs: false,
+                ..IgnoreSettings::default()
+            },
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let got = names(&found);
         assert!(got.contains(&"ignored.md".to_string()));
     }
@@ -279,10 +387,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let got = names(&found);
         assert!(got.contains(&"keep.json".to_string()));
         assert!(!got.contains(&"skip.json".to_string()));
@@ -297,10 +406,14 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            false,
+            IgnoreSettings {
+                vcs: false,
+                ..IgnoreSettings::default()
+            },
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         assert!(!names(&found).contains(&"skip.json".to_string()));
     }
 
@@ -313,10 +426,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &["*.log".to_string()],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let got = names(&found);
         assert!(got.contains(&"keep.md".to_string()));
         assert!(!got.contains(&"drop.log".to_string()));
@@ -331,10 +445,11 @@ mod tests {
         let found = collect(
             std::slice::from_ref(&file),
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
         assert_eq!(found[0].path, file);
@@ -345,10 +460,11 @@ mod tests {
         let found = collect(
             &[PathBuf::from("/no/such/prim/fixture.md")],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         assert_eq!(found.len(), 1);
         assert!(found[0].explicit);
     }
@@ -362,10 +478,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let got = names(&found);
         assert!(
             got.contains(&".editorconfig".to_string()),
@@ -382,10 +499,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let paths: Vec<String> = found
             .iter()
             .map(|d| d.path.to_string_lossy().replace('\\', "/"))
@@ -406,10 +524,14 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf()],
             &[],
-            false,
+            IgnoreSettings {
+                vcs: false,
+                ..IgnoreSettings::default()
+            },
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let paths: Vec<String> = found
             .iter()
             .map(|d| d.path.to_string_lossy().replace('\\', "/"))
@@ -429,10 +551,11 @@ mod tests {
         let found = collect(
             &[dir.path().to_path_buf(), a.clone()],
             &[],
-            true,
+            IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
 
         // De-duplicated: a.md appears once.
         assert_eq!(found.iter().filter(|d| d.path == a).count(), 1);

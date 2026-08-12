@@ -11,15 +11,14 @@
 //! This keeps `prim README.md`, `prim fmt README.md`,
 //! `prim --color=always fmt README.md`, and the deprecated `prim --check`
 //! all working, regardless of where global flags like `--color`/`--exclude`/
-//! `--completions`/`--no-ignore`/`--since`/`--staged` (declared `global = true`
-//! on `Cli`) appear
-//! relative to the verb.
+//! `--completions`/`--no-ignore`/`--no-primignore`/`--since`/`--staged`
+//! (declared `global = true` on `Cli`) appear relative to the verb.
 
 use crate::cli::FmtArgs;
 
 const VERBS: &[&str] = &["fmt", "lint", "fix", "init", "explain", "lsp"];
 const GLOBAL_ONLY_FLAGS: &[&str] = &["-h", "--help", "-V", "--version"];
-const GLOBAL_BOOL_FLAGS: &[&str] = &["--no-ignore", "--staged"];
+const GLOBAL_BOOL_FLAGS: &[&str] = &["--no-ignore", "--no-primignore", "--staged"];
 /// Global flags that consume a value — either as a separate following token
 /// (`--color always`) or attached with `=` (`--color=always`) — and so must
 /// be skipped over, value and all, while scanning for a verb.
