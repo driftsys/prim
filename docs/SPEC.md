@@ -47,6 +47,10 @@ source-code formatter and has **no plugin system**.
 - **FR-1.4** prim shall format YAML, preserving comments, anchors/aliases, and
   multi-line scalar styles.
 - **FR-1.5** prim shall format TOML, preserving comments and inline-table style.
+- **FR-1.5a** _(array layout)_ prim shall expand an array that exceeds the
+  resolved line width to one element per line, and shall otherwise preserve the
+  array's line structure as written — an array on one line stays on one line, an
+  array across several lines is never collapsed (AD-0010).
 - **FR-1.6** prim shall preserve fenced code-block contents verbatim (no
   reformatting of embedded source).
 
