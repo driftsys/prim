@@ -549,12 +549,13 @@ Scope notes:
 > final newline, line endings) — driven by `.editorconfig` — to every file it
 > owns, and structured canonical formatting to all of its parsed formats:
 > JSON/JSONC (consistent indentation, one space after `:`, no trailing commas),
-> TOML (canonical spacing, inline-table style preserved), YAML (canonical layout
-> with anchors/aliases and block scalar styles preserved), and Markdown (ATX
-> headings, normalized lists/tables, and prose hard-wrapped to `max_line_length`
-> with guardrails — inline code, links, tables, and fenced code are never
-> broken, and fenced code is preserved verbatim). All formats preserve comments
-> and never reorder. See the [Specification](SPEC.md).
+> TOML (canonical spacing, inline-table style and array line structure
+> preserved), YAML (canonical layout with anchors/aliases and block scalar
+> styles preserved), and Markdown (ATX headings, normalized lists/tables, and
+> prose hard-wrapped to `max_line_length` with guardrails — inline code, links,
+> tables, and fenced code are never broken, and fenced code is preserved
+> verbatim). All formats preserve comments and never reorder. See the
+> [Specification](SPEC.md).
 
 ## Format notes
 

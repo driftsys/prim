@@ -40,6 +40,13 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
         // values. With `false`, an array inside an inline table can never
         // expand and `column_width` is silently ignored for it (issue #96).
         inline_table_expand: true,
+        // Expand an array that overflows the width, but never collapse one the
+        // source wrote across lines (issue #105). A one-per-line dependency
+        // list is a deliberate, reviewable choice that the tools owning these
+        // files re-assert on every write — `uv add` re-expands
+        // `pyproject.toml`'s dependencies unconditionally — so collapsing it
+        // only puts prim in a loop it loses.
+        array_auto_collapse: false,
         reorder_keys: false,          // FR-3.4
         reorder_arrays: false,        // FR-3.4
         reorder_inline_tables: false, // FR-3.4
@@ -117,10 +124,27 @@ mod tests {
     }
 
     #[test]
-    fn keeps_a_fitting_array_inline_inside_an_inline_table() {
+    fn keeps_a_source_inline_array_inline_inside_an_inline_table() {
+        let src = "x = { version = \"1\", features = [\"a\", \"b\"] }\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert_eq!(out, src);
+    }
+
+    #[test]
+    fn preserves_an_array_the_source_wrote_across_lines() {
+        // Issue #105: collapsing a deliberately expanded list puts prim in a
+        // loop with the tools that own these files — `uv add` re-expands
+        // `pyproject.toml`'s dependency array on every edit.
+        let src = "[project]\ndependencies = [\n  \"idna>=3.18\",\n  \"packaging\",\n]\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert_eq!(out, src, "expanded layout preserved: {out:?}");
+    }
+
+    #[test]
+    fn preserves_a_multi_line_array_inside_an_inline_table() {
         let src = "x = { version = \"1\", features = [\n  \"a\",\n  \"b\",\n] }\n";
         let out = format(src, &Style::default()).unwrap();
-        assert_eq!(out, "x = { version = \"1\", features = [\"a\", \"b\"] }\n");
+        assert_eq!(out, src);
     }
 
     #[test]

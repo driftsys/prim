@@ -81,6 +81,26 @@ fn cargo_manifest_feature_array_is_kept_within_max_line_length() {
 }
 
 #[test]
+fn pyproject_dependency_layout_survives_formatting() {
+    // Issue #105: `uv add` writes this array one entry per line and re-expands
+    // it on every edit. Collapsing it means prim and uv overwrite each other.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("pyproject.toml");
+    let written = "[project]\nname = \"probe\"\nversion = \"0.1.0\"\ndependencies = [\n  \"idna>=3.18\",\n  \"packaging\",\n]\n";
+    fs::write(&file, written).unwrap();
+
+    prim().arg(&file).assert().success();
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        written,
+        "the dependency list must keep its one-per-line layout"
+    );
+    // And the result is a fixed point, so a hook never reports pending changes.
+    prim().arg("--check").arg(&file).assert().success();
+}
+
+#[test]
 fn inline_table_and_comments_preserved_in_place() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("a.toml");
