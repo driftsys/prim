@@ -1,0 +1,18 @@
+-- input --
+[workspace.dependencies]
+web-sys = { version = "0.3.103", features = ["Document", "DomRect", "Element", "Headers", "HtmlCanvasElement", "Request", "RequestInit", "Response", "Window"] }
+short = { version = "1", features = ["a", "b"] }
+-- expected --
+[workspace.dependencies]
+web-sys = { version = "0.3.103", features = [
+  "Document",
+  "DomRect",
+  "Element",
+  "Headers",
+  "HtmlCanvasElement",
+  "Request",
+  "RequestInit",
+  "Response",
+  "Window",
+] }
+short = { version = "1", features = ["a", "b"] }
