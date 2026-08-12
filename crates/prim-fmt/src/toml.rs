@@ -9,9 +9,8 @@ use crate::{FormatError, Indent, Style};
 /// Format `source` as TOML under `style`, then apply whitespace hygiene for the
 /// configured line ending and final newline.
 ///
-/// taplo canonicalizes spacing/indentation and preserves comments; with
-/// `inline_table_expand = false` it preserves inline-table style (FR-1.5) and
-/// with `reorder_* = false` never reorders (FR-3.4/6.2). Malformed input is
+/// taplo canonicalizes spacing/indentation and preserves comments, and with
+/// `reorder_* = false` never reorders (FR-3.4/6.2). Malformed input is
 /// detected via `parse().errors` and returned as [`FormatError::Parse`]
 /// (FR-6.3) — taplo's formatter is otherwise lenient and would skip invalid
 /// parts.
@@ -34,9 +33,15 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
     let options = Options {
         indent_string,
         column_width: style.max_line_length.unwrap_or(80),
-        inline_table_expand: false, // FR-1.5: preserve inline-table style
-        reorder_keys: false,        // FR-3.4
-        reorder_arrays: false,      // FR-3.4
+        // Despite its name, this option does not put an inline table on more
+        // than one line — taplo always writes `{ a = 1, b = 2 }` inline, so
+        // inline-table style is preserved either way (FR-1.5). What it controls
+        // is whether an over-width entry's "expand me" signal reaches nested
+        // values. With `false`, an array inside an inline table can never
+        // expand and `column_width` is silently ignored for it (issue #96).
+        inline_table_expand: true,
+        reorder_keys: false,          // FR-3.4
+        reorder_arrays: false,        // FR-3.4
         reorder_inline_tables: false, // FR-3.4
         ..Options::default()
     };
@@ -88,6 +93,34 @@ mod tests {
         };
         let out = format("arr = [1, 2]\n", &style).unwrap();
         assert!(out.contains("\n    1,"), "4-space array element: {out:?}");
+    }
+
+    #[test]
+    fn expands_an_over_width_array_nested_in_an_inline_table() {
+        // The Cargo-manifest case: a dependency whose feature list pushes the
+        // entry past `max_line_length`. The array expands one element per line;
+        // the inline table itself stays on one line (FR-1.5).
+        let src = "[workspace.dependencies]\nweb-sys = { version = \"0.3.103\", features = [\"Document\", \"DomRect\", \"Element\", \"Headers\", \"HtmlCanvasElement\", \"Request\", \"RequestInit\", \"Response\", \"Window\"] }\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("features = [\n  \"Document\",\n"),
+            "array expanded one element per line: {out:?}"
+        );
+        assert!(
+            out.contains("web-sys = { version = \"0.3.103\", features = ["),
+            "inline table stays on one line: {out:?}"
+        );
+        assert!(
+            out.lines().all(|line| line.chars().count() <= 80),
+            "no line exceeds the width: {out:?}"
+        );
+    }
+
+    #[test]
+    fn keeps_a_fitting_array_inline_inside_an_inline_table() {
+        let src = "x = { version = \"1\", features = [\n  \"a\",\n  \"b\",\n] }\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert_eq!(out, "x = { version = \"1\", features = [\"a\", \"b\"] }\n");
     }
 
     #[test]

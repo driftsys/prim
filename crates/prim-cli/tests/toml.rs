@@ -50,6 +50,37 @@ fn editorconfig_indent_size_is_honored() {
 }
 
 #[test]
+fn cargo_manifest_feature_array_is_kept_within_max_line_length() {
+    // Issue #96: a dependency's feature list must not be collapsed past the
+    // configured width just because it sits inside an inline table.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.toml]\nindent_size = 2\nmax_line_length = 80\n",
+    )
+    .unwrap();
+    let file = dir.path().join("Cargo.toml");
+    fs::write(
+        &file,
+        "[workspace.dependencies]\nweb-sys = { version = \"0.3.103\", features = [\n  \"Document\",\n  \"DomRect\",\n  \"Element\",\n  \"Headers\",\n  \"HtmlCanvasElement\",\n  \"Request\",\n  \"RequestInit\",\n  \"Response\",\n  \"Window\",\n] }\n",
+    )
+    .unwrap();
+
+    prim().arg(&file).assert().success();
+
+    let out = fs::read_to_string(&file).unwrap();
+    let widest = out.lines().map(|line| line.chars().count()).max().unwrap();
+    assert!(
+        widest <= 80,
+        "no line exceeds 80 columns, got {widest}: {out:?}"
+    );
+    assert!(
+        out.contains("features = [\n  \"Document\",\n"),
+        "feature list stays expanded: {out:?}"
+    );
+}
+
+#[test]
 fn inline_table_and_comments_preserved_in_place() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("a.toml");
