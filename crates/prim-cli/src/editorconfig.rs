@@ -161,13 +161,24 @@ pub(crate) fn prim_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
         .map(|value| value.eq_ignore_ascii_case("true"))
 }
 
-/// Map `indent_style` + `indent_size`/`tab_width` onto [`Indent`], keeping the
-/// canonical default when `indent_style` is unset.
+/// Map `indent_style` + `indent_size`/`tab_width` onto [`Indent`].
+///
+/// EditorConfig treats the two properties as independent, so `indent_size`
+/// applies on its own (issue #104). An explicit `indent_style` is the stronger
+/// statement and wins: `indent_style = tab` with `indent_size = 4` means
+/// tab-indented, not four spaces. With neither key set, prim's canonical
+/// default stands.
 fn resolve_indent(cfg: &Properties, default: Indent) -> Indent {
     match cfg.get::<IndentStyle>() {
         Ok(IndentStyle::Tabs) => Indent::Tab,
         Ok(IndentStyle::Spaces) => Indent::Spaces(indent_width(cfg).unwrap_or(2)),
-        Err(_) => default,
+        // No style given: `indent_size = tab` still asks for tabs, a number
+        // asks for that many spaces, and anything else leaves the default.
+        Err(_) => match cfg.get::<IndentSize>() {
+            Ok(IndentSize::UseTabWidth) => Indent::Tab,
+            Ok(IndentSize::Value(width)) => Indent::Spaces(width),
+            Err(_) => default,
+        },
     }
 }
 
@@ -251,6 +262,44 @@ mod tests {
     fn honors_tab_indent_style() {
         let (_d, style) = resolve_in("root=true\n[Makefile]\nindent_style=tab\n", "Makefile");
         assert_eq!(style.indent, Indent::Tab);
+    }
+
+    #[test]
+    fn indent_size_alone_sets_the_width() {
+        // Issue #104: EditorConfig treats indent_size and indent_style as
+        // independent properties, so a size with no style still applies.
+        for cfg in [
+            "root=true\n[*.toml]\nindent_size=4\n",
+            "root=true\n[*]\nindent_size=4\n",
+            "root=true\n[*.{toml,json}]\nindent_size=4\n",
+            "root=true\n[x.toml]\nindent_size=4\n",
+        ] {
+            let (_d, style) = resolve_in(cfg, "x.toml");
+            assert_eq!(style.indent, Indent::Spaces(4), "cfg: {cfg:?}");
+        }
+    }
+
+    #[test]
+    fn indent_size_tab_alone_indents_with_tabs() {
+        let (_d, style) = resolve_in("root=true\n[*.toml]\nindent_size=tab\n", "x.toml");
+        assert_eq!(style.indent, Indent::Tab);
+    }
+
+    #[test]
+    fn indent_style_still_wins_over_a_bare_size() {
+        // An explicit style is the stronger statement: tabs with a size of 4
+        // means tab-indented, not four spaces.
+        let (_d, style) = resolve_in(
+            "root=true\n[*.toml]\nindent_style=tab\nindent_size=4\n",
+            "x.toml",
+        );
+        assert_eq!(style.indent, Indent::Tab);
+    }
+
+    #[test]
+    fn unset_indent_keys_keep_the_canonical_default() {
+        let (_d, style) = resolve_in("root=true\n[*.toml]\nmax_line_length=100\n", "x.toml");
+        assert_eq!(style.indent, Indent::Spaces(2));
     }
 
     #[test]
