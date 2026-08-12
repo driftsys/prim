@@ -13,6 +13,35 @@ fn max_line_width(s: &str) -> usize {
 }
 
 #[test]
+fn keeps_prose_off_an_html_comment_closing_line() {
+    // Issue #97: joining the prose onto the `-->` line makes CommonMark parse
+    // the rest of that line as raw HTML, so the code span stops rendering.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nindent_size = 2\ntrim_trailing_whitespace = false\n",
+    )
+    .unwrap();
+    let file = dir.path().join("r.md");
+    fs::write(
+        &file,
+        "# T\n\n- A list item whose prose runs on for a while before the note.\n  <!-- A correction note that spans\n  more than one line and ends here. -->\n  As-built `rest.rs` omits the two count fields.\n",
+    )
+    .unwrap();
+
+    prim().arg(&file).assert().success();
+
+    let out = fs::read_to_string(&file).unwrap();
+    assert!(
+        out.contains("more than one line and ends here. -->\n  As-built `rest.rs`"),
+        "prose must start its own line after the comment: {out:?}"
+    );
+
+    // Formatting again must not move it back.
+    prim().arg("--check").arg(&file).assert().success();
+}
+
+#[test]
 fn normalizes_heading_in_place() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("a.md");

@@ -34,8 +34,10 @@ source-code formatter and has **no plugin system**.
   from `.editorconfig`, else 80.
 - **FR-1.1a** _(wrap guardrails)_ prim shall wrap prose paragraphs only; it
   shall not break inside inline code, shall not split a URL or link, shall not
-  wrap tables or fenced code blocks, and shall preserve explicit hard line
-  breaks (trailing `\` or two-space).
+  wrap tables or fenced code blocks, shall not move text onto the closing line
+  of an HTML comment that ended a line in the input (CommonMark parses the rest
+  of that line as raw HTML), and shall preserve explicit hard line breaks
+  (trailing `\` or two-space).
 - **FR-1.2** prim shall format JSON to a canonical style (consistent
   indentation, one space after `:`, no trailing commas).
 - **FR-1.3** prim shall format JSONC, preserving all comments in position.
