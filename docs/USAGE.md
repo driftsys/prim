@@ -522,15 +522,15 @@ resolved relative to that path's directory.
 
 Honored keys (standard EditorConfig keys plus prim's closed custom-key set):
 
-| Key                        | Effect                                                                      |
-| -------------------------- | --------------------------------------------------------------------------- |
-| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                          |
-| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.          |
-| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                |
-| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.              |
-| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters.                 |
-| `max_line_length`          | line width for the structured formatters (default 80).                      |
-| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint. |
+| Key                        | Effect                                                                                                          |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                                                              |
+| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.                                              |
+| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                                                    |
+| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                  |
+| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required. |
+| `max_line_length`          | line width for the structured formatters (default 80).                                                          |
+| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                     |
 
 Scope notes:
 
