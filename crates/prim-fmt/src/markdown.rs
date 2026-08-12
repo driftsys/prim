@@ -1,5 +1,7 @@
 //! Markdown formatting + prose wrap (FR-1.1/1.1a/1.6) via `dprint-plugin-markdown`.
 
+use std::collections::BTreeSet;
+
 use dprint_plugin_markdown::configuration::{ConfigurationBuilder, TextWrap};
 use dprint_plugin_markdown::format_text;
 
@@ -32,7 +34,7 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
             let restored = formatted
                 .replace(&guard_markdown, "markdown")
                 .replace(&guard_md, "md");
-            Ok(hygiene(&restored, style))
+            Ok(hygiene(&unjoin_html_comments(&restored, source), style))
         }
         Ok(None) => Ok(hygiene(source, style)),
         Err(err) => Err(FormatError::Parse(err.to_string())),
@@ -103,6 +105,152 @@ fn swap_fence_language_line(line: &str, swaps: &[(&str, &str)]) -> String {
         }
     }
     line.to_string()
+}
+
+/// dprint-plugin-markdown forces a line break *before* an HTML node but has no
+/// symmetric rule *after* one, so prose separated from a comment by a single
+/// newline is joined onto the comment's closing line. Inside a list item that
+/// changes rendering: CommonMark ends an HTML block at the line holding `-->`
+/// and treats that whole line as raw HTML, so a code span or link landing after
+/// the `-->` stops being parsed as Markdown (issue #97, FR-6.2).
+///
+/// Undo the join. Only comments that opened at the start of a line in `source`
+/// *and* closed at the end of one there are re-broken: prim's job is to avoid
+/// introducing the join, not to repair one the author wrote themselves. That
+/// also makes the pass self-limiting — content prim preserves verbatim, such as
+/// a fenced or indented code block, comes out of dprint unjoined and so is never
+/// a candidate.
+///
+/// The continuation is not re-wrapped and can sit short of the configured width.
+/// The result is still stable under repeated formatting (dprint re-joins it and
+/// this pass re-splits it to the same text) and renders identically to the
+/// input, which is the guarantee that matters.
+fn unjoin_html_comments(formatted: &str, source: &str) -> String {
+    let closings = line_terminated_comment_closings(source);
+    if closings.is_empty() {
+        return formatted.to_string();
+    }
+
+    let mut out = String::with_capacity(formatted.len());
+    for line in formatted.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\n', '\r']);
+        let line_ending = &line[body.len()..];
+        match joined_comment_end(body, &closings) {
+            Some(end) => {
+                out.push_str(body[..end].trim_end());
+                // The last line of a file may carry no ending of its own.
+                out.push_str(if line_ending.is_empty() {
+                    "\n"
+                } else {
+                    line_ending
+                });
+                out.push_str(&continuation_indent(body));
+                out.push_str(body[end..].trim_start());
+                out.push_str(line_ending);
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// The closing lines of every HTML comment in `source` that both opened at the
+/// start of a line and ended one, trimmed of surrounding whitespace.
+fn line_terminated_comment_closings(source: &str) -> BTreeSet<String> {
+    let mut closings = BTreeSet::new();
+    let mut is_open = false;
+
+    for line in source.lines() {
+        let search_from = if is_open {
+            0
+        } else {
+            let content = container_prefix_len(line);
+            if !line[content..].starts_with("<!--") {
+                continue;
+            }
+            content + "<!--".len()
+        };
+
+        match line[search_from..].find("-->") {
+            Some(offset) => {
+                is_open = false;
+                let end = search_from + offset + "-->".len();
+                if line[end..].trim().is_empty() {
+                    closings.insert(line[..end].trim().to_string());
+                }
+            }
+            None => is_open = true,
+        }
+    }
+
+    closings
+}
+
+/// Byte offset just past the `-->` of a comment that `closings` says ended a
+/// line in the source but now has prose after it, or `None` if this line is
+/// clean.
+fn joined_comment_end(line: &str, closings: &BTreeSet<String>) -> Option<usize> {
+    let mut search_from = 0;
+    while let Some(offset) = line[search_from..].find("-->") {
+        let end = search_from + offset + "-->".len();
+        if !line[end..].trim().is_empty() && closings.contains(line[..end].trim()) {
+            return Some(end);
+        }
+        search_from = end;
+    }
+    None
+}
+
+/// Indentation that keeps the re-broken text inside the same block container:
+/// the line's own prefix with every marker character blanked out.
+fn continuation_indent(line: &str) -> String {
+    line[..container_prefix_len(line)]
+        .chars()
+        .map(|c| if c == '\t' { '\t' } else { ' ' })
+        .collect()
+}
+
+/// Byte length of a line's block-container prefix — indentation, blockquote
+/// markers, and one list marker — after which the line's own content starts.
+fn container_prefix_len(line: &str) -> usize {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let space_run = |bytes: &[u8], mut i: usize| {
+        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+            i += 1;
+        }
+        i
+    };
+
+    i = space_run(bytes, i);
+    while i < bytes.len() && bytes[i] == b'>' {
+        i = space_run(bytes, i + 1);
+    }
+
+    // One list marker: a bullet, or digits followed by `.`/`)`. A marker counts
+    // only when whitespace separates it from the content.
+    let marker_start = i;
+    let mut after_marker = i;
+    match bytes.get(after_marker) {
+        Some(b'-' | b'*' | b'+') => after_marker += 1,
+        Some(c) if c.is_ascii_digit() => {
+            while after_marker < bytes.len() && bytes[after_marker].is_ascii_digit() {
+                after_marker += 1;
+            }
+            match bytes.get(after_marker) {
+                Some(b'.' | b')') => after_marker += 1,
+                _ => after_marker = marker_start,
+            }
+        }
+        _ => {}
+    }
+    if after_marker > marker_start {
+        let content = space_run(bytes, after_marker);
+        if content > after_marker {
+            i = content;
+        }
+    }
+    i
 }
 
 #[cfg(test)]
@@ -270,6 +418,77 @@ mod tests {
             out.contains("verbatim  content"),
             "content verbatim: {out:?}"
         );
+    }
+
+    #[test]
+    fn does_not_join_prose_onto_a_multi_line_comment_in_a_list_item() {
+        let src = "- A list item whose prose runs on for a while before the note.\n  <!-- A correction note that spans\n  more than one line and ends here. -->\n  As-built `rest.rs` omits the two count fields.\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("more than one line and ends here. -->\n"),
+            "the closing line must stay free of prose: {out:?}"
+        );
+    }
+
+    #[test]
+    fn does_not_join_prose_onto_a_single_line_comment_in_a_list_item() {
+        let src = "- A list item whose prose runs on for a while before the note.\n  <!-- A single line note. -->\n  As-built `rest.rs` omits the two count fields.\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("  <!-- A single line note. -->\n  As-built `rest.rs`"),
+            "the closing line must stay free of prose: {out:?}"
+        );
+    }
+
+    #[test]
+    fn does_not_join_prose_onto_a_comment_that_opens_a_list_item() {
+        let src = "- <!-- A note that is the first thing in the item. -->\n  As-built `rest.rs` omits the two count fields and more prose here.\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("- <!-- A note that is the first thing in the item. -->\n  As-built"),
+            "the closing line must stay free of prose: {out:?}"
+        );
+    }
+
+    #[test]
+    fn does_not_join_prose_onto_a_comment_in_a_nested_list_item() {
+        let src = "- outer\n  - A nested item whose prose runs on for a while before the note.\n    <!-- A single line note. -->\n    As-built `rest.rs` omits the two count fields.\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("    <!-- A single line note. -->\n    As-built `rest.rs`"),
+            "continuation keeps the nested indent: {out:?}"
+        );
+    }
+
+    #[test]
+    fn leaves_an_author_written_join_alone() {
+        // The author put the prose after the `-->` themselves. That already
+        // renders as raw HTML; re-breaking it would change the document just as
+        // much as introducing the join does.
+        let src = "- A list item.\n  <!-- A note. --> Prose the author put on the comment line.\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("<!-- A note. --> Prose the author put on the comment line."),
+            "author's own line kept: {out:?}"
+        );
+    }
+
+    #[test]
+    fn comment_like_text_in_a_fenced_block_is_untouched() {
+        let src = "- item\n\n  ```html\n  <!-- fenced --> trailing text\n  ```\n";
+        let out = format(src, &Style::default()).unwrap();
+        assert!(
+            out.contains("<!-- fenced --> trailing text"),
+            "fenced content verbatim: {out:?}"
+        );
+    }
+
+    #[test]
+    fn is_idempotent_with_a_comment_in_a_list_item() {
+        let src = "- A list item whose prose runs on for a while before the note.\n  <!-- A correction note that spans\n  more than one line and ends here. -->\n  As-built `rest.rs` omits the two count fields.\n";
+        let once = format(src, &Style::default()).unwrap();
+        let twice = format(&once, &Style::default()).unwrap();
+        assert_eq!(once, twice);
     }
 
     #[test]

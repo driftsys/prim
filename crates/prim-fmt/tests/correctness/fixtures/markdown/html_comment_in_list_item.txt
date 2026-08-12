@@ -1,0 +1,11 @@
+-- input --
+- A list item whose prose runs on for a while before the note.
+  <!-- A correction note that spans
+  more than one line and ends here. -->
+  As-built `rest.rs` omits the two count fields.
+-- expected --
+- A list item whose prose runs on for a while before the note.
+  <!-- A correction note that spans
+  more than one line and ends here. -->
+  As-built `rest.rs` omits the two count
+  fields.
