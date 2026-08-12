@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0] (2026-08-12)
+
+### Features
+
+- **prim-cli:** honor .primignore for explicitly named paths ([90af908]), closes
+  [#98]
+- **prim-fmt:** keep prose off an HTML comment's closing line ([2e375f6]),
+  closes [#97]
+- **prim-fmt:** honor max_line_length for arrays inside inline tables
+  ([ce490c1]), closes [#96]
+
+### BREAKING CHANGES
+
+- `prim fmt <path>` no longer rewrites a file covered by
+`.primignore`. Pass `--no-primignore` to restore the previous behaviour.
+
+[0.3.0]: https://github.com/driftsys/prim/compare/v0.2.4...v0.3.0
+[90af908]: https://github.com/driftsys/prim/commit/90af908
+[#98]: https://github.com/driftsys/prim/issues/98
+[2e375f6]: https://github.com/driftsys/prim/commit/2e375f6
+[#97]: https://github.com/driftsys/prim/issues/97
+[ce490c1]: https://github.com/driftsys/prim/commit/ce490c1
+[#96]: https://github.com/driftsys/prim/issues/96
+
 ## [0.2.4] (2026-07-26)
 
 ### Features
