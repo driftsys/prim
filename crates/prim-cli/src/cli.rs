@@ -44,6 +44,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub no_ignore: bool,
 
+    /// Ignore .primignore, including for paths named on the command line.
+    #[arg(long, global = true)]
+    pub no_primignore: bool,
+
     /// Limit the file set to paths reported by `git diff --name-only <REF>`:
     /// files that differ between `<REF>` and the current working tree (staged
     /// + unstaged; plain two-way diff, no merge-base).

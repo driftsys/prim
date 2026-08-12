@@ -29,11 +29,17 @@ enum LoadOutcome {
 pub(super) fn load_and_format(
     paths: &[PathBuf],
     excludes: &[String],
-    respect_vcs_ignore: bool,
+    ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> Result<(Vec<FormattedFile>, bool), discover::Error> {
-    let files = discover::collect(paths, excludes, respect_vcs_ignore, changed_files_scope)?;
-    let outcomes = load_discovered(files);
+    let discovery = discover::collect(paths, excludes, ignores, changed_files_scope)?;
+    for path in &discovery.ignored {
+        ui::warning(&format!(
+            "{}: matched by .primignore; skipped (use --no-primignore to process it)",
+            path.display()
+        ));
+    }
+    let outcomes = load_discovered(discovery.files);
     let (results, messages, had_error) = summarize_outcomes(outcomes);
     emit_messages(&messages);
     Ok((results, had_error))
@@ -186,10 +192,11 @@ mod tests {
         let discovered = discover::collect(
             &[dir.path().to_path_buf()],
             &[],
-            true,
+            discover::IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let expected = discovered
             .iter()
             .map(|file| {
@@ -222,10 +229,11 @@ mod tests {
         let discovered = discover::collect(
             &[dir.path().to_path_buf(), missing.clone()],
             &[],
-            true,
+            discover::IgnoreSettings::default(),
             &ChangedFilesScope::All,
         )
-        .unwrap();
+        .unwrap()
+        .files;
         let outcomes = ThreadPoolBuilder::new()
             .num_threads(4)
             .build()
