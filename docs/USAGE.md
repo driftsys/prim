@@ -524,12 +524,16 @@ generates them and rewrites prim's output again on the next run:
 | `packages.lock.json`  | NuGet     |
 
 A directory walk skips a listed file silently. Naming one explicitly on the
-command line skips it too, with a warning on stderr. `--stdin-filepath` and an
-editor's format-on-save request skip it without a warning: stdin echoes the
-input back unchanged, and the LSP formatting request returns no edits. The list
-behaves as the weakest `.primignore` layer (AD-0011): a committed `!name` line
-re-includes the file, and `--no-primignore` disables the built-in list along
-with the rest of the `.primignore` stack.
+command line skips it too, with a warning on stderr. For those two path-based
+cases, the list behaves as the weakest `.primignore` layer (AD-0011): a
+committed `!name` line re-includes the file, and `--no-primignore` disables the
+built-in list along with the rest of the `.primignore` stack.
+
+`--stdin-filepath` and an editor's format-on-save request skip a listed file
+without a warning: stdin echoes the input back unchanged, and the LSP formatting
+request returns no edits. Neither escape hatch applies there — a `!name` line
+and `--no-primignore` have no effect over `--stdin-filepath` or the LSP, because
+neither path consults `.primignore` at all.
 
 ## Configuration
 

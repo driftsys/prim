@@ -151,8 +151,9 @@ source-code formatter and has **no plugin system**.
   every path it is given, whether reached by a directory walk or named on the
   command line (AD-0009). `--no-primignore` shall process ignored paths anyway.
 - **FR-4.4a** prim shall report on stderr each path that was named on the
-  command line and skipped because `.primignore` covers it. Skipping a path
-  reached by a directory walk shall be silent.
+  command line and skipped, whether because `.primignore` covers it or because
+  it matches the built-in generated-file list (FR-2.7, AD-0011). Skipping a path
+  reached by a directory walk shall be silent for either reason.
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
   error (exit `2`).
 - **FR-4.6** prim shall handle an explicitly named path strictly: a path that
