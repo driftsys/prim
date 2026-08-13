@@ -71,6 +71,11 @@ source-code formatter and has **no plugin system**.
   content sniffing.
 - **FR-2.6** prim shall strip a leading UTF-8 BOM (`U+FEFF`), unconditionally,
   from every file it processes.
+- **FR-2.7** prim shall leave a tool-generated file byte-for-byte unchanged,
+  including whitespace hygiene, even when its type is one prim formats. The set
+  is a built-in, name-keyed list (AD-0011). A committed `.primignore` negation
+  (`!name`) re-includes such a file, and `--no-primignore` disables the built-in
+  list along with the rest of the `.primignore` stack.
 
 ## FR-3 — Style resolution
 
