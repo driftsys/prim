@@ -73,8 +73,10 @@ Warnings never raise the exit code; only errors do.
 - **`--no-primignore`** — the opposite switch: keep VCS ignore files but drop
   `.primignore`. Needed only to process a path `.primignore` covers, since that
   file is honoured however prim is invoked — walked to or named on the command
-  line (AD-0009). Naming an ignored path without this flag prints a warning and
-  changes nothing; warnings never raise the exit code.
+  line (AD-0009). This same flag also disables the built-in generated-file list
+  (AD-0011), which behaves as the outermost `.primignore` layer. Naming an
+  ignored path without this flag prints a warning and changes nothing; warnings
+  never raise the exit code.
 - **`--since <REF>`** — limit discovery to the paths
   `git diff --name-only <REF>` reports: files that differ between `<REF>` and
   the current working tree, including both staged and unstaged changes. prim
@@ -508,6 +510,26 @@ machine-local rather than committed.
 
 Whitespace hygiene also strips a leading UTF-8 BOM (`U+FEFF`), unconditionally,
 from every file prim processes (parsed formats and orphans alike).
+
+## Generated files
+
+prim declines four files outright, regardless of their type, because a tool
+generates them and rewrites prim's output again on the next run:
+
+| File                  | Generator |
+| --------------------- | --------- |
+| `package-lock.json`   | npm       |
+| `npm-shrinkwrap.json` | npm       |
+| `pnpm-lock.yaml`      | pnpm      |
+| `packages.lock.json`  | NuGet     |
+
+A directory walk skips a listed file silently. Naming one explicitly on the
+command line skips it too, with a warning on stderr. `--stdin-filepath` and an
+editor's format-on-save request skip it without a warning: stdin echoes the
+input back unchanged, and the LSP formatting request returns no edits. The list
+behaves as the weakest `.primignore` layer (AD-0011): a committed `!name` line
+re-includes the file, and `--no-primignore` disables the built-in list along
+with the rest of the `.primignore` stack.
 
 ## Configuration
 

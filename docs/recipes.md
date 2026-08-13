@@ -38,6 +38,13 @@ CHANGELOG.md
 fixtures/malformed.json
 ```
 
+A lockfile needs no entry of its own: `package-lock.json`,
+`npm-shrinkwrap.json`, `pnpm-lock.yaml`, and `packages.lock.json` are declined
+outright by a built-in list (AD-0011), because prim can always tell that these
+four are generated. `CHANGELOG.md` still needs the `.primignore` entry above —
+some projects hand-author it, so prim cannot tell a generated changelog from a
+hand-written one by name alone.
+
 ## Protecting golden files
 
 Test fixtures and golden files often contain deliberate formatting violations
