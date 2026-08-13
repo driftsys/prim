@@ -219,6 +219,9 @@ fn generated_repo() -> tempfile::TempDir {
     )
     .unwrap();
     std::fs::write(dir.path().join("package-lock.json"), "{\"name\" :\"x\"}\n").unwrap();
+    // No trailing newline, on purpose: AD-0011 promises no hygiene applies to
+    // a generated file, including a missing final newline.
+    std::fs::write(dir.path().join("npm-shrinkwrap.json"), "{\"name\" :\"x\"}").unwrap();
     std::fs::write(dir.path().join("authored.json"), "{\"a\" :1}\n").unwrap();
     dir
 }
@@ -249,6 +252,28 @@ fn a_generated_file_survives_formatting_byte_for_byte() {
         std::fs::read_to_string(&lock).unwrap(),
         before,
         "pnpm's flow mappings and quoting must survive untouched"
+    );
+}
+
+#[test]
+fn a_generated_file_with_no_trailing_newline_survives_unchanged() {
+    // AD-0011 promises no whitespace hygiene applies to a generated file,
+    // including a missing final newline — unlike every other fixture in
+    // `generated_repo()`, which ends with one.
+    let dir = generated_repo();
+    let lock = dir.path().join("npm-shrinkwrap.json");
+    let before = std::fs::read_to_string(&lock).unwrap();
+    assert!(
+        !before.ends_with('\n'),
+        "fixture must lack a trailing newline"
+    );
+
+    prim().current_dir(dir.path()).arg("fmt").assert().success();
+
+    assert_eq!(
+        std::fs::read_to_string(&lock).unwrap(),
+        before,
+        "whitespace hygiene must not add a trailing newline to a generated file"
     );
 }
 
@@ -364,4 +389,19 @@ fn stdin_echoes_a_generated_file_unchanged() {
         .assert()
         .success()
         .stdout("{\"name\" :\"x\"}\n");
+}
+
+#[test]
+fn stdin_lint_reports_no_findings_for_a_generated_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("package-lock.json");
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "--stdin-filepath"])
+        .arg(&target)
+        .write_stdin("{\"a\" :1}\n")
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
 }

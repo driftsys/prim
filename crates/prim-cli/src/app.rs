@@ -223,6 +223,14 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         ui::error("could not read stdin as UTF-8");
         return EXIT_ERROR;
     }
+    // A generated file has no lint findings: its tool owns every byte
+    // (AD-0011), so there is nothing actionable to report.
+    if prim_fmt::generated_by(path).is_some() {
+        if let Some(format) = format {
+            emit_report(format, ReportMode::Lint, &[]);
+        }
+        return EXIT_OK;
+    }
     match prim_fmt::classify(path) {
         Some(FileKind::Orphan) => {
             // Story B1: itemized, coded, positioned findings.

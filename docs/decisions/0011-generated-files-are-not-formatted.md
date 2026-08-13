@@ -90,18 +90,25 @@ Chosen.
    | `pnpm-lock.yaml`      | pnpm      |
    | `packages.lock.json`  | NuGet     |
 
-3. `generated_by` is consulted at all three places a file reaches the formatter,
+3. `generated_by` is consulted at all four places a file reaches the formatter,
    so the guarantee does not depend on how prim was invoked: directory discovery
-   (`prim-cli/src/discover.rs`), `--stdin-filepath` (`prim-cli/src/app.rs`), and
-   the LSP formatting request (`prim-cli/src/lsp/server.rs`). The LSP path is
-   not optional: without it, an editor configured to format `package-lock.json`
-   on save with prim would still rewrite the file, silently, which is the most
-   damaging of the three paths because nothing prints a warning to notice it by.
+   (`prim-cli/src/discover.rs`), `--stdin-filepath` for `fmt`/`fix`
+   (`prim-cli/src/app.rs`), `--stdin-filepath` for `lint`
+   (`prim-cli/src/app.rs`), and the LSP formatting request
+   (`prim-cli/src/lsp/server.rs`). The LSP path is not optional: without it, an
+   editor configured to format `package-lock.json` on save with prim would still
+   rewrite the file, silently, which is the most damaging of the four paths
+   because nothing prints a warning to notice it by.
 
-4. The built-in list sits inside the `.primignore` stack rather than beside it.
-   A committed `!package-lock.json` line re-includes the file, and
-   `--no-primignore` disables the built-in list along with the rest of the
-   `.primignore` stack. There is no separate flag.
+4. For the two path-based entry points (directory discovery and an explicitly
+   named path, both in `discover.rs`), the built-in list sits inside the
+   `.primignore` stack rather than beside it. A committed `!package-lock.json`
+   line re-includes the file, and `--no-primignore` disables the built-in list
+   along with the rest of the `.primignore` stack. There is no separate flag.
+   `--stdin-filepath` and the LSP formatting request never consult `.primignore`
+   at all, so neither escape applies to them: on those two paths, `generated_by`
+   is unconditional, and there is no way to make prim format a listed file over
+   stdin or through the LSP.
 
 5. Reporting follows AD-0009's rule exactly, because the surprise is the same
    shape: reached by a directory walk, a generated file is skipped silently —
@@ -158,9 +165,23 @@ Chosen.
   protection this decision documents silently stops applying to it.
 - `CHANGELOG.md` still needs a per-repository `.primignore` entry; this decision
   does not extend the built-in list to it, on purpose.
-- Anyone who wants prim to format a listed file anyway has two ways to say so
-  without a code change: a `!name` line in a committed `.primignore`, or
-  `--no-primignore` for a one-off run.
+- For a path reached by directory discovery or named explicitly, anyone who
+  wants prim to format a listed file anyway has two ways to say so without a
+  code change: a `!name` line in a committed `.primignore`, or `--no-primignore`
+  for a one-off run. Neither works over `--stdin-filepath` or the LSP: those two
+  paths never consult `.primignore`, so the decline there is unconditional
+  (Decision item 4).
+- Matching is case-sensitive, the same rule `classify()` uses (Decision item 1,
+  FR-2.5). On a case-insensitive filesystem (for example, the default macOS APFS
+  configuration), a differently cased name on disk does not match `GENERATED`:
+  `prim fmt Package-Lock.json` in a directory that also contains
+  `package-lock.json` formats the file, because the filesystem treats the two
+  names as the same file while the name comparison does not. This is the
+  opposite failure mode from `classify()`, where a miss leaves the file alone;
+  here a miss writes to it. Accepted because the four generated names are
+  written by their tools in exactly one case, so a differently cased name on
+  disk means a human renamed the file — a case the pure, no-I/O predicate
+  (Decision item 1) has no filesystem access to detect.
 
 ## Alternatives considered
 

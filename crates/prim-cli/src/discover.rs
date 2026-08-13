@@ -85,7 +85,9 @@ pub(crate) enum Error {
 ///
 /// `.primignore` covers explicitly named paths too (AD-0009): naming a file
 /// cannot make prim touch something walking to it would leave alone, so the
-/// "left byte-for-byte unchanged" promise holds however prim is invoked. The
+/// "left byte-for-byte unchanged" promise holds however prim is invoked. A
+/// path matching the built-in generated-file list is dropped the same way
+/// (AD-0011), unless a `.primignore` whitelist entry re-includes it. The
 /// dropped paths come back in [`Discovery::ignored`] for the caller to report.
 ///
 /// Fails when an `--exclude` glob is malformed (FR-4.5): a typo'd filter must
@@ -252,6 +254,9 @@ fn validate_excludes(excludes: &[String]) -> Result<(), Error> {
 }
 
 /// Walk `root` recursively, adding every regular file with walked provenance.
+/// A path matching `.primignore` (FR-4.4) or the built-in generated-file list
+/// (AD-0011) is dropped from the walk silently; a `.primignore` whitelist
+/// entry re-includes a generated file that would otherwise be dropped.
 fn walk_into(
     root: &Path,
     excludes: &[String],
@@ -462,6 +467,40 @@ mod tests {
         let got = names(&found);
         assert!(got.contains(&"keep.json".to_string()));
         assert!(!got.contains(&"skip.json".to_string()));
+    }
+
+    #[test]
+    fn a_nested_primignore_negation_re_includes_a_walked_generated_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".primignore"), "skip.json\n");
+        write(&dir.path().join("package-lock.json"), "{\"a\":1}\n");
+        write(
+            &dir.path().join("nested/.primignore"),
+            "!package-lock.json\n",
+        );
+        write(&dir.path().join("nested/package-lock.json"), "{\"a\":1}\n");
+        let root_lock = dir.path().join("package-lock.json");
+        let nested_lock = dir.path().join("nested/package-lock.json");
+
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            IgnoreSettings::default(),
+            &ChangedFilesScope::All,
+        )
+        .unwrap()
+        .files;
+
+        assert!(
+            found.iter().any(|d| d.path == nested_lock),
+            "a nested `.primignore` negation must re-include the walked \
+             generated file, got {found:?}"
+        );
+        assert!(
+            found.iter().all(|d| d.path != root_lock),
+            "the root lockfile, with no negation, must stay excluded, got \
+             {found:?}"
+        );
     }
 
     #[test]
