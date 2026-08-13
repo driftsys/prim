@@ -43,13 +43,29 @@ impl Default for IgnoreSettings {
     }
 }
 
+/// Why a path named on the command line was dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IgnoreReason {
+    /// A committed `.primignore` covers it (AD-0009).
+    Primignore,
+    /// The named tool generates it, so prim declines outright (AD-0011).
+    Generated(&'static str),
+}
+
+/// A path prim was given and chose not to process, with the reason to report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ignored {
+    pub path: PathBuf,
+    pub reason: IgnoreReason,
+}
+
 /// The outcome of discovery: the files to process, plus the paths that were
-/// named on the command line and dropped because `.primignore` covers them.
-/// Those are reported (FR-4.4a) so an ignored path never fails silently.
+/// named on the command line and dropped. Those are reported (FR-4.4a) so an
+/// ignored path never fails silently.
 #[derive(Debug, Default)]
 pub struct Discovery {
     pub files: Vec<Discovered>,
-    pub ignored: Vec<PathBuf>,
+    pub ignored: Vec<Ignored>,
 }
 
 #[derive(Debug)]
@@ -94,17 +110,47 @@ pub fn collect(
             excludes,
             ignores,
             &changed_files,
+            &mut primignore,
             &mut selected,
         );
     } else {
         for path in paths {
             let is_dir = path.is_dir();
-            if ignores.primignore && primignore.covers(path, is_dir) {
-                ignored.push(path.clone());
+            let verdict = if ignores.primignore {
+                primignore.verdict(path, is_dir)
+            } else {
+                Verdict::Unmatched
+            };
+
+            if verdict == Verdict::Ignored {
+                ignored.push(Ignored {
+                    path: path.clone(),
+                    reason: IgnoreReason::Primignore,
+                });
                 continue;
             }
+            // The built-in list is the weakest layer: a committed `!name` overrides it,
+            // and `--no-primignore` disables it along with everything else.
+            if verdict != Verdict::Whitelisted
+                && ignores.primignore
+                && let Some(tool) = prim_fmt::generated_by(path)
+            {
+                ignored.push(Ignored {
+                    path: path.clone(),
+                    reason: IgnoreReason::Generated(tool),
+                });
+                continue;
+            }
+
             if is_dir {
-                walk_into(path, excludes, ignores, &changed_files, &mut selected);
+                walk_into(
+                    path,
+                    excludes,
+                    ignores,
+                    &changed_files,
+                    &mut primignore,
+                    &mut selected,
+                );
             } else {
                 // A file, or a non-existent path: include it as explicit and
                 // let the caller surface any read error (FR-6 fail-safe).
@@ -134,13 +180,24 @@ struct PrimignoreCache {
     by_directory: BTreeMap<PathBuf, Vec<Gitignore>>,
 }
 
+/// What the `.primignore` stack says about a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    /// A rule excludes it.
+    Ignored,
+    /// A `!` rule re-includes it, which also overrides the built-in list.
+    Whitelisted,
+    /// No rule mentions it.
+    Unmatched,
+}
+
 impl PrimignoreCache {
-    fn covers(&mut self, path: &Path, is_dir: bool) -> bool {
+    fn verdict(&mut self, path: &Path, is_dir: bool) -> Verdict {
         let Ok(absolute) = std::path::absolute(path) else {
-            return false;
+            return Verdict::Unmatched;
         };
         let Some(directory) = absolute.parent() else {
-            return false;
+            return Verdict::Unmatched;
         };
 
         let matchers = self
@@ -152,12 +209,12 @@ impl PrimignoreCache {
         // more distant ignore — the same precedence the walker applies.
         for matcher in matchers.iter() {
             match matcher.matched_path_or_any_parents(&absolute, is_dir) {
-                Match::Ignore(_) => return true,
-                Match::Whitelist(_) => return false,
+                Match::Ignore(_) => return Verdict::Ignored,
+                Match::Whitelist(_) => return Verdict::Whitelisted,
                 Match::None => {}
             }
         }
-        false
+        Verdict::Unmatched
     }
 }
 
@@ -200,6 +257,7 @@ fn walk_into(
     excludes: &[String],
     ignores: IgnoreSettings,
     changed_files: &changed_files::ChangedFiles,
+    primignore: &mut PrimignoreCache,
     selected: &mut BTreeMap<PathBuf, bool>,
 ) {
     let mut walker = WalkBuilder::new(root);
@@ -237,7 +295,16 @@ fn walk_into(
 
     for entry in walker.build().flatten() {
         if entry.file_type().is_some_and(|ft| ft.is_file()) {
-            mark_if_changed(selected, entry.into_path(), false, changed_files);
+            let path = entry.into_path();
+            // `generated_by` is a cheap name comparison, so it short-circuits
+            // before the matcher build in `verdict`.
+            if ignores.primignore
+                && prim_fmt::generated_by(&path).is_some()
+                && primignore.verdict(&path, false) != Verdict::Whitelisted
+            {
+                continue; // Silent: filtering is what a walk is for.
+            }
+            mark_if_changed(selected, path, false, changed_files);
         }
     }
 }
