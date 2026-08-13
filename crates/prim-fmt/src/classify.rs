@@ -46,6 +46,7 @@ fn is_orphan(name: &str) -> bool {
     const EXACT: &[&str] = &[
         ".gitignore",
         ".gitattributes",
+        ".gitmodules",
         ".dockerignore",
         ".npmignore",
         ".eslintignore",
@@ -93,6 +94,7 @@ mod tests {
         for name in [
             ".gitignore",
             ".gitattributes",
+            ".gitmodules",
             ".dockerignore",
             ".npmignore",
             ".eslintignore",
@@ -130,6 +132,7 @@ mod tests {
         assert_eq!(k("logo.png"), None);
         assert_eq!(k(".env"), None); // data values, not metadata — excluded.
         assert_eq!(k(".env.local"), None);
+        assert_eq!(k(".gitconfig"), None); // user/machine-local, not committed.
         assert_eq!(k("Makefile"), None); // Make is out of v1 scope.
         assert_eq!(k("run.sh"), None); // Shell is deferred to Phase 2.
         assert_eq!(k("noext"), None);
