@@ -488,18 +488,23 @@ Parsed formats (structured canonical formatting plus whitespace hygiene), by
 extension: `.md`, `.markdown`, `.json`, `.jsonc`, `.yaml`, `.yml`, `.toml`.
 
 Orphan allowlist (whitespace hygiene only) — un-owned text files matched by
-exact name or pattern:
+exact name or pattern. An entry qualifies when it is committed repository
+connective tissue whose syntax is unaffected by the three hygiene operations
+(trailing-whitespace removal, one final line-feed, LF endings) — hygiene never
+re-indents, so tab-indented files keep their tabs:
 
 | Kind          | Entries                                                                                                                                             |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Ignore files  | `.gitignore`, `.gitattributes`, `.dockerignore`, `.npmignore`, `.eslintignore`, `.prettierignore`, `.primignore`, `.helmignore`, `.containerignore` |
-| Repo metadata | `CODEOWNERS`, `.mailmap`, `.editorconfig`, `AUTHORS`, `CONTRIBUTORS`, `NOTICE`, `COPYING`, `LICENSE*`                                               |
+| Repo metadata | `CODEOWNERS`, `.mailmap`, `.gitmodules`, `.editorconfig`, `AUTHORS`, `CONTRIBUTORS`, `NOTICE`, `COPYING`, `LICENSE*`                                |
 | Containers    | `Dockerfile`, `Dockerfile.*`, `Containerfile`                                                                                                       |
 | Plain text    | `*.txt`, `*.text`                                                                                                                                   |
 
 Everything else — source code, unknown types, binaries — is left byte-for-byte
 unchanged. `.env` files are deliberately excluded: their values are data and may
-be whitespace-sensitive.
+be whitespace-sensitive. `.gitconfig` and `.git/config` are excluded for a
+different reason — they share `.gitmodules`'s syntax, but are user- and
+machine-local rather than committed.
 
 Whitespace hygiene also strips a leading UTF-8 BOM (`U+FEFF`), unconditionally,
 from every file prim processes (parsed formats and orphans alike).

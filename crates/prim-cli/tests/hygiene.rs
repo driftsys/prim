@@ -57,6 +57,25 @@ fn in_place_strips_leading_utf8_bom_from_orphan_files() {
 }
 
 #[test]
+fn in_place_normalizes_gitmodules_and_keeps_its_tab_indentation() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(".gitmodules");
+    // Hand-edited: trailing whitespace, no final newline. Git writes tab indent.
+    std::fs::write(
+        &file,
+        "[submodule \"vendor/lib\"]  \n\tpath = vendor/lib\n\turl = https://example.com/lib.git",
+    )
+    .unwrap();
+
+    prim().arg(&file).assert().success();
+
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "[submodule \"vendor/lib\"]\n\tpath = vendor/lib\n\turl = https://example.com/lib.git\n"
+    );
+}
+
+#[test]
 fn check_flags_a_bom_only_orphan_file_as_needing_change() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("notes.txt");
