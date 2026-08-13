@@ -134,9 +134,10 @@ impl Server {
     }
 
     /// Format the requested document, returning the `TextEdit[]` result. An
-    /// untracked document, a file type prim does not own, an already-formatted
-    /// buffer, or a parse failure all yield no edits — prim never hands back
-    /// edits that would corrupt or reflow content it cannot format.
+    /// untracked document, a generated file, a file type prim does not own, an
+    /// already-formatted buffer, or a parse failure all yield no edits — prim
+    /// never hands back edits that would corrupt or reflow content it cannot
+    /// format.
     fn formatting(&mut self, params: Value) -> Value {
         let Ok(params) = serde_json::from_value::<FormattingParams>(params) else {
             return json!([]);
@@ -147,6 +148,10 @@ impl Server {
         let Some(path) = uri_to_path(&params.text_document.uri) else {
             return json!([]);
         };
+        // Format-on-save must not rewrite a file its generator owns (AD-0011).
+        if prim_fmt::generated_by(&path).is_some() {
+            return json!([]);
+        }
         let Some(kind) = prim_fmt::classify(&path) else {
             return json!([]);
         };
@@ -312,6 +317,28 @@ mod tests {
             panic!("formatting must reply");
         };
         assert_eq!(reply["result"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn formatting_a_generated_file_returns_no_edits() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-test/package-lock.json";
+        server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "{\"a\" :1}\n" } }
+        }));
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": { "textDocument": { "uri": uri } }
+        }));
+        let Reaction::Reply(reply) = reaction else {
+            panic!("formatting must reply");
+        };
+        assert_eq!(
+            reply["result"].as_array().expect("edits array").len(),
+            0,
+            "format-on-save must not rewrite a file npm owns"
+        );
     }
 
     #[test]

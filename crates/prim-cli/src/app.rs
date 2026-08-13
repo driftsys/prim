@@ -191,6 +191,11 @@ fn run_fmt_stdin(path: &Path) -> i32 {
         ui::error("could not read stdin as UTF-8");
         return EXIT_ERROR;
     }
+    // A generated file is echoed untouched: its tool owns every byte (AD-0011).
+    if prim_fmt::generated_by(path).is_some() {
+        print!("{input}");
+        return EXIT_OK;
+    }
     match prim_fmt::classify(path) {
         Some(kind) => {
             let style = editorconfig::resolve(path);

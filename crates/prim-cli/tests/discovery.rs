@@ -350,3 +350,18 @@ fn no_ignore_includes_git_info_exclude_matches_in_fmt_check() {
         .code(1)
         .stdout(predicates::str::contains("hidden.json"));
 }
+
+#[test]
+fn stdin_echoes_a_generated_file_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("package-lock.json");
+
+    prim()
+        .current_dir(dir.path())
+        .args(["fmt", "--stdin-filepath"])
+        .arg(&target)
+        .write_stdin("{\"name\" :\"x\"}\n")
+        .assert()
+        .success()
+        .stdout("{\"name\" :\"x\"}\n");
+}
