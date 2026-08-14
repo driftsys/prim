@@ -236,7 +236,9 @@ fn a_walk_skips_generated_files_silently() {
         .assert()
         .code(1)
         .stdout(predicates::str::contains("authored.json"))
-        .stdout(predicates::str::contains("lock").not())
+        .stdout(predicates::str::contains("pnpm-lock.yaml").not())
+        .stdout(predicates::str::contains("package-lock.json").not())
+        .stdout(predicates::str::contains("npm-shrinkwrap.json").not())
         .stderr(predicates::str::contains("generated").not());
 }
 
