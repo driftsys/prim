@@ -72,10 +72,16 @@ about the rewrite, and the fix should not reintroduce it at the other end.
 
 Discovery already tracks provenance (`Discovered.explicit`), so the walked/named
 distinction costs nothing. Matching for a named path climbs from the path's own
-directory to the filesystem root collecting `.primignore` files, nearest first,
-because a named path has no descent for the walker's ignore stack to accumulate
-during. Matchers are cached per directory: a hook hands prim its whole staged
-list at once.
+directory collecting `.primignore` files, nearest first, because a named path
+has no descent for the walker's ignore stack to accumulate during. Matchers are
+cached per directory: a hook hands prim its whole staged list at once.
+
+The climb is bounded at the repository, so a `.primignore` outside it can never
+apply: it stops after the first ancestor holding a `.git` entry, inclusive, so a
+repo-root `.primignore` still counts. Outside a git repository — which prim must
+still work in (FR-4.2) — it stops at the current working directory instead. This
+bound was added with AD-0011, after a stray `.primignore` in a parent directory
+was found to silently change how prim treated every repository beneath it.
 
 ## Consequences
 
