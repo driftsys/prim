@@ -90,25 +90,44 @@ Chosen.
    | `pnpm-lock.yaml`      | pnpm      |
    | `packages.lock.json`  | NuGet     |
 
-3. `generated_by` is consulted at all four places a file reaches the formatter,
-   so the guarantee does not depend on how prim was invoked: directory discovery
-   (`prim-cli/src/discover.rs`), `--stdin-filepath` for `fmt`/`fix`
-   (`prim-cli/src/app.rs`), `--stdin-filepath` for `lint`
-   (`prim-cli/src/app.rs`), and the LSP formatting request
-   (`prim-cli/src/lsp/server.rs`). The LSP path is not optional: without it, an
-   editor configured to format `package-lock.json` on save with prim would still
-   rewrite the file, silently, which is the most damaging of the four paths
-   because nothing prints a warning to notice it by.
+3. `generated_by` is consulted at all five places a file reaches the formatter
+   or its diagnostics, so the guarantee does not depend on how prim was invoked:
+   directory discovery (`prim-cli/src/discover.rs`), `--stdin-filepath` for
+   `fmt`/`fix` (`prim-cli/src/app.rs`), `--stdin-filepath` for `lint`
+   (`prim-cli/src/app.rs`), the LSP formatting request
+   (`prim-cli/src/lsp/server.rs`), and the LSP `didOpen`/`didChange` diagnostics
+   notification (`prim-cli/src/lsp/server.rs`). The LSP formatting path is not
+   optional: without it, an editor configured to format `package-lock.json` on
+   save with prim would still rewrite the file, silently, which is the most
+   damaging of the five paths because nothing prints a warning to notice it by.
+   The LSP diagnostics path guards a narrower but still real failure: an editor
+   open on a generated file must never show findings the user can never clear,
+   because `formatting` correctly returns no edits for it.
 
 4. For the two path-based entry points (directory discovery and an explicitly
    named path, both in `discover.rs`), the built-in list sits inside the
    `.primignore` stack rather than beside it. A committed `!package-lock.json`
-   line re-includes the file, and `--no-primignore` disables the built-in list
-   along with the rest of the `.primignore` stack. There is no separate flag.
-   `--stdin-filepath` and the LSP formatting request never consult `.primignore`
-   at all, so neither escape applies to them: on those two paths, `generated_by`
-   is unconditional, and there is no way to make prim format a listed file over
-   stdin or through the LSP.
+   line re-includes the file — the negation must name the file specifically: its
+   final path segment, after the `!`, must be a literal equal to the file's
+   name, containing none of the glob metacharacters `*`, `?`, `[`, `{` (so
+   `!package-lock.json`, `!**/package-lock.json`, and
+   `!vendor/package-lock.json` all re-include it; `!*.json` and `!*` — the
+   latter a no-op negation under gitignore semantics, since nothing precedes it
+   to re-include — do not, even though the `ignore` crate reports all four as
+   `Match::Whitelist`). This mirrors AD-0009's rule that a path must be _named_,
+   not merely matched, to take precedence, and applies only to the
+   generated-list override — ordinary `.primignore` whitelisting of a
+   non-generated file is unaffected. `--no-primignore` disables the built-in
+   list along with the rest of the `.primignore` stack. There is no separate
+   flag. `--stdin-filepath` and the LSP formatting request never consult
+   `.primignore` at all, so neither escape applies to them: on those two paths,
+   `generated_by` is unconditional, and there is no way to make prim format a
+   listed file over stdin or through the LSP. The `.primignore` files consulted
+   for a path named on the command line are those from its directory up to the
+   repository root (the nearest ancestor containing `.git`), or up to the
+   current working directory when no repository is found — never beyond it, so a
+   `.primignore` outside the repository (for example one left in `$HOME`) cannot
+   silently disable the built-in list for every repository beneath it.
 
 5. Reporting follows AD-0009's rule exactly, because the surprise is the same
    shape: reached by a directory walk, a generated file is skipped silently —
