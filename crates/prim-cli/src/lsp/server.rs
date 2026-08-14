@@ -120,10 +120,12 @@ impl Server {
     }
 
     /// Recompute and publish diagnostics for `uri`'s new `text`. Always
-    /// publishes (even an empty array) so a file that becomes clean, or one
-    /// prim can't classify, correctly clears any stale findings client-side.
+    /// publishes (even an empty array) so a file that becomes clean, one prim
+    /// can't classify, or a generated file (AD-0011) — never analyzed —
+    /// correctly clears any stale findings client-side.
     fn diagnostics_reaction(&mut self, uri: &str, text: &str) -> Reaction {
         let diagnostics = uri_to_path(uri)
+            .filter(|path| prim_fmt::generated_by(path).is_none())
             .and_then(|path| prim_fmt::classify(&path).map(|kind| (path, kind)))
             .map(|(path, kind)| diagnostics::compute(&mut self.resolver, &path, kind, text))
             .unwrap_or_default();
@@ -338,6 +340,26 @@ mod tests {
             reply["result"].as_array().expect("edits array").len(),
             0,
             "format-on-save must not rewrite a file npm owns"
+        );
+    }
+
+    #[test]
+    fn didopen_on_a_generated_file_publishes_no_diagnostics() {
+        let mut server = Server::new();
+        let uri = "file:///tmp/prim-lsp-test/package-lock.json";
+        let reaction = server.handle(&json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "text": "{\"a\" :1}\n" } }
+        }));
+        let notification = expect_publish(reaction);
+        assert_eq!(
+            notification["params"]["diagnostics"]
+                .as_array()
+                .expect("diagnostics array")
+                .len(),
+            0,
+            "opening a file npm owns must never publish diagnostics the \
+             user can never clear"
         );
     }
 
