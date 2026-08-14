@@ -306,6 +306,60 @@ fn fmt_check_on_an_explicit_generated_path_exits_zero() {
 }
 
 #[test]
+fn a_primignore_outside_the_repository_does_not_reinclude_a_generated_file() {
+    // A stray `.primignore` above the repository (for example one left in
+    // $HOME) must not be able to disable the built-in generated-file list
+    // for every repository beneath it.
+    let outer = tempfile::tempdir().unwrap();
+    std::fs::write(outer.path().join(".primignore"), "!package-lock.json\n").unwrap();
+    let repo = outer.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::fs::write(repo.join("package-lock.json"), "{\"a\":1}\n").unwrap();
+
+    prim()
+        .current_dir(&repo)
+        .args(["fmt", "--check", "."])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
+#[test]
+fn a_nonexistent_generated_path_errors_and_exits_two() {
+    // FR-4.6: an explicitly named path that does not exist is always a usage
+    // error, even when its name matches the built-in generated-file list.
+    let dir = tempfile::tempdir().unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["fmt", "typo/package-lock.json"])
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn a_directory_named_like_a_generated_file_is_walked_not_skipped() {
+    // AD-0009's invariant, restated by the module doc: naming a path must
+    // never make prim skip what walking to it would process.
+    // `Path::file_name()` matches a directory named `package-lock.json` too,
+    // so the generated check must not fire for one.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("dirlock/package-lock.json")).unwrap();
+    std::fs::write(
+        dir.path().join("dirlock/package-lock.json/inner.json"),
+        "{\"a\" :1}\n",
+    )
+    .unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["fmt", "--check", "dirlock/package-lock.json"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("inner.json"));
+}
+
+#[test]
 fn no_primignore_processes_a_generated_file() {
     let dir = generated_repo();
     let lock = dir.path().join("package-lock.json");

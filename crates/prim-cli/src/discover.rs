@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::Match;
 use ignore::WalkBuilder;
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::gitignore::{Gitignore, GitignoreBuilder, Glob};
 use ignore::overrides::OverrideBuilder;
 
 use crate::changed_files::{self, ChangedFilesScope};
@@ -133,8 +133,14 @@ pub fn collect(
             }
             // The built-in list is the weakest layer: a committed `!name` overrides it,
             // and `--no-primignore` disables it along with everything else.
-            if verdict != Verdict::Whitelisted
+            // `path.is_file()` keeps this from firing for a nonexistent path
+            // (FR-4.6: it must still reach the existence-error path below) or
+            // for a directory that merely shares a generated name (AD-0009:
+            // naming a path must never make prim skip what walking to it
+            // would process).
+            if !matches!(verdict, Verdict::Whitelisted(true))
                 && ignores.primignore
+                && path.is_file()
                 && let Some(tool) = prim_fmt::generated_by(path)
             {
                 ignored.push(Ignored {
@@ -187,8 +193,12 @@ struct PrimignoreCache {
 pub(crate) enum Verdict {
     /// A rule excludes it.
     Ignored,
-    /// A `!` rule re-includes it, which also overrides the built-in list.
-    Whitelisted,
+    /// A `!` rule re-includes it. The payload is whether that rule names the
+    /// file specifically enough to also override the built-in generated-file
+    /// list — see [`whitelist_names_file`]. Ordinary (non-generated)
+    /// `.primignore` behaviour does not consult the payload: either way, the
+    /// path is not [`Verdict::Ignored`].
+    Whitelisted(bool),
     /// No rule mentions it.
     Unmatched,
 }
@@ -201,6 +211,7 @@ impl PrimignoreCache {
         let Some(directory) = absolute.parent() else {
             return Verdict::Unmatched;
         };
+        let file_name = absolute.file_name().and_then(|name| name.to_str());
 
         let matchers = self
             .by_directory
@@ -212,7 +223,10 @@ impl PrimignoreCache {
         for matcher in matchers.iter() {
             match matcher.matched_path_or_any_parents(&absolute, is_dir) {
                 Match::Ignore(_) => return Verdict::Ignored,
-                Match::Whitelist(_) => return Verdict::Whitelisted,
+                Match::Whitelist(glob) => {
+                    let specific = file_name.is_some_and(|name| whitelist_names_file(glob, name));
+                    return Verdict::Whitelisted(specific);
+                }
                 Match::None => {}
             }
         }
@@ -220,22 +234,58 @@ impl PrimignoreCache {
     }
 }
 
-/// Every `.primignore` from `directory` up to the filesystem root, nearest
+/// Whether a `!` rule's glob names `file_name` specifically enough to
+/// override the built-in generated-file list (AD-0011 item 4): the pattern's
+/// final path segment, after the leading `!`, must be a literal equal to
+/// `file_name` — none of the glob metacharacters `*`, `?`, `[`, `{`. Mirrors
+/// AD-0009's rule that a path must be *named*, not merely matched, to take
+/// precedence.
+///
+/// So `!package-lock.json`, `!**/package-lock.json`, and
+/// `!vendor/package-lock.json` all override; `!*.json` and `!*` — the latter
+/// a no-op negation under gitignore semantics, since nothing precedes it to
+/// re-include — do not, even though the `ignore` crate reports all four as
+/// `Match::Whitelist`.
+///
+/// This narrowing applies only to the generated-list override. Ordinary
+/// `.primignore` whitelisting of a non-generated file is unaffected: such a
+/// path is simply not [`Verdict::Ignored`] regardless of specificity.
+fn whitelist_names_file(glob: &Glob, file_name: &str) -> bool {
+    let pattern = glob.original().strip_prefix('!').unwrap_or(glob.original());
+    let segment = pattern.rsplit('/').next().unwrap_or(pattern);
+    segment == file_name && !segment.contains(['*', '?', '[', '{'])
+}
+
+/// Every `.primignore` from `directory` up to the repository root, nearest
 /// first, each rooted at the directory that holds it so anchored patterns
 /// (`/CHANGELOG.md`, `fixtures/`) resolve the way gitignore syntax says.
+///
+/// The climb is bounded so a `.primignore` outside the repository can never
+/// apply: it stops after the first ancestor (inclusive, so a repo-root
+/// `.primignore` still applies) that contains a `.git` entry. When no such
+/// ancestor is found — prim must still work outside a git repository
+/// (FR-4.2) — it stops at the current working directory instead, rather than
+/// climbing on to the filesystem root.
 fn matchers_above(directory: &Path) -> Vec<Gitignore> {
-    directory
-        .ancestors()
-        .filter_map(|ancestor| {
-            let candidate = ancestor.join(".primignore");
-            if !candidate.is_file() {
-                return None;
-            }
+    let cwd = std::env::current_dir().ok();
+    let mut matchers = Vec::new();
+    for ancestor in directory.ancestors() {
+        let candidate = ancestor.join(".primignore");
+        if candidate.is_file() {
             let mut builder = GitignoreBuilder::new(ancestor);
-            builder.add(&candidate).is_none().then_some(())?;
-            builder.build().ok()
-        })
-        .collect()
+            if builder.add(&candidate).is_none()
+                && let Ok(built) = builder.build()
+            {
+                matchers.push(built);
+            }
+        }
+        let at_repo_root = ancestor.join(".git").exists();
+        let at_cwd = cwd.as_deref() == Some(ancestor);
+        if at_repo_root || at_cwd {
+            break;
+        }
+    }
+    matchers
 }
 
 /// Reject malformed exclude globs up front; `walk_into` re-builds the same
@@ -305,7 +355,7 @@ fn walk_into(
             // before the matcher build in `verdict`.
             if ignores.primignore
                 && prim_fmt::generated_by(&path).is_some()
-                && primignore.verdict(&path, false) != Verdict::Whitelisted
+                && !matches!(primignore.verdict(&path, false), Verdict::Whitelisted(true))
             {
                 continue; // Silent: filtering is what a walk is for.
             }
@@ -500,6 +550,118 @@ mod tests {
             found.iter().all(|d| d.path != root_lock),
             "the root lockfile, with no negation, must stay excluded, got \
              {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_broad_primignore_negation_does_not_reinclude_a_walked_generated_file() {
+        // `!*.json` names no file specifically. Under gitignore semantics it
+        // is a no-op (nothing upstream excludes JSON files in the first
+        // place), so it must not be treated as re-including anything, let
+        // alone every generated JSON file.
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".primignore"), "!*.json\n");
+        write(&dir.path().join("package-lock.json"), "{\"a\":1}\n");
+        let lock = dir.path().join("package-lock.json");
+
+        let found = collect(
+            &[dir.path().to_path_buf()],
+            &[],
+            IgnoreSettings::default(),
+            &ChangedFilesScope::All,
+        )
+        .unwrap()
+        .files;
+
+        assert!(
+            found.iter().all(|d| d.path != lock),
+            "a broad `!*.json` negation must not re-include a generated \
+             file, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_broad_primignore_negation_does_not_reinclude_an_explicit_generated_path() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".primignore"), "!*.json\n");
+        let lock = dir.path().join("package-lock.json");
+        write(&lock, "{\"a\":1}\n");
+
+        let discovery = collect(
+            std::slice::from_ref(&lock),
+            &[],
+            IgnoreSettings::default(),
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
+
+        assert!(
+            discovery.files.is_empty(),
+            "a broad `!*.json` negation must not re-include an explicitly \
+             named generated file, got {:?}",
+            discovery.files
+        );
+        assert!(
+            matches!(
+                discovery.ignored.first().map(|i| &i.reason),
+                Some(IgnoreReason::Generated(_))
+            ),
+            "the path must still be reported as generated, got {:?}",
+            discovery.ignored
+        );
+    }
+
+    #[test]
+    fn a_specific_primignore_negation_reincludes_an_explicit_generated_path() {
+        let dir = tempfile::tempdir().unwrap();
+        write(&dir.path().join(".primignore"), "!package-lock.json\n");
+        let lock = dir.path().join("package-lock.json");
+        write(&lock, "{\"a\":1}\n");
+
+        let found = collect(
+            std::slice::from_ref(&lock),
+            &[],
+            IgnoreSettings::default(),
+            &ChangedFilesScope::All,
+        )
+        .unwrap()
+        .files;
+
+        assert!(
+            found.iter().any(|d| d.path == lock),
+            "`!package-lock.json` names the file specifically and must \
+             re-include it, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_primignore_above_the_git_root_does_not_apply() {
+        // The `.primignore` search must stop at the repository boundary (the
+        // nearest `.git` ancestor), so a `.primignore` sitting above it —
+        // for example one left in a parent workspace directory — can never
+        // silently disable the built-in generated-file list for every
+        // repository beneath it (finding 2 / AD-0011).
+        let outer = tempfile::tempdir().unwrap();
+        write(&outer.path().join(".primignore"), "!package-lock.json\n");
+        let repo = outer.path().join("repo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        write(&repo.join("package-lock.json"), "{\"a\":1}\n");
+
+        let found = collect(
+            std::slice::from_ref(&repo),
+            &[],
+            IgnoreSettings::default(),
+            &ChangedFilesScope::All,
+        )
+        .unwrap()
+        .files;
+
+        assert!(
+            found
+                .iter()
+                .all(|d| d.path != repo.join("package-lock.json")),
+            "a `.primignore` above the git root must not re-include a \
+             generated file inside it, got {found:?}"
         );
     }
 

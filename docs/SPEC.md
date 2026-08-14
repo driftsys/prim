@@ -74,7 +74,13 @@ source-code formatter and has **no plugin system**.
 - **FR-2.7** prim shall leave a tool-generated file byte-for-byte unchanged,
   including whitespace hygiene, even when its type is one prim formats. The set
   is a built-in, name-keyed list (AD-0011). A committed `.primignore` negation
-  (`!name`) re-includes such a file, and `--no-primignore` disables the built-in
+  re-includes such a file only when its final path segment is a literal file
+  name equal to the generated file's name (for example `!package-lock.json`,
+  `!**/package-lock.json`, or `!vendor/package-lock.json`) — a broader negation
+  such as `!*.json` or `!*` does not. The `.primignore` files consulted for a
+  path are read from its directory up to the repository root (the nearest
+  ancestor containing `.git`), or up to the current working directory when no
+  repository is found, never beyond it. `--no-primignore` disables the built-in
   list along with the rest of the `.primignore` stack.
 
 ## FR-3 — Style resolution
