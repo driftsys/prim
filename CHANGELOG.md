@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.3.1] (2026-08-21)
+
+### Documentation
+
+- **prim:** correct AD-0009's primignore search bound ([2bee350])
+- **prim:** record why prim declines generated files ([c83e754])
+
+### Bug Fixes
+
+- **prim-cli:** guard LSP diagnostics against generated files ([b5b6ae7])
+- **prim-cli:** tighten the primignore whitelist and generated-path checks
+  ([13b5e7b])
+- **prim-cli:** decline a generated file on lint over stdin ([3859bcc])
+- **prim-cli:** apply editorconfig indent_size without indent_style ([9aae9a2]),
+  closes [#104]
+
+### Features
+
+- **prim-cli:** decline generated files on stdin and over LSP ([9537bfe])
+- **prim-cli:** skip generated files during discovery ([88e36b0])
+- **prim-fmt:** add the generated-file predicate ([05b014d])
+- **prim-fmt:** add .gitmodules to the orphan allowlist ([2f7e973])
+- **prim-fmt:** keep the array line structure the source wrote ([f28598b]),
+  closes [#105]
+
+[0.3.1]: https://github.com/driftsys/prim/compare/v0.3.0...v0.3.1
+[2bee350]: https://github.com/driftsys/prim/commit/2bee350
+[c83e754]: https://github.com/driftsys/prim/commit/c83e754
+[b5b6ae7]: https://github.com/driftsys/prim/commit/b5b6ae7
+[13b5e7b]: https://github.com/driftsys/prim/commit/13b5e7b
+[3859bcc]: https://github.com/driftsys/prim/commit/3859bcc
+[9aae9a2]: https://github.com/driftsys/prim/commit/9aae9a2
+[#104]: https://github.com/driftsys/prim/issues/104
+[9537bfe]: https://github.com/driftsys/prim/commit/9537bfe
+[88e36b0]: https://github.com/driftsys/prim/commit/88e36b0
+[05b014d]: https://github.com/driftsys/prim/commit/05b014d
+[2f7e973]: https://github.com/driftsys/prim/commit/2f7e973
+[f28598b]: https://github.com/driftsys/prim/commit/f28598b
+[#105]: https://github.com/driftsys/prim/issues/105
+
 ## [0.3.0] (2026-08-12)
 
 ### Features
