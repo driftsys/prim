@@ -4,13 +4,17 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use ignore::Match;
 use ignore::WalkBuilder;
-use ignore::gitignore::{Gitignore, GitignoreBuilder, Glob};
 use ignore::overrides::OverrideBuilder;
 
 use crate::changed_files::{self, ChangedFilesScope};
+
+mod primignore;
+
+pub(crate) use primignore::Verdict;
+use primignore::{PrimignoreCache, bound_for};
 
 /// A file selected for processing, tagged with how it was reached.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,22 +108,34 @@ pub fn collect(
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
     let mut ignored = Vec::new();
-    let mut primignore = PrimignoreCache::default();
+    // Shared because the walk consults it from a `filter_entry` closure, which
+    // the `ignore` crate requires to be `Send + Sync + 'static`.
+    let primignore = Arc::new(Mutex::new(PrimignoreCache::default()));
 
     if paths.is_empty() {
+        let root = Path::new(".");
         walk_into(
-            Path::new("."),
+            root,
+            bound_for(root).as_deref(),
             excludes,
             ignores,
             &changed_files,
-            &mut primignore,
+            &primignore,
             &mut selected,
         );
     } else {
         for path in paths {
             let is_dir = path.is_dir();
+            // Each named path carries its own bound: the repository that holds
+            // it. Pointing prim at a nested checkout hands it that checkout's
+            // rules, not the enclosing repository's (#110).
+            let bound = if ignores.primignore {
+                bound_for(path)
+            } else {
+                None
+            };
             let verdict = if ignores.primignore {
-                primignore.verdict(path, is_dir)
+                cached(&primignore).verdict(path, is_dir, bound.as_deref())
             } else {
                 Verdict::Unmatched
             };
@@ -153,10 +169,11 @@ pub fn collect(
             if is_dir {
                 walk_into(
                     path,
+                    bound.as_deref(),
                     excludes,
                     ignores,
                     &changed_files,
-                    &mut primignore,
+                    &primignore,
                     &mut selected,
                 );
             } else {
@@ -174,118 +191,6 @@ pub fn collect(
             .collect(),
         ignored,
     })
-}
-
-/// Answers "does `.primignore` cover this path?" for paths named on the command
-/// line, which the directory walk never sees.
-///
-/// The walker reads `.primignore` files as it descends; a named path has no
-/// descent, so the matchers are built by climbing from the path's own directory
-/// to the filesystem root. Matchers are cached per directory because a hook
-/// hands prim its whole staged-file list at once.
-#[derive(Default)]
-struct PrimignoreCache {
-    by_directory: BTreeMap<PathBuf, Vec<Gitignore>>,
-}
-
-/// What the `.primignore` stack says about a path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Verdict {
-    /// A rule excludes it.
-    Ignored,
-    /// A `!` rule re-includes it. The payload is whether that rule names the
-    /// file specifically enough to also override the built-in generated-file
-    /// list — see [`whitelist_names_file`]. Ordinary (non-generated)
-    /// `.primignore` behaviour does not consult the payload: either way, the
-    /// path is not [`Verdict::Ignored`].
-    Whitelisted(bool),
-    /// No rule mentions it.
-    Unmatched,
-}
-
-impl PrimignoreCache {
-    fn verdict(&mut self, path: &Path, is_dir: bool) -> Verdict {
-        let Ok(absolute) = std::path::absolute(path) else {
-            return Verdict::Unmatched;
-        };
-        let Some(directory) = absolute.parent() else {
-            return Verdict::Unmatched;
-        };
-        let file_name = absolute.file_name().and_then(|name| name.to_str());
-
-        let matchers = self
-            .by_directory
-            .entry(directory.to_path_buf())
-            .or_insert_with(|| matchers_above(directory));
-
-        // Nearest `.primignore` first, so a closer whitelist (`!name`) beats a
-        // more distant ignore — the same precedence the walker applies.
-        for matcher in matchers.iter() {
-            match matcher.matched_path_or_any_parents(&absolute, is_dir) {
-                Match::Ignore(_) => return Verdict::Ignored,
-                Match::Whitelist(glob) => {
-                    let specific = file_name.is_some_and(|name| whitelist_names_file(glob, name));
-                    return Verdict::Whitelisted(specific);
-                }
-                Match::None => {}
-            }
-        }
-        Verdict::Unmatched
-    }
-}
-
-/// Whether a `!` rule's glob names `file_name` specifically enough to
-/// override the built-in generated-file list (AD-0011 item 4): the pattern's
-/// final path segment, after the leading `!`, must be a literal equal to
-/// `file_name` — none of the glob metacharacters `*`, `?`, `[`, `{`. Mirrors
-/// AD-0009's rule that a path must be *named*, not merely matched, to take
-/// precedence.
-///
-/// So `!package-lock.json`, `!**/package-lock.json`, and
-/// `!vendor/package-lock.json` all override; `!*.json` and `!*` — the latter
-/// a no-op negation under gitignore semantics, since nothing precedes it to
-/// re-include — do not, even though the `ignore` crate reports all four as
-/// `Match::Whitelist`.
-///
-/// This narrowing applies only to the generated-list override. Ordinary
-/// `.primignore` whitelisting of a non-generated file is unaffected: such a
-/// path is simply not [`Verdict::Ignored`] regardless of specificity.
-fn whitelist_names_file(glob: &Glob, file_name: &str) -> bool {
-    let pattern = glob.original().strip_prefix('!').unwrap_or(glob.original());
-    let segment = pattern.rsplit('/').next().unwrap_or(pattern);
-    segment == file_name && !segment.contains(['*', '?', '[', '{'])
-}
-
-/// Every `.primignore` from `directory` up to the repository root, nearest
-/// first, each rooted at the directory that holds it so anchored patterns
-/// (`/CHANGELOG.md`, `fixtures/`) resolve the way gitignore syntax says.
-///
-/// The climb is bounded so a `.primignore` outside the repository can never
-/// apply: it stops after the first ancestor (inclusive, so a repo-root
-/// `.primignore` still applies) that contains a `.git` entry. When no such
-/// ancestor is found — prim must still work outside a git repository
-/// (FR-4.2) — it stops at the current working directory instead, rather than
-/// climbing on to the filesystem root.
-fn matchers_above(directory: &Path) -> Vec<Gitignore> {
-    let cwd = std::env::current_dir().ok();
-    let mut matchers = Vec::new();
-    for ancestor in directory.ancestors() {
-        let candidate = ancestor.join(".primignore");
-        if candidate.is_file() {
-            let mut builder = GitignoreBuilder::new(ancestor);
-            if builder.add(&candidate).is_none()
-                && let Ok(built) = builder.build()
-            {
-                matchers.push(built);
-            }
-        }
-        let at_repo_root = ancestor.join(".git").exists();
-        let at_cwd = cwd.as_deref() == Some(ancestor);
-        if at_repo_root || at_cwd {
-            break;
-        }
-    }
-    matchers
 }
 
 /// Reject malformed exclude globs up front; `walk_into` re-builds the same
@@ -307,12 +212,16 @@ fn validate_excludes(excludes: &[String]) -> Result<(), Error> {
 /// A path matching `.primignore` (FR-4.4) or the built-in generated-file list
 /// (AD-0011) is dropped from the walk silently; a `.primignore` whitelist
 /// entry re-includes a generated file that would otherwise be dropped.
+///
+/// `bound` is the walk's `.primignore` search bound, resolved once from `root`
+/// so every entry is judged against the same repository's rules.
 fn walk_into(
     root: &Path,
+    bound: Option<&Path>,
     excludes: &[String],
     ignores: IgnoreSettings,
     changed_files: &changed_files::ChangedFiles,
-    primignore: &mut PrimignoreCache,
+    primignore: &Arc<Mutex<PrimignoreCache>>,
     selected: &mut BTreeMap<PathBuf, bool>,
 ) {
     let mut walker = WalkBuilder::new(root);
@@ -328,13 +237,34 @@ fn walk_into(
         .require_git(false)
         // Include dotfiles so allowlisted ones (.gitignore, .editorconfig,
         // .mailmap, …) are reachable; the VCS metadata directory is pruned below.
-        .hidden(false)
-        .filter_entry(|entry| entry.file_name() != ".git");
+        .hidden(false);
 
-    // The committed escape hatch (FR-4.4).
-    if ignores.primignore {
-        walker.add_custom_ignore_filename(".primignore");
-    }
+    // `.primignore` is matched by `PrimignoreCache` rather than registered with
+    // `add_custom_ignore_filename`, because the walker's ancestor stack has no
+    // bound: it reads ignore files from every directory up to the filesystem
+    // root, which carries another repository's rules across into this one.
+    //
+    // Each entry is matched against its own parents, so this also covers a walk
+    // whose root is itself inside an ignored directory — the one entry the
+    // walker never offers to a filter is the root, at depth 0.
+    let bounded = bound.map(Path::to_path_buf);
+    let cache = Arc::clone(primignore);
+    let apply_primignore = ignores.primignore;
+    walker.filter_entry(move |entry| {
+        if entry.file_name() == ".git" {
+            return false;
+        }
+        if !apply_primignore {
+            return true;
+        }
+        let is_dir = entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_dir());
+        !matches!(
+            cached(&cache).verdict(entry.path(), is_dir, bounded.as_deref()),
+            Verdict::Ignored
+        )
+    });
 
     if !excludes.is_empty() {
         let mut overrides = OverrideBuilder::new(root);
@@ -355,13 +285,23 @@ fn walk_into(
             // before the matcher build in `verdict`.
             if ignores.primignore
                 && prim_fmt::generated_by(&path).is_some()
-                && !matches!(primignore.verdict(&path, false), Verdict::Whitelisted(true))
+                && !matches!(
+                    cached(primignore).verdict(&path, false, bound),
+                    Verdict::Whitelisted(true)
+                )
             {
                 continue; // Silent: filtering is what a walk is for.
             }
             mark_if_changed(selected, path, false, changed_files);
         }
     }
+}
+
+/// Borrow the shared matcher cache. The cache is behind a lock only because
+/// `filter_entry` requires a `Send + Sync` closure; the walk itself is
+/// single-threaded (`WalkBuilder::build`), so the lock is never contended.
+fn cached(cache: &Arc<Mutex<PrimignoreCache>>) -> std::sync::MutexGuard<'_, PrimignoreCache> {
+    cache.lock().expect("primignore cache lock")
 }
 
 fn mark_if_changed(
@@ -662,6 +602,40 @@ mod tests {
                 .all(|d| d.path != repo.join("package-lock.json")),
             "a `.primignore` above the git root must not re-include a \
              generated file inside it, got {found:?}"
+        );
+    }
+
+    #[test]
+    fn a_primignore_above_a_named_repository_root_does_not_apply() {
+        // The climb is bounded by the repository that contains the path, and a
+        // named directory holding `.git` is its own repository root. The outer
+        // `.primignore` therefore stops at that boundary instead of reaching
+        // across it, the way it already does for a named file inside the same
+        // repository (#110).
+        let outer = tempfile::tempdir().unwrap();
+        write(&outer.path().join(".primignore"), "build/\n");
+        let repo = outer.path().join("build/inner");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        write(&repo.join("doc.md"), "# Doc\n");
+
+        let discovery = collect(
+            std::slice::from_ref(&repo),
+            &[],
+            IgnoreSettings::default(),
+            &ChangedFilesScope::All,
+        )
+        .unwrap();
+
+        assert!(
+            discovery.ignored.is_empty(),
+            "a `.primignore` outside the named repository must not skip it, \
+             got {:?}",
+            discovery.ignored
+        );
+        assert!(
+            names(&discovery.files).contains(&"doc.md".to_string()),
+            "the tree inside the named repository must be walked, got {:?}",
+            discovery.files
         );
     }
 

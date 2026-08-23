@@ -461,3 +461,307 @@ fn stdin_lint_reports_no_findings_for_a_generated_file() {
         .success()
         .stdout(predicates::str::is_empty());
 }
+
+/// A repository nested inside another, where the outer one's `.primignore`
+/// names the directory the inner checkout sits in.
+///
+/// `marker` is what makes the inner directory a repository root: a `.git`
+/// directory for an ordinary clone, a `.git` file for a git worktree.
+/// `outer_pattern` is the enclosing rule, which decides whether the outer
+/// repository would prune the checkout by its directory component or by
+/// matching the files under it.
+fn nested_repository(outer_pattern: &str, marker: fn(&std::path::Path)) -> tempfile::TempDir {
+    let outer = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(outer.path().join(".git")).unwrap();
+    std::fs::write(outer.path().join(".primignore"), outer_pattern).unwrap();
+
+    let inner = outer.path().join("build/inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    marker(&inner);
+    // Non-canonical on purpose: prim rewrites this as soon as it processes it.
+    std::fs::write(inner.join("doc.md"), "#  Doc\n").unwrap();
+    outer
+}
+
+fn git_directory(inner: &std::path::Path) {
+    std::fs::create_dir_all(inner.join(".git")).unwrap();
+}
+
+fn git_worktree_file(inner: &std::path::Path) {
+    std::fs::write(
+        inner.join(".git"),
+        "gitdir: /elsewhere/.git/worktrees/inner\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_named_repository_root_is_not_covered_by_the_enclosing_primignore() {
+    // Named from the enclosing repository, so the working directory cannot be
+    // what decides this: only the `.git` entry at `build/inner` can (#110).
+    let outer = nested_repository("build/\n", git_directory);
+
+    prim()
+        .current_dir(outer.path())
+        .args(["fmt", "--check", "build/inner"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"))
+        .stderr(predicates::str::contains(".primignore").not());
+}
+
+#[test]
+fn a_named_worktree_root_is_not_covered_by_the_enclosing_primignore() {
+    // A git worktree marks its root with a `.git` *file* rather than a
+    // directory. It is the case #110 was reported from: agent worktrees under
+    // a directory the enclosing repository's `.primignore` names. Named from
+    // the enclosing repository so only the marker can decide it.
+    let outer = nested_repository("build/\n", git_worktree_file);
+
+    prim()
+        .current_dir(outer.path())
+        .args(["fmt", "--check", "build/inner"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"))
+        .stderr(predicates::str::contains(".primignore").not());
+}
+
+#[test]
+fn working_inside_a_nested_checkout_ignores_the_enclosing_primignore() {
+    // The reported invocation: standing in the worktree and naming `.`.
+    let outer = nested_repository("build/\n", git_worktree_file);
+
+    prim()
+        .current_dir(outer.path().join("build/inner"))
+        .args(["fmt", "--check", "."])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"))
+        .stderr(predicates::str::contains(".primignore").not());
+}
+
+#[test]
+fn a_walk_inside_a_nested_checkout_ignores_the_enclosing_primignore() {
+    // `build/**` matches the files rather than the directory component, so the
+    // enclosing rule reaches the walk instead of the named root. Bounding only
+    // the named path left this route skipping every file and exiting 0 with no
+    // warning at all.
+    let outer = nested_repository("build/**\n", git_worktree_file);
+
+    prim()
+        .current_dir(outer.path().join("build/inner"))
+        .args(["fmt", "--check"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"));
+}
+
+#[test]
+fn pointing_prim_at_the_enclosing_repository_still_prunes_the_nested_checkout() {
+    // The other direction, which the bound must not break: pointed at the outer
+    // repository, prim keeps the outer rules, so the checkout beneath it is
+    // still pruned.
+    //
+    // Both pattern forms, because only the second reaches the nested checkout.
+    // `build/` prunes at the directory component, so the walk never descends
+    // far enough to meet a second repository root; `build/**` matches the files
+    // inside it, so it is the form that shows the bound stayed fixed at the
+    // outer repository instead of being re-derived for each entry.
+    for pattern in ["build/\n", "build/**\n"] {
+        let outer = nested_repository(pattern, git_worktree_file);
+
+        prim()
+            .current_dir(outer.path())
+            .args(["fmt", "--check", "."])
+            .assert()
+            .success()
+            .stdout(predicates::str::is_empty());
+    }
+}
+
+#[test]
+fn a_walk_and_a_named_path_keep_their_own_bounds_in_one_invocation() {
+    // Two bounds are live at once: the walk is bounded at the outer repository,
+    // and the named path at the nested checkout it points into. Were the
+    // matcher cache keyed by directory alone, whichever argument came first
+    // would decide for both, and the enclosing rule would reach across into the
+    // checkout — bug #110's shape again.
+    for order in [
+        ["fmt", "--check", ".", "build/inner/doc.md"],
+        ["fmt", "--check", "build/inner/doc.md", "."],
+    ] {
+        let outer = nested_repository("**/doc.md\n", git_worktree_file);
+
+        prim()
+            .current_dir(outer.path())
+            .args(order)
+            .assert()
+            .code(1)
+            .stdout(predicates::str::contains("build/inner/doc.md"));
+    }
+}
+
+#[test]
+fn a_negation_does_not_re_include_a_file_under_an_ignored_directory() {
+    // gitignore's rule, which prim now applies itself rather than delegating to
+    // the walker: a `!` rule cannot re-include a file whose parent directory is
+    // excluded. It holds only because the walk tells the matcher whether each
+    // entry is a directory, so `build/` covers the directory itself.
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+    std::fs::write(repo.path().join(".primignore"), "build/\n!build/keep.md\n").unwrap();
+    std::fs::create_dir_all(repo.path().join("build")).unwrap();
+    std::fs::write(repo.path().join("build/keep.md"), "#  Keep\n").unwrap();
+    std::fs::write(repo.path().join("build/other.md"), "#  Other\n").unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "."])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
+#[test]
+fn a_primignore_above_the_working_directory_does_not_cover_a_named_directory() {
+    // Outside a repository the search stops at the working directory, so a
+    // stray `.primignore` in a parent directory cannot reach the tree prim was
+    // pointed at (AD-0011).
+    let outer = tempfile::tempdir().unwrap();
+    std::fs::write(outer.path().join(".primignore"), "build/\n").unwrap();
+    let inner = outer.path().join("build/inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    std::fs::write(inner.join("doc.md"), "#  Doc\n").unwrap();
+
+    prim()
+        .current_dir(&inner)
+        .args(["fmt", "--check", "."])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"))
+        .stderr(predicates::str::contains(".primignore").not());
+}
+
+/// A repository whose `.primignore` names `fixtures/`, holding the byte-exact
+/// fixture that entry exists to protect — the shape `docs/recipes.md`
+/// recommends, and prim's own.
+fn repository_ignoring_fixtures() -> tempfile::TempDir {
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+    std::fs::write(repo.path().join(".primignore"), "fixtures/\n").unwrap();
+    std::fs::create_dir_all(repo.path().join("fixtures")).unwrap();
+    std::fs::write(repo.path().join("fixtures/golden.json"), "{\"a\" :1}\n").unwrap();
+    repo
+}
+
+#[test]
+fn naming_an_ignored_directory_in_its_own_repository_still_skips_it() {
+    // AD-0009 point 4, for a directory rather than a file.
+    let repo = repository_ignoring_fixtures();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "fixtures"])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::contains(".primignore"));
+}
+
+#[test]
+fn an_ignored_directory_named_from_inside_itself_is_still_skipped() {
+    // The working directory is a bound only when there is no repository. Were
+    // it an alternative rather than a fallback, standing in the fixtures
+    // directory would stop the search short of the `.primignore` naming it.
+    let repo = repository_ignoring_fixtures();
+
+    prim()
+        .current_dir(repo.path().join("fixtures"))
+        .args(["fmt", "--check", "."])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::contains(".primignore"));
+}
+
+#[test]
+fn an_ignored_file_named_from_inside_its_own_directory_is_still_skipped() {
+    let repo = repository_ignoring_fixtures();
+
+    prim()
+        .current_dir(repo.path().join("fixtures"))
+        .args(["fmt", "--check", "golden.json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::contains(".primignore"));
+}
+
+#[test]
+fn a_walk_started_inside_an_ignored_directory_rewrites_nothing() {
+    // The destructive form of the same gap: the walk root is the one entry the
+    // `ignore` crate never offers to a filter, so a bare `prim fmt` here used
+    // to rewrite the byte-exact corpus the `.primignore` entry protects.
+    let repo = repository_ignoring_fixtures();
+
+    prim()
+        .current_dir(repo.path().join("fixtures"))
+        .arg("fmt")
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("fixtures/golden.json")).unwrap(),
+        "{\"a\" :1}\n",
+        "a `.primignore`d fixture must stay byte-for-byte unchanged"
+    );
+}
+
+#[test]
+fn a_bound_the_search_cannot_reach_still_bounds_it() {
+    // Outside a repository the bound is the working directory — but only when
+    // prim was pointed somewhere beneath it. Pointed at a sibling tree, the
+    // working directory is not an ancestor of anything being considered, so a
+    // bound that is merely never reached would leave the search climbing to the
+    // filesystem root and reading `.primignore` files belonging to neither
+    // tree. That is the hazard AD-0011 records.
+    let outer = tempfile::tempdir().unwrap();
+    std::fs::write(outer.path().join(".primignore"), "docs/\n").unwrap();
+    // The working directory is a repository; the tree prim is pointed at is not.
+    let here = outer.path().join("here");
+    std::fs::create_dir_all(here.join(".git")).unwrap();
+    let sibling = outer.path().join("sibling/docs");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(sibling.join("x.json"), "{\"a\" :1}\n").unwrap();
+
+    prim()
+        .current_dir(&here)
+        .args(["fmt", "--check"])
+        .arg(outer.path().join("sibling"))
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("x.json"));
+}
+
+#[test]
+fn a_parent_directory_component_does_not_hand_a_sibling_tree_the_repositorys_rules() {
+    // `..` is not normalized away by `std::path::absolute` on Unix, so
+    // `../sibling` keeps the repository as a lexical ancestor. Left alone, the
+    // repository's `.primignore` would govern a tree outside it, and the same
+    // tree would get opposite answers depending on how it was spelled.
+    let outer = tempfile::tempdir().unwrap();
+    let repo = outer.path().join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(repo.join(".primignore"), "docs/\n").unwrap();
+    let sibling = outer.path().join("sibling/docs");
+    std::fs::create_dir_all(&sibling).unwrap();
+    std::fs::write(sibling.join("x.json"), "{\"a\" :1}\n").unwrap();
+
+    prim()
+        .current_dir(&repo)
+        .args(["fmt", "--check", "../sibling"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("x.json"));
+}

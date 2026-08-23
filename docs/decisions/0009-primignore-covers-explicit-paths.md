@@ -71,17 +71,53 @@ never looked at. The reporter's complaint in #98 was as much about silence as
 about the rewrite, and the fix should not reintroduce it at the other end.
 
 Discovery already tracks provenance (`Discovered.explicit`), so the walked/named
-distinction costs nothing. Matching for a named path climbs from the path's own
-directory collecting `.primignore` files, nearest first, because a named path
-has no descent for the walker's ignore stack to accumulate during. Matchers are
-cached per directory: a hook hands prim its whole staged list at once.
+distinction costs nothing. prim matches `.primignore` itself, for named paths
+and for walked ones alike, by collecting the `.primignore` files from a path's
+own directory upward, nearest first. It does not register `.primignore` with the
+`ignore` crate's walker: that walker's ancestor stack has no bound and reads
+ignore files from every directory up to the filesystem root. Sharing one matcher
+between the two routes is what lets them give the same answer about the bound.
+It does not make every answer identical — a `!` rule in a nested `.primignore`
+still re-includes a file that walking would have pruned with its parent
+directory, which predates this decision and is tracked separately. Matchers are
+cached per directory and bound: a hook hands prim its whole staged list at once,
+and a walk yields a directory's entries together.
 
-The climb is bounded at the repository, so a `.primignore` outside it can never
-apply: it stops after the first ancestor holding a `.git` entry, inclusive, so a
-repo-root `.primignore` still counts. Outside a git repository — which prim must
-still work in (FR-4.2) — it stops at the current working directory instead. This
-bound was added with AD-0011, after a stray `.primignore` in a parent directory
-was found to silently change how prim treated every repository beneath it.
+The search is bounded, so a `.primignore` belonging to another repository can
+never apply. The bound is the root of the repository containing whatever prim
+was pointed at — a named path, or the root of a walk — resolved once and then
+applied to every path considered under it. It is inclusive, so a repo-root
+`.primignore` still counts, and a repository root is any directory holding a
+`.git` entry: a directory in an ordinary clone, a file in a git worktree. Only
+where no repository exists at all does the bound become the current working
+directory instead; prim must still work outside a repository (FR-4.2).
+
+Resolving the bound from what prim was pointed at, rather than per path, is what
+makes both directions correct. Pointed at the enclosing repository, prim keeps
+the enclosing rules, so a nested checkout the enclosing `.primignore` names is
+still pruned — the behaviour a `.gitignore` entry gives. Pointed at the
+checkout, the bound is the checkout, so the enclosing rules no longer reach it.
+
+The ordering of the two bounds decides whether the escape hatch holds. The
+working directory is a fallback, never an alternative: were it consulted first,
+standing inside a directory that its own repository ignores would stop the
+search short of the `.primignore` that names it, and the byte-exact fixtures the
+escape hatch exists to protect would be rewritten.
+
+A bound must also be one the search can actually reach. Where prim is pointed
+outside the working directory with no repository above it, the working directory
+is not an ancestor of anything being considered, so the bound becomes the
+pointed-at directory itself; otherwise the search would pass every ancestor
+without ever matching one and climb to the filesystem root. Paths are normalized
+lexically first, because `..` left in place would make the directory it points
+out of an ancestor of the result.
+
+This bound was added with AD-0011, after a stray `.primignore` in a parent
+directory was found to silently change how prim treated every repository beneath
+it. It was completed later, when it covered only some of the ways prim reaches a
+path: the walk was never bounded at all, and the search for a named directory
+began one level above it, so an enclosing repository's `.primignore` could skip
+a whole nested checkout.
 
 ## Consequences
 
@@ -94,6 +130,12 @@ was found to silently change how prim treated every repository beneath it.
   the fixtures entry protects the correctness harness's golden files.
 - prim's `.primignore` promise is now unconditional, which is what its own
   wording already claimed.
+- A nested checkout that the enclosing `.primignore` names is processed when
+  named directly and pruned when reached by walking the enclosing repository.
+  That is a deliberate exception to "one answer per question": the two
+  invocations point prim at different repositories, and the answer follows the
+  one it was pointed at. Within a single repository the two still agree, which
+  is the case #98 was about.
 
 ## Alternatives considered
 
@@ -109,6 +151,7 @@ was found to silently change how prim treated every repository beneath it.
 
 ---
 
-Satisfies: #98; reshapes FR-4.4 and adds FR-4.4a. Related: AD-0007 (verb surface
-— the rule is per-verb-uniform), `crates/prim-cli/src/discover.rs`,
-`crates/prim-cli/src/cli.rs`, `docs/recipes.md`.
+Satisfies: #98 and #110; reshapes FR-4.4 and adds FR-4.4a and FR-4.4b. Related:
+AD-0007 (verb surface — the rule is per-verb-uniform),
+`crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/cli.rs`,
+`docs/recipes.md`.
