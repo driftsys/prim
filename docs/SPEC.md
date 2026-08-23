@@ -78,10 +78,10 @@ source-code formatter and has **no plugin system**.
   name equal to the generated file's name (for example `!package-lock.json`,
   `!**/package-lock.json`, or `!vendor/package-lock.json`) — a broader negation
   such as `!*.json` or `!*` does not. The `.primignore` files consulted for a
-  path are read from its directory up to the repository root (the nearest
-  ancestor containing `.git`), or up to the current working directory when no
-  repository is found, never beyond it. `--no-primignore` disables the built-in
-  list along with the rest of the `.primignore` stack.
+  path are bounded as FR-4.4b specifies, so a `.primignore` outside the
+  repository cannot disable the built-in list for every repository beneath it.
+  `--no-primignore` disables the built-in list along with the rest of the
+  `.primignore` stack.
 
 ## FR-3 — Style resolution
 
@@ -160,6 +160,17 @@ source-code formatter and has **no plugin system**.
   command line and skipped, whether because `.primignore` covers it or because
   it matches the built-in generated-file list (FR-2.7, AD-0011). Skipping a path
   reached by a directory walk shall be silent for either reason.
+- **FR-4.4b** The `.primignore` files that apply to a path shall be those from
+  its own directory up to a bound, and none above that bound. The bound shall be
+  the root of the repository containing whatever prim was pointed at — a path
+  named on the command line, or the root of a directory walk — resolved once and
+  applied to every path considered under it. A repository root is the nearest
+  directory holding a `.git` entry, which is a directory in an ordinary clone
+  and a file in a git worktree. Only where no repository is found shall the
+  bound be the current working directory instead. Consequently a nested checkout
+  is governed by the enclosing repository's `.primignore` when prim is pointed
+  at the enclosing repository, and by its own when prim is pointed at the
+  checkout.
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
   error (exit `2`).
 - **FR-4.6** prim shall handle an explicitly named path strictly: a path that

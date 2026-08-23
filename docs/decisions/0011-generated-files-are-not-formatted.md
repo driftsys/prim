@@ -123,11 +123,10 @@ Chosen.
    `.primignore` at all, so neither escape applies to them: on those two paths,
    `generated_by` is unconditional, and there is no way to make prim format a
    listed file over stdin or through the LSP. The `.primignore` files consulted
-   for a path named on the command line are those from its directory up to the
-   repository root (the nearest ancestor containing `.git`), or up to the
-   current working directory when no repository is found — never beyond it, so a
-   `.primignore` outside the repository (for example one left in `$HOME`) cannot
-   silently disable the built-in list for every repository beneath it.
+   for a path are bounded by the repository containing whatever prim was pointed
+   at, as FR-4.4b specifies and AD-0009 explains, so a `.primignore` outside the
+   repository (for example one left in `$HOME`) cannot silently disable the
+   built-in list for every repository beneath it.
 
 5. Reporting follows AD-0009's rule exactly, because the surprise is the same
    shape: reached by a directory walk, a generated file is skipped silently —

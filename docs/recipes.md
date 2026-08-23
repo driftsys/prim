@@ -63,6 +63,15 @@ That is what makes the entry worth having in a pre-commit hook, which passes
 prim an explicit list of staged files. Naming an ignored path prints a warning
 so the no-op is visible; pass `--no-primignore` to process it anyway.
 
+A `.primignore` governs only the repository that holds it. prim reads the
+`.primignore` files that apply from the path upward, stopping at the root of the
+repository it was pointed at — the nearest directory holding a `.git` entry,
+which is a file rather than a directory in a git worktree. So running prim
+inside a nested checkout or a worktree uses that checkout's own `.primignore`,
+even when it sits at a path the enclosing repository's `.primignore` names.
+Running prim on the enclosing repository still prunes it, the way a `.gitignore`
+entry would.
+
 `--exclude` globs still apply to directory walks only.
 
 ## Using prim with git-std
