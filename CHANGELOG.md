@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.2] (2026-08-24)
+
+### Bug Fixes
+
+- **prim-cli:** bound primignore at the repository prim was pointed at
+  ([ce90f4a]), closes [#110]
+
+[0.3.2]: https://github.com/driftsys/prim/compare/v0.3.1...v0.3.2
+[ce90f4a]: https://github.com/driftsys/prim/commit/ce90f4a
+[#110]: https://github.com/driftsys/prim/issues/110
+
 ## [0.3.1] (2026-08-21)
 
 ### Documentation
