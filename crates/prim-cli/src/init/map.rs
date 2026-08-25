@@ -9,11 +9,10 @@ use std::collections::BTreeMap;
 
 use super::outcome;
 use super::sections::{
-    Bound, SectionSpec, bool_word, existing_order_warnings, governing, has_top_level_root,
-    header_lines, key_line, lower_bound, matching_sections, push_insert, section_block,
-    split_lines, upper_bound,
+    Bound, SectionSpec, bool_word, governing, has_top_level_root, header_lines, key_line,
+    lower_bound, matching_sections, push_insert, section_block, split_lines, upper_bound,
 };
-use super::{DOCS_WIP_GLOB, MDLINT_STRICT_KEY, scaffold};
+use super::{DOCS_WIP_DIR, DOCS_WIP_GLOB, EVERYTHING_GLOB, MDLINT_STRICT_KEY};
 
 pub(super) struct MergeResult {
     pub(super) contents: String,
@@ -47,38 +46,85 @@ struct PlannedWrite {
 /// prim's four canonical sections, in the order they must appear, each with
 /// one representative path the outcome check resolves to decide whether a
 /// write did what prim meant it to.
-fn canonical_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
-    let mut specs = vec![
-        SectionSpec {
-            glob: "*.md",
-            value: false,
-            probe: "README.md".to_string(),
-        },
-        SectionSpec {
-            glob: strict_glob,
-            value: true,
-            probe: strict_probe(strict_glob, "guide.md"),
-        },
-    ];
-    // Superpowers specs and plans under `docs/wip/` are transient working
-    // memory, so the strict tier must not apply to them even when the strict
-    // glob covers `docs/**` — unless the strict glob already IS
-    // `docs/wip/**.md`, in which case the author asked for that directory to
-    // be strict and a separate exemption section would just defeat it (see
-    // `scaffold`).
-    if strict_glob != DOCS_WIP_GLOB {
-        specs.push(SectionSpec {
-            glob: DOCS_WIP_GLOB,
-            value: false,
-            probe: "docs/wip/plan.md".to_string(),
-        });
-    }
-    specs.push(SectionSpec {
-        glob: "**/SUMMARY.md",
-        value: false,
-        probe: strict_probe(strict_glob, "SUMMARY.md"),
-    });
-    specs
+pub(super) fn canonical_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
+    every_section(strict_glob)
+        .into_iter()
+        .filter(|(_, writes)| *writes)
+        .map(|(spec, _)| spec)
+        .collect()
+}
+
+/// Every canonical section prim knows about, including one it does not write
+/// for this strict glob.
+///
+/// Reporting on the file prim leaves behind is a different question from
+/// deciding what to write into it: a `[*.md]` a person wrote is worth
+/// reporting on when it no longer decides anything, whether or not prim would
+/// have written that section itself.
+pub(super) fn reported_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
+    every_section(strict_glob)
+        .into_iter()
+        .map(|(spec, _)| spec)
+        .collect()
+}
+
+/// The four canonical sections in canonical order, each with whether prim
+/// writes it for this strict glob.
+///
+/// A section the strict glob makes dead on arrival is not written — and drops
+/// out of the write check with its representative path, which is drawn from
+/// the very population the strict glob covers. A `README.md` under `[**.md]`
+/// is the same kind of file as the strict glob's own probe; there is nothing
+/// left for the dropped section to decide that the strict glob does not.
+/// Writing a section that is dead on arrival is how the docs/wip exemption
+/// went wrong twice.
+fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
+    vec![
+        (
+            SectionSpec {
+                glob: "*.md",
+                value: false,
+                probes: vec!["README.md".to_string()],
+            },
+            strict_glob != EVERYTHING_GLOB,
+        ),
+        (
+            SectionSpec {
+                glob: strict_glob,
+                value: true,
+                probes: vec![strict_probe(strict_glob, "guide.md")],
+            },
+            true,
+        ),
+        // Superpowers specs and plans under `docs/wip/` are transient working
+        // memory, so the strict tier must not apply to them even when the
+        // strict glob covers `docs/**` — unless the strict glob is `docs/wip`
+        // itself or a directory inside it, where the exemption is the broader
+        // glob and would turn the whole book back off.
+        (
+            SectionSpec {
+                glob: DOCS_WIP_GLOB,
+                value: false,
+                probes: vec!["docs/wip/plan.md".to_string()],
+            },
+            !docs_wip_covers(strict_glob),
+        ),
+        // Two summaries, decided by different sections: one under the strict
+        // glob, and one under `docs/wip/`, which the exemption covers. A
+        // single representative would leave the other unchecked — and it was
+        // the second that the retired section-order check used to catch.
+        (
+            SectionSpec {
+                glob: "**/SUMMARY.md",
+                value: false,
+                probes: vec![
+                    strict_probe(strict_glob, "SUMMARY.md"),
+                    format!("{DOCS_WIP_DIR}/SUMMARY.md"),
+                ],
+            },
+            true,
+        ),
+    ]
 }
 
 /// A representative path named `file` inside the directory the strict glob
@@ -90,6 +136,61 @@ fn strict_probe(strict_glob: &str, file: &str) -> String {
     }
 }
 
+/// Whether the literal `docs/wip` exemption would cover everything the strict
+/// glob does — `docs/wip` itself, or any directory inside it.
+fn docs_wip_covers(strict_glob: &str) -> bool {
+    let Some(dir) = strict_glob.strip_suffix("/**.md") else {
+        return false;
+    };
+    dir == DOCS_WIP_DIR || dir.starts_with(&format!("{DOCS_WIP_DIR}/"))
+}
+
+/// The map prim writes into a repository with no `.editorconfig`, or the
+/// reasons it would not hold.
+///
+/// The only way to obtain that text: the check is the constructor, not a
+/// guard beside it, so no caller can end up writing an unchecked map. What it
+/// compares is the rendered file against the declared map — every
+/// representative path must resolve to the value the last section prim writes
+/// for it. A user's `book.toml` cannot make that fail; a future edit to
+/// either the section list or the rendering can, which is what this is for.
+pub(super) fn checked_scaffold(strict_glob: &str) -> Result<String, Vec<String>> {
+    let specs = canonical_specs(strict_glob);
+    let text = render_scaffold(&specs);
+    let flaws = map_flaws(&specs, &text);
+    if flaws.is_empty() {
+        Ok(text)
+    } else {
+        Err(flaws)
+    }
+}
+
+/// The canonical map as a file: `root = true`, then every section, in
+/// canonical order. Deliberately private — [`checked_scaffold`] is the only
+/// way to obtain this text, so no caller can write a map prim has not checked.
+fn render_scaffold(specs: &[SectionSpec<'_>]) -> String {
+    let sections = specs
+        .iter()
+        .map(|spec| {
+            format!(
+                "[{}]\n{MDLINT_STRICT_KEY} = {}\n",
+                spec.glob,
+                bool_word(spec.value)
+            )
+        })
+        .collect::<String>();
+    format!("root = true\n{sections}")
+}
+
+/// Every way `text` fails to resolve the way `specs` say it should.
+pub(super) fn map_flaws(specs: &[SectionSpec<'_>], text: &str) -> Vec<String> {
+    let written = vec![true; specs.len()];
+    outcome::violations(specs, &written, text, text)
+        .iter()
+        .map(outcome::describe)
+        .collect()
+}
+
 pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     let specs = canonical_specs(strict_glob);
 
@@ -97,7 +198,7 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     // so a file prim can walk may still be one it cannot resolve — and
     // without a resolution there is nothing to check a write against. prim
     // does not edit a file it cannot read.
-    if outcome::resolves_strict(existing, &specs[0].probe).is_none() {
+    if outcome::resolves_strict(existing, &specs[0].probes[0]).is_none() {
         return MergeResult {
             contents: existing.to_string(),
             actions: Vec::new(),
@@ -124,7 +225,7 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     let mut plan: Vec<PlannedWrite> = Vec::new();
     for (index, spec) in specs.iter().enumerate() {
         let occurrences = &occurrences_by_spec[index];
-        if occurrences.iter().any(|occurrence| occurrence.has_key) {
+        if occurrences.iter().any(|occurrence| occurrence.has_key()) {
             continue;
         }
 
@@ -155,17 +256,11 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
         });
     }
 
-    let intended = outcome::intended_values(&specs, &scaffold(strict_glob));
-    let kept = safe_writes(&plan, &specs, &intended, existing, &lines, added_root);
+    let kept = safe_writes(&plan, &specs, existing, &lines, added_root);
     // Line numbers are shown to somebody reading the file prim is about to
     // leave behind, not the one it read: prim's own inserts move them.
     let line_of = |index: usize| final_line(&plan, kept, added_root, index);
 
-    // Sections that are already present can contradict the canonical order
-    // too. prim writes nothing into them — they already carry their key — so
-    // no planned write is there to be checked, and without this the run would
-    // report plain success over a file that resolves the wrong way.
-    let mut warnings = existing_order_warnings(&specs, &occurrences_by_spec, &line_of);
     // Keyed by spec index so refusals read in canonical order however they
     // were found.
     let mut refusals: BTreeMap<usize, String> = BTreeMap::new();
@@ -227,7 +322,6 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
         let candidate = render(&plan, with_write, existing, &lines, added_root);
         let found = outcome::violations(
             &specs,
-            &intended,
             &written_specs(&plan, with_write, specs.len()),
             existing,
             &candidate,
@@ -247,13 +341,18 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
             ),
         );
     }
-    warnings.extend(refusals.into_values());
-
     let contents = if actions.is_empty() {
         existing.to_string()
     } else {
         render(&plan, kept, existing, &lines, added_root)
     };
+
+    // Asked of the file prim is leaving behind, not the one it read: a
+    // section that no longer decides its own path is worth reporting whether
+    // it lost to something the author wrote or to something prim just added.
+    // Line numbers need no mapping here — they are lines of that same file.
+    let mut warnings = outcome::defeated_sections(&reported_specs(strict_glob), &contents);
+    warnings.extend(refusals.into_values());
 
     MergeResult {
         contents,
@@ -272,7 +371,6 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
 fn safe_writes(
     plan: &[PlannedWrite],
     specs: &[SectionSpec<'_>],
-    intended: &[bool],
     existing: &str,
     lines: &[&str],
     added_root: bool,
@@ -282,7 +380,7 @@ fn safe_writes(
     for mask in masks {
         let candidate = render(plan, mask, existing, lines, added_root);
         let written = written_specs(plan, mask, specs.len());
-        if outcome::violations(specs, intended, &written, existing, &candidate).is_empty() {
+        if outcome::violations(specs, &written, existing, &candidate).is_empty() {
             return mask;
         }
     }

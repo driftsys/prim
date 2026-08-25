@@ -1,25 +1,7 @@
 use super::*;
 
 mod regressions;
-
-#[test]
-fn scaffold_matches_the_default_contract() {
-    assert_eq!(
-        scaffold("docs/**.md"),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-    );
-}
-
-#[test]
-fn scaffold_places_all_four_sections_in_order_for_a_custom_strict_glob() {
-    // The docs/wip exemption is a literal, not derived from the strict glob,
-    // so it must appear even when book.toml points the strict tier at a
-    // non-default mdBook `src` directory such as `guide`.
-    assert_eq!(
-        scaffold("guide/**.md"),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[guide/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-    );
-}
+mod scaffold;
 
 #[test]
 fn merge_prepends_root_and_appends_missing_sections_without_reordering_existing_content() {
@@ -120,8 +102,9 @@ fn merge_refuses_to_insert_docs_wip_when_existing_sections_are_out_of_canonical_
         !merged.contents.contains("docs/wip"),
         "the exemption must not be inserted in a losing position"
     );
-    // Two distinct problems, two warnings: the pair that is already out of
-    // order, and the section prim therefore cannot add.
+    // Two distinct problems, two warnings: the section that is already there
+    // and no longer decides its own path, and the section prim therefore
+    // cannot add.
     assert_eq!(merged.warnings.len(), 2, "{:?}", merged.warnings);
     let refusal = merged
         .warnings
@@ -145,8 +128,9 @@ fn merge_refuses_to_insert_docs_wip_when_existing_sections_are_out_of_canonical_
 fn merge_warns_when_all_four_sections_are_present_but_docs_wip_precedes_the_strict_glob() {
     // Reproduction (whole-branch review, Important 1): every canonical
     // section already carries an explicit value, so each per-spec iteration
-    // hits the has_key early-continue and, before this fix, took no action
-    // and emitted no warning — `prim init` reported success even though
+    // hits the already-has-the-key early-continue and, before this fix, took
+    // no action and emitted no warning — `prim init` reported success even
+    // though
     // `[docs/**.md]`, written after `[docs/wip/**.md]`, wins under
     // EditorConfig's last-match-wins resolution and defeats the docs/wip
     // exemption for every file under it.
@@ -246,27 +230,6 @@ fn run_reports_no_update_for_a_keyless_section_a_later_one_overrides() {
 }
 
 #[test]
-fn scaffold_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
-    // A mdBook with `src = "docs/wip"` derives a strict glob identical to
-    // the literal docs/wip exemption. Emitting both would write
-    // `[docs/wip/**.md] = true` then `[docs/wip/**.md] = false` — the
-    // exemption, written after, wins under last-match-wins and silently
-    // defeats the strict tier for the whole book, even though the author
-    // asked for that directory to be strict.
-    let content = scaffold("docs/wip/**.md");
-
-    assert_eq!(
-        content,
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-    );
-    assert_eq!(
-        content.matches("[docs/wip/**.md]").count(),
-        1,
-        "the exemption section must not duplicate the strict section with a conflicting value"
-    );
-}
-
-#[test]
 fn merge_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
     let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let merged = merge(existing, "docs/wip/**.md");
@@ -281,35 +244,6 @@ fn merge_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
         1,
         "the exemption section must not duplicate the strict section with a conflicting value"
     );
-}
-
-#[test]
-fn book_toml_custom_src_changes_the_strict_glob() {
-    assert_eq!(
-        strict_glob_from_book_toml("[book]\nsrc = \"guide\"\n"),
-        "guide/**.md"
-    );
-}
-
-#[test]
-fn book_toml_src_is_normalized_before_becoming_a_glob() {
-    assert_eq!(
-        strict_glob_from_book_toml("[book]\nsrc = \"./guide/\"\n"),
-        "guide/**.md"
-    );
-}
-
-#[test]
-fn book_toml_without_src_defaults_to_src_directory() {
-    assert_eq!(
-        strict_glob_from_book_toml("[book]\ntitle = \"prim\"\n"),
-        "src/**.md"
-    );
-}
-
-#[test]
-fn malformed_book_toml_also_defaults_to_src_directory() {
-    assert_eq!(strict_glob_from_book_toml("[book]\nsrc =\n"), "src/**.md");
 }
 
 #[test]
@@ -358,15 +292,54 @@ fn merge_makes_no_change_to_an_editorconfig_it_cannot_parse() {
 }
 
 #[test]
-fn a_strict_glob_that_covers_every_directory_still_lands_on_the_canonical_map() {
-    // An mdBook with `src = "."` yields `[**.md]`, which legitimately covers
-    // top-level files too — so `[*.md] = false` written above it does not
-    // decide `README.md`, `[**.md] = true` does. prim takes what it intends
-    // each path to resolve to from the map it would write from scratch, so
-    // the overlap is intended rather than a violation to refuse.
-    let merged = merge("root = true\n[**.md]\n", "**.md");
+fn a_later_occurrence_of_the_same_glob_is_the_persons_override_and_is_not_reported() {
+    // Two `[*.md]` sections, both with the key, both before the rest of the
+    // map: the last one is what EditorConfig reads and what prim must judge
+    // the map by. Reading the first would report a section as defeated when
+    // the person deliberately replaced it.
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let merged = merge(existing, "docs/**.md");
 
-    assert_eq!(merged.contents, scaffold("**.md"));
-    assert!(merged.warnings.is_empty(), "{:?}", merged.warnings);
-    assert_eq!(merged.actions.len(), 4, "{:?}", merged.actions);
+    assert!(
+        merged.warnings.is_empty(),
+        "a deliberate later override is not a defeat: {:?}",
+        merged.warnings
+    );
+}
+
+#[test]
+fn a_key_written_twice_in_one_section_is_read_the_way_editorconfig_reads_it() {
+    // EditorConfig keeps the last value in a section; prim must report on the
+    // same one, or it names a value the file does not actually use.
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\nprim_mdlint_strict = mabye\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let merged = merge(existing, "docs/**.md");
+
+    assert_eq!(merged.warnings.len(), 1, "{:?}", merged.warnings);
+    assert!(
+        merged.warnings[0].contains("mabye"),
+        "the last value in the section is the one that counts; got: {}",
+        merged.warnings[0]
+    );
+}
+
+#[test]
+fn a_defeated_section_is_reported_while_the_writes_that_are_safe_still_happen() {
+    // A warning about a section prim cannot fix must not turn into a refusal
+    // to make the changes it can: `[docs/*.md]`, appended last, defeats the
+    // SUMMARY exemption, and the docs/wip exemption is still missing.
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/*.md]\nprim_mdlint_strict = true\n";
+    let merged = merge(existing, "docs/**.md");
+
+    assert_eq!(
+        merged.actions,
+        vec!["added [docs/wip/**.md] with prim_mdlint_strict = false"],
+        "the safe write still happens alongside the warning"
+    );
+    assert_eq!(merged.warnings.len(), 1, "{:?}", merged.warnings);
+    assert!(
+        merged.warnings[0].contains("[**/SUMMARY.md]")
+            && merged.warnings[0].contains("[docs/*.md]"),
+        "got: {}",
+        merged.warnings[0]
+    );
 }

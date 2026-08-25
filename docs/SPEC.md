@@ -168,11 +168,17 @@ source-code formatter and has **no plugin system**.
   written before the strict glob — no position satisfies that order; `prim init`
   shall leave that section out and print a warning naming the two conflicting
   sections, the lines they start at, and where the section has to be added by
-  hand. When two sections that are already present and already carry
-  `prim_mdlint_strict` contradict that order, `prim init` shall print the same
-  kind of warning and write into neither. It shall never reorder sections a
-  person wrote. An occurrence of a canonical glob that neither sets
-  `prim_mdlint_strict` nor receives it — an ordinary
+  hand. `prim init` shall then resolve the file it leaves behind: for every
+  canonical section present in it that carries `prim_mdlint_strict`, it shall
+  warn when that section does not decide its own representative paths — either
+  because a later section overrides it, or because its value is one prim does
+  not read as a tier (every value but `true` resolves to `false`). That covers a
+  section prim planned no write for because the key was already there, and
+  equally one that prim's own write has just taken a path away from. It is a
+  warning, never a refusal: a person's narrower override is legitimate, and
+  `prim init` shall stay able to report on a file it disagrees with. It shall
+  never reorder sections a person wrote. An occurrence of a canonical glob that
+  neither sets `prim_mdlint_strict` nor receives it — an ordinary
   `[*.md] max_line_length = 80` — shall take no part in that ordering. Running
   `prim init` twice shall be a byte-identical no-op on the second run.
 
