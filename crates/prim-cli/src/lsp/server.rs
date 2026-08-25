@@ -37,6 +37,10 @@ pub enum Reaction {
 pub struct Server {
     documents: HashMap<String, String>,
     resolver: editorconfig::Resolver,
+    /// Unrecognised `prim_mdlint_disable` ids already reported. A server
+    /// process is the "run" FR-3.2c counts, so this outlives the request that
+    /// first hit the typo.
+    unknown_rules: crate::mdlint_policy::UnknownRuleReporter,
     shutdown_requested: bool,
 }
 
@@ -127,7 +131,15 @@ impl Server {
         let diagnostics = uri_to_path(uri)
             .filter(|path| prim_fmt::generated_by(path).is_none())
             .and_then(|path| prim_fmt::classify(&path).map(|kind| (path, kind)))
-            .map(|(path, kind)| diagnostics::compute(&mut self.resolver, &path, kind, text))
+            .map(|(path, kind)| {
+                diagnostics::compute(
+                    &mut self.resolver,
+                    &mut self.unknown_rules,
+                    &path,
+                    kind,
+                    text,
+                )
+            })
             .unwrap_or_default();
         Reaction::Notify(notification(
             "textDocument/publishDiagnostics",

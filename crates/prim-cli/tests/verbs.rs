@@ -143,6 +143,10 @@ fn lint_stdin_filepath_reports_markdown_content_findings() {
 
 #[test]
 fn lint_stdin_filepath_resolves_prim_mdlint_strict_from_editorconfig() {
+    // MD041 (first-line-heading) is a convention rule: it runs only in the
+    // strict tier. The same document must therefore fail under the glob the
+    // `.editorconfig` marks strict and pass outside it — a floor-tier rule
+    // would fail in both places and pin nothing about resolution.
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("docs")).unwrap();
     std::fs::write(
@@ -154,14 +158,20 @@ fn lint_stdin_filepath_resolves_prim_mdlint_strict_from_editorconfig() {
     prim()
         .current_dir(dir.path())
         .args(["lint", "--stdin-filepath", "docs/guide.md"])
-        .write_stdin("# Title\n\n![](hero.png)\n")
+        .write_stdin("Intro\n\n# Title\n")
         .assert()
         .code(1)
         .stdout(
-            predicates::str::contains("docs/guide.md:3:")
-                .and(predicates::str::contains("[MD045]"))
-                .and(predicates::str::contains("Image missing alt text")),
+            predicates::str::contains("docs/guide.md:1:").and(predicates::str::contains("[MD041]")),
         );
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "--stdin-filepath", "README.md"])
+        .write_stdin("Intro\n\n# Title\n")
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("[MD041]").not());
 }
 
 #[test]

@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::editorconfig::Resolver;
 use crate::lsp::protocol::{self, Diagnostic};
+use crate::mdlint_policy::UnknownRuleReporter;
 
 /// Compute prim's own diagnostics for `text` at `path`/`kind`, resolving
 /// `.editorconfig` style/strictness through `resolver` (the same cached
@@ -15,8 +16,13 @@ use crate::lsp::protocol::{self, Diagnostic};
 /// YAML/TOML) have no itemized findings yet — `prim lint`'s own coarser
 /// format-drift finding for those kinds carries no position, so it is not
 /// surfaced here either.
+///
+/// `unknown_rules` carries the report of unrecognised `prim_mdlint_disable`
+/// ids (FR-3.2c) across requests: a server process is the "run" that rule
+/// counts, so the reporter lives on the server, not on one call.
 pub fn compute(
     resolver: &mut Resolver,
+    unknown_rules: &mut UnknownRuleReporter,
     path: &Path,
     kind: prim_fmt::FileKind,
     text: &str,
@@ -37,6 +43,9 @@ pub fn compute(
         }
         prim_fmt::FileKind::Markdown => {
             let policy = resolver.resolve_mdlint_policy(path);
+            // FR-3.2c has no editor carve-out: a typo'd rule id is silently
+            // ignored, so the only sign of it is this line on stderr.
+            unknown_rules.report(&policy);
             prim_fmt::lint_markdown(text, policy.strict, &policy.disabled)
                 .iter()
                 .map(|diagnostic| Diagnostic {
@@ -71,6 +80,7 @@ mod tests {
         let mut resolver = Resolver::new();
         let diagnostics = compute(
             &mut resolver,
+            &mut UnknownRuleReporter::new(),
             Path::new("notes.txt"),
             prim_fmt::FileKind::Orphan,
             "a  \n",
@@ -86,6 +96,7 @@ mod tests {
         let mut resolver = Resolver::new();
         let diagnostics = compute(
             &mut resolver,
+            &mut UnknownRuleReporter::new(),
             Path::new("README.md"),
             prim_fmt::FileKind::Markdown,
             "# Title\n\n![](hero.png)\n",
@@ -102,6 +113,7 @@ mod tests {
         let mut resolver = Resolver::new();
         let diagnostics = compute(
             &mut resolver,
+            &mut UnknownRuleReporter::new(),
             Path::new("a.json"),
             prim_fmt::FileKind::Json,
             "{\"a\":1}\n",

@@ -42,6 +42,20 @@ fn find_header_end(bytes: &[u8]) -> Option<usize> {
 /// Drive one full session: write every `messages` frame to `prim lsp`'s stdin,
 /// close it, and return the parsed responses plus the exit code.
 fn run_session(messages: &[Value]) -> (Vec<Value>, i32) {
+    let session = run_session_capturing(messages);
+    (session.responses, session.code)
+}
+
+/// One finished `prim lsp` session: the protocol traffic on stdout, the exit
+/// code, and whatever prim wrote to stderr — the channel its own warnings go
+/// to, kept clear of the protocol.
+struct Session {
+    responses: Vec<Value>,
+    code: i32,
+    stderr: String,
+}
+
+fn run_session_capturing(messages: &[Value]) -> Session {
     let mut child = Command::new(env!("CARGO_BIN_EXE_prim"))
         .arg("lsp")
         .stdin(Stdio::piped())
@@ -65,9 +79,20 @@ fn run_session(messages: &[Value]) -> (Vec<Value>, i32) {
         .unwrap()
         .read_to_end(&mut stdout)
         .unwrap();
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
     let status = child.wait().unwrap();
 
-    (parse_messages(&stdout), status.code().unwrap())
+    Session {
+        responses: parse_messages(&stdout),
+        code: status.code().unwrap(),
+        stderr,
+    }
 }
 
 #[test]
@@ -216,4 +241,51 @@ fn did_close_clears_previously_published_diagnostics() {
     assert_eq!(publishes.len(), 2, "one for didOpen, one for didClose");
     let last = publishes.last().unwrap();
     assert_eq!(last["params"]["diagnostics"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn an_unknown_disabled_rule_id_is_reported_once_per_server_run() {
+    // FR-3.2c: prim reports an unrecognised `prim_mdlint_disable` id once per
+    // run on stderr, with no carve-out for the LSP — the id is silently
+    // ignored otherwise, so this line is the only sign of the typo. Once per
+    // *run* means once per server process, not once per didOpen/didChange.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    let uri = format!("file://{}", dir.path().join("doc.md").display());
+
+    let session = run_session_capturing(&[
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "markdown", "version": 1, "text": "# Title\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {
+                "textDocument": {"uri": uri, "version": 2},
+                "contentChanges": [{"text": "# Title\n\nBody\n"}]
+            }
+        }),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "shutdown"}),
+        json!({"jsonrpc": "2.0", "method": "exit"}),
+    ]);
+
+    assert_eq!(session.code, 0);
+    assert_eq!(
+        session.stderr.matches("MD999").count(),
+        1,
+        "expected exactly one report of the unknown id: {}",
+        session.stderr
+    );
+    assert!(
+        session.stderr.contains(".editorconfig:3"),
+        "the warning must name the .editorconfig line the typo is on: {}",
+        session.stderr
+    );
 }

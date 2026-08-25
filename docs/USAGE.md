@@ -227,14 +227,32 @@ unrelated content:
   end-of-file only when no later prim-managed section needs to stay after it)
 - if a section is missing and the file's own existing section order already
   contradicts that canonical order — for example an existing `[**/SUMMARY.md]`
-  written before the strict glob — prim cannot insert the missing section
-  anywhere without it resolving incorrectly under EditorConfig's last-match-wins
-  cascade; it leaves that section out, prints a warning naming the two
-  conflicting sections and the lines they start at, and leaves every existing
-  byte untouched rather than reorder what the author wrote
+  written before the strict glob — there is no position left for the missing
+  section; prim leaves it out and prints a warning naming the two conflicting
+  sections, the lines they start at, and where to add the section by hand
+
+Before it writes anything, prim resolves the file it would produce. For one
+representative path per canonical section it places — a top-level file, a file
+under the strict glob, a file under `docs/wip/` where that section applies, and
+a `SUMMARY.md` — it applies EditorConfig's last-match-wins section order and
+compares the result with the value it intended and with the value that path
+resolved to before the run. prim makes a write only when the path that write is
+meant to place lands on the intended value and none of the other representative
+paths moves. (The check is over prim's own canonical globs: a glob you wrote
+that none of those paths stands for is not covered.) A write that would fail
+that check is not made: prim warns, naming the path and the value it would take,
+and still makes whatever other writes are safe. prim never reorders sections a
+person wrote, so a file whose own order contradicts the canonical one is
+reported and left for you to fix. An existing `.editorconfig` prim cannot parse
+at all is reported and left untouched — with no resolution there is nothing to
+check a change against.
 
 Running `prim init` twice is idempotent: once the map is present, the second run
-reports a no-op and leaves `.editorconfig` byte-identical.
+reports a no-op and leaves `.editorconfig` byte-identical. An occurrence of one
+of those globs that neither sets `prim_mdlint_strict` nor receives it — an
+ordinary `[*.md] max_line_length = 80` appended after a map that already sets
+the key — takes no part in prim's ordering, so it never makes `prim init` refuse
+to work.
 
 ## `prim explain`
 
@@ -291,13 +309,15 @@ The settings shown depend on the file's kind: un-owned text files (the
 [Orphan allowlist](#what-prim-formats)) only get the three universal hygiene
 settings (`end_of_line`, `trim_trailing_whitespace`, `insert_final_newline`);
 Markdown additionally shows `prim_mdlint_strict` and `prim_mdlint_disable`. When
-`prim_mdlint_disable` was never set for a path, its value prints `unset`; when
-it was set but every id it listed was unrecognised, `explain` still reports the
-`.editorconfig` line that set it (with a warning on stderr) rather than showing
-`unset` next to a real origin. A path prim does not format at all reports a
-warning (`not a file type prim formats;
-skipped`) and prints no settings, but
-still exits `0` — `explain` never gates a build.
+`prim_mdlint_disable` was never set for a path, its value prints `unset` against
+`prim's default`. When it was set but resolves to no rules — a deliberate
+`prim_mdlint_disable = none` or `= unset`, or a list whose every id was
+unrecognised (which also warns on stderr) — the value prints `none` against the
+`.editorconfig` line that set it, because that is what prim applies there. A
+path prim does not format at all reports a warning
+(`not a file type prim formats;
+skipped`) and prints no settings, but still
+exits `0` — `explain` never gates a build.
 
 ## `prim lsp`
 
@@ -597,16 +617,16 @@ resolved relative to that path's directory.
 
 Honored keys (standard EditorConfig keys plus prim's closed custom-key set):
 
-| Key                        | Effect                                                                                                            |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                                                                |
-| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.                                                |
-| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                                                      |
-| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                    |
-| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required.   |
-| `max_line_length`          | line width for the structured formatters (default 80).                                                            |
-| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                       |
-| `prim_mdlint_disable`      | comma-separated rule ids to exclude from the tier selected for a matching path (Markdown only, unset by default). |
+| Key                        | Effect                                                                                                                                                |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                                                                                                    |
+| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.                                                                                    |
+| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                                                                                          |
+| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                                                        |
+| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required.                                       |
+| `max_line_length`          | line width for the structured formatters (default 80).                                                                                                |
+| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                                                           |
+| `prim_mdlint_disable`      | comma-separated rule ids to exclude from the tier selected for a matching path (Markdown only, unset by default); `none` or `unset` excludes nothing. |
 
 Scope notes:
 
@@ -620,9 +640,13 @@ Scope notes:
   applies per section, so a narrower section's value **replaces** a wider
   section's list — it does not merge with it. Rule ids match case-insensitively.
   The key is subtract-only: it removes rules from the tier prim already selected
-  for that path, and can never add a rule prim did not select. An id that names
-  no rule prim runs in either tier disables nothing; prim reports it once per
-  run on stderr and the exit code is unaffected.
+  for that path, and can never add a rule prim did not select. A value of `none`
+  or `unset` (EditorConfig's own reserved word for clearing an inherited value)
+  excludes nothing — use it to drop a wider section's list for a narrower glob.
+  An id that names no rule prim runs in either tier disables nothing; prim
+  reports it on stderr, naming the `.editorconfig` file, line and section it was
+  written in, once per run for each section that carries it, and the exit code
+  is unaffected.
 - Any other `prim_*` entry is silently ignored. That is intentional: `prim_*` is
   a closed allowlist, not a generic extension hook or a second config file.
 - Standard EditorConfig keys and documented `prim_*` keys resolve together for

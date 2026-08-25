@@ -167,8 +167,14 @@ fn run_explain(args: &ExplainArgs) -> i32 {
     let path = &args.path;
     match prim_fmt::classify(path) {
         Some(kind) => {
-            let settings = provenance::explain(path, kind);
-            print!("{}", explain::render(path, &settings));
+            let explanation = provenance::explain(path, kind);
+            print!("{}", explain::render(path, &explanation.settings));
+            // Reporting an unrecognised `prim_mdlint_disable` id is the
+            // command's job, not the query's: the reporter has to outlive a
+            // single resolution for "once per run" to mean anything.
+            if let Some(policy) = &explanation.mdlint_policy {
+                crate::mdlint_policy::UnknownRuleReporter::new().report(policy);
+            }
             EXIT_OK
         }
         None => {
@@ -258,7 +264,7 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         }
         Some(FileKind::Markdown) => {
             let policy = crate::mdlint_policy::resolve(path);
-            crate::mdlint_policy::UnknownRuleReporter::new().report(path, &policy.unknown);
+            crate::mdlint_policy::UnknownRuleReporter::new().report(&policy);
             let diagnostics = prim_fmt::lint_markdown(&input, policy.strict, &policy.disabled);
             let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
@@ -466,7 +472,7 @@ fn run_lint_paths(
                 }
             }
         } else if kind == FileKind::Markdown {
-            unknown_rule_reporter.report(&path, &markdown_policy.unknown);
+            unknown_rule_reporter.report(&markdown_policy);
             let diagnostics = prim_fmt::lint_markdown(
                 &original,
                 markdown_policy.strict,

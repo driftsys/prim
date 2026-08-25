@@ -30,12 +30,6 @@
 
 use std::collections::BTreeMap;
 
-// The crate root also declares `mod toml;` (this crate's own TOML formatter),
-// which shadows the `toml` dependency's extern-prelude entry crate-wide. This
-// explicit `extern crate` binds the dependency's name back into scope, local
-// to this module only.
-extern crate toml;
-
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
 
@@ -201,6 +195,20 @@ pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
+            // The same predicate that chose `rules` above, applied again to
+            // what came back. It guards the subtract-only guarantee: a rule
+            // outside the selected tier, or one `prim_mdlint_disable`
+            // removed, must never reach a caller as a finding.
+            //
+            // Under the pinned `rumdl = "=0.2.35"` this second pass is
+            // unexercised, because `rumdl_lib::lint` only ever names a rule
+            // from the slice it was handed. That is an assumption about a
+            // dependency, not a property prim controls, and no test can reach
+            // the branch: `lint` is the only entry point, and it builds that
+            // slice itself from this very predicate, so no input can make the
+            // two disagree. The check stays as the guarantee's last line of
+            // defence if a future rumdl reports a finding under a related
+            // rule's name.
             if !is_active(&rule, strict) || is_disabled(&rule, disabled) {
                 return None;
             }

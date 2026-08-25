@@ -10,6 +10,10 @@ use super::MDLINT_STRICT_KEY;
 pub(super) struct SectionSpec<'a> {
     pub(super) glob: &'a str,
     pub(super) value: bool,
+    /// A path this section is meant to decide the tier of — one
+    /// representative per canonical glob, used to check what prim's writes
+    /// would actually resolve to (see [`super::outcome`]).
+    pub(super) probe: String,
 }
 
 #[derive(Clone, Copy)]
@@ -21,72 +25,92 @@ pub(super) struct SectionOccurrence {
 
 /// One end of the range a missing section's insertion point must fall in,
 /// established by an existing occurrence of some other canonical spec.
-/// `line` is 1-indexed, for warning text.
+/// `header_line` is a 0-indexed line in the file prim read — a warning has to
+/// map it through the writes prim is making before showing it.
+#[derive(Clone, Copy)]
 pub(super) struct Bound<'a> {
     pub(super) position: usize,
     pub(super) glob: &'a str,
-    pub(super) line: usize,
+    pub(super) header_line: usize,
 }
 
-/// Every canonically-adjacent pair of spec indices that are BOTH already
-/// present in `existing` but appear in the wrong relative order — the
-/// canonically earlier spec's section starts at or after the canonically
-/// later one's. This is checked only between adjacent specs, not every pair:
-/// a spec that is itself missing defers to the insertion-time bound check in
-/// `merge`'s main loop, which already spans the gap around it, so this
-/// function only has to notice sections that already exist and therefore
-/// never go through that loop's insertion path at all.
+/// The occurrence of a canonical glob that takes part in prim's placement
+/// map, out of every occurrence of that glob in the file.
 ///
-/// Returns index pairs rather than pre-rendered warnings so `merge` can also
-/// use them to work out which specs it must not write into — a conflicted
-/// spec's own section sits in a position prim has just told the user is
-/// broken, so inserting a key into it (or worse, a fresh section) would make
-/// the warning a lie.
-pub(super) fn existing_order_conflicts(
+/// An occurrence participates only if it carries `prim_mdlint_strict` — the
+/// last such occurrence is the one EditorConfig's last-match-wins resolution
+/// reads, and the one prim leaves untouched — or, when no occurrence carries
+/// the key, the last occurrence, because that is the one prim would write the
+/// key into. Any other occurrence (an ordinary `[*.md] max_line_length = 80`
+/// somebody appended) sets nothing prim resolves and must not constrain
+/// prim's ordering.
+pub(super) fn governing(occurrences: &[SectionOccurrence]) -> Option<SectionOccurrence> {
+    occurrences
+        .iter()
+        .rev()
+        .find(|occurrence| occurrence.has_key)
+        .or_else(|| occurrences.last())
+        .copied()
+}
+
+/// A warning for each pair of specs whose sections both already carry
+/// `prim_mdlint_strict` but appear in the wrong relative order — the
+/// canonically earlier spec's section ends after the canonically later one's
+/// starts. prim writes nothing into either in that case (both already have
+/// their key), so without this the run would report plain success over a file
+/// that resolves the wrong way.
+///
+/// Every pair is compared, not only canonically adjacent ones: a canonical
+/// section that sits between two of them without carrying the key takes no
+/// part in the order, and must not hide the pair it separates.
+///
+/// Only occurrences that carry the key are compared: an occurrence prim would
+/// write into is judged by [`super::outcome`] instead, which reports the
+/// resolution it would produce rather than its position. `line_of` maps a
+/// 0-indexed line of the file prim read to the 1-indexed line it will have
+/// once prim's own writes land.
+pub(super) fn existing_order_warnings(
     specs: &[SectionSpec<'_>],
     occurrences_by_spec: &[Vec<SectionOccurrence>],
-) -> Vec<(usize, usize)> {
-    let mut conflicts = Vec::new();
-    for index in 0..specs.len().saturating_sub(1) {
-        let Some(earlier) = occurrences_by_spec[index].last() else {
+    line_of: &dyn Fn(usize) -> usize,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for index in 0..specs.len() {
+        let Some(earlier) = keyed(&occurrences_by_spec[index]).next_back() else {
             continue;
         };
-        let Some(later) = occurrences_by_spec[index + 1].first() else {
-            continue;
-        };
-        if earlier.insert_at > later.header_line {
-            conflicts.push((index, index + 1));
+        for (offset, later_occurrences) in occurrences_by_spec[index + 1..].iter().enumerate() {
+            let Some(later) = keyed(later_occurrences).next() else {
+                continue;
+            };
+            if earlier.insert_at > later.header_line {
+                warnings.push(format!(
+                    "[{}] (line {}) comes after [{}] (line {}) in this .editorconfig, which \
+                     contradicts prim's canonical section order; prim will not reorder sections a \
+                     person wrote, so reorder them yourself",
+                    specs[index].glob,
+                    line_of(earlier.header_line),
+                    specs[index + 1 + offset].glob,
+                    line_of(later.header_line),
+                ));
+            }
         }
     }
-    conflicts
+    warnings
 }
 
-/// Render one `existing_order_conflicts` pair as the warning shown to the
-/// user, naming both sections and the lines they start at.
-pub(super) fn order_conflict_warning(
-    specs: &[SectionSpec<'_>],
-    occurrences_by_spec: &[Vec<SectionOccurrence>],
-    (earlier_index, later_index): (usize, usize),
-) -> String {
-    // Safe to index: callers only ever pass pairs `existing_order_conflicts`
-    // itself returned, which by construction have an occurrence on both
-    // sides.
-    let earlier = occurrences_by_spec[earlier_index].last().unwrap();
-    let later = occurrences_by_spec[later_index].first().unwrap();
-    format!(
-        "[{}] (line {}) comes after [{}] (line {}) in this .editorconfig, which contradicts \
-         prim's canonical section order; prim will not reorder sections a person wrote, so \
-         reorder them yourself",
-        specs[earlier_index].glob,
-        earlier.header_line + 1,
-        specs[later_index].glob,
-        later.header_line + 1,
-    )
+fn keyed(
+    occurrences: &[SectionOccurrence],
+) -> impl DoubleEndedIterator<Item = SectionOccurrence> + '_ {
+    occurrences
+        .iter()
+        .filter(|occurrence| occurrence.has_key)
+        .copied()
 }
 
-/// The latest point any already-present, canonically earlier spec's section
-/// ends at, if one exists in `existing` — every section that must precede the
-/// spec at `index`.
+/// The latest point any already-present, canonically earlier spec's governing
+/// section ends at, if one exists in `existing` — every section that must
+/// precede the spec at `index`.
 pub(super) fn lower_bound<'a>(
     specs: &[SectionSpec<'a>],
     occurrences_by_spec: &[Vec<SectionOccurrence>],
@@ -96,18 +120,18 @@ pub(super) fn lower_bound<'a>(
         .iter()
         .zip(&occurrences_by_spec[..index])
         .filter_map(|(spec, occurrences)| {
-            occurrences.last().map(|occurrence| Bound {
+            governing(occurrences).map(|occurrence| Bound {
                 position: occurrence.insert_at,
                 glob: spec.glob,
-                line: occurrence.header_line + 1,
+                header_line: occurrence.header_line,
             })
         })
         .max_by_key(|bound| bound.position)
 }
 
-/// The earliest point any already-present, canonically later spec's section
-/// starts at, if one exists in `existing` — every section that must follow
-/// the spec at `index`.
+/// The earliest point any already-present, canonically later spec's governing
+/// section starts at, if one exists in `existing` — every section that must
+/// follow the spec at `index`.
 pub(super) fn upper_bound<'a>(
     specs: &[SectionSpec<'a>],
     occurrences_by_spec: &[Vec<SectionOccurrence>],
@@ -117,10 +141,10 @@ pub(super) fn upper_bound<'a>(
         .iter()
         .zip(&occurrences_by_spec[index + 1..])
         .filter_map(|(spec, occurrences)| {
-            occurrences.first().map(|occurrence| Bound {
+            governing(occurrences).map(|occurrence| Bound {
                 position: occurrence.header_line,
                 glob: spec.glob,
-                line: occurrence.header_line + 1,
+                header_line: occurrence.header_line,
             })
         })
         .min_by_key(|bound| bound.position)
