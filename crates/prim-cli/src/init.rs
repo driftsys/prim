@@ -80,7 +80,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         })?;
         return Ok(Outcome {
             message: format!(
-                "created {} with Markdown strict-glob map ([*.md] → [{strict_glob}] → [**/SUMMARY.md])",
+                "created {} with Markdown strict-glob map ([*.md] → [{strict_glob}] → [docs/wip/**.md] → [**/SUMMARY.md])",
                 editorconfig.display()
             ),
         });
@@ -156,7 +156,7 @@ fn strict_glob_for_dir(dir: &str) -> String {
 
 fn scaffold(strict_glob: &str) -> String {
     format!(
-        "root = true\n[*.md]\n{MDLINT_STRICT_KEY} = false\n[{strict_glob}]\n{MDLINT_STRICT_KEY} = true\n[**/SUMMARY.md]\n{MDLINT_STRICT_KEY} = false\n"
+        "root = true\n[*.md]\n{MDLINT_STRICT_KEY} = false\n[{strict_glob}]\n{MDLINT_STRICT_KEY} = true\n[docs/wip/**.md]\n{MDLINT_STRICT_KEY} = false\n[**/SUMMARY.md]\n{MDLINT_STRICT_KEY} = false\n"
     )
 }
 
@@ -169,6 +169,13 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
         SectionSpec {
             glob: strict_glob,
             value: true,
+        },
+        // Superpowers specs and plans under `docs/wip/` are transient working
+        // memory, so the strict tier must not apply to them even when the
+        // strict glob covers `docs/**`.
+        SectionSpec {
+            glob: "docs/wip/**.md",
+            value: false,
         },
         SectionSpec {
             glob: "**/SUMMARY.md",
@@ -357,7 +364,7 @@ mod tests {
     fn scaffold_matches_the_default_contract() {
         assert_eq!(
             scaffold("docs/**.md"),
-            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
         );
     }
 
@@ -368,7 +375,7 @@ mod tests {
 
         assert_eq!(
             merged.contents,
-            "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+            "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
         );
         assert_eq!(
             merged.actions,
@@ -376,6 +383,7 @@ mod tests {
                 "added top-level root = true",
                 "added [*.md] with prim_mdlint_strict = false",
                 "added [docs/**.md] with prim_mdlint_strict = true",
+                "added [docs/wip/**.md] with prim_mdlint_strict = false",
                 "added [**/SUMMARY.md] with prim_mdlint_strict = false",
             ]
         );
@@ -389,7 +397,7 @@ mod tests {
 
         assert_eq!(
             merged.contents,
-            "root = true\n[*.md]\nmax_line_length = 100\nprim_mdlint_strict = false\n[*.txt]\nindent_style = space\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+            "root = true\n[*.md]\nmax_line_length = 100\nprim_mdlint_strict = false\n[*.txt]\nindent_style = space\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
         );
     }
 
@@ -400,7 +408,7 @@ mod tests {
 
         assert_eq!(
             merged.contents,
-            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
         );
     }
 
@@ -412,7 +420,7 @@ mod tests {
 
         assert_eq!(
             merged.contents,
-            "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+            "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
         );
     }
 
