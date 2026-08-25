@@ -13,7 +13,7 @@ use ec4rs::Properties;
 use prim_fmt::{FileKind, Indent, LineEnding};
 
 use crate::editorconfig::{self, Resolver};
-use crate::mdlint_policy::MDLINT_STRICT_KEY;
+use crate::mdlint_policy::{self, MDLINT_DISABLE_KEY, MDLINT_STRICT_KEY};
 
 impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
@@ -73,12 +73,36 @@ impl Resolver {
         }
 
         if kind == FileKind::Markdown {
+            let policy = mdlint_policy::policy_from(&props);
+            mdlint_policy::UnknownRuleReporter::new().report(path, &policy.unknown);
+
             settings.push(ResolvedSetting {
                 key: MDLINT_STRICT_KEY,
-                value: editorconfig::prim_bool_from(&props, MDLINT_STRICT_KEY)
-                    .unwrap_or(false)
-                    .to_string(),
+                value: policy.strict.to_string(),
                 origin: origin_of(&props, MDLINT_STRICT_KEY),
+            });
+
+            let disable_origin = origin_of(&props, MDLINT_DISABLE_KEY);
+            let disable_value = if policy.disabled.is_empty() {
+                match &disable_origin {
+                    // The key itself was never set: there is nothing to
+                    // report and nothing to blame on an .editorconfig line.
+                    SettingOrigin::Default => "unset".to_string(),
+                    // The key was set but every id it listed was
+                    // unrecognised (warned above) and dropped, so the
+                    // exclusion set is empty even though the key has a real
+                    // origin. Printing "unset" next to that origin would
+                    // read as a contradiction, so show the (empty) value
+                    // prim actually applies instead.
+                    SettingOrigin::EditorConfig { .. } => String::new(),
+                }
+            } else {
+                policy.disabled.join(", ")
+            };
+            settings.push(ResolvedSetting {
+                key: MDLINT_DISABLE_KEY,
+                value: disable_value,
+                origin: disable_origin,
             });
         }
 

@@ -131,3 +131,60 @@ fn explain_does_not_require_the_target_file_to_exist() {
         .success()
         .stdout(predicate::str::contains("end_of_line"));
 }
+
+#[test]
+fn explain_shows_the_disabled_rules_and_their_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD033, MD041\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n").unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["explain", "a.md"])
+        .assert()
+        .success()
+        .stdout(
+            predicates::str::contains("prim_mdlint_disable")
+                .and(predicates::str::contains("MD033, MD041"))
+                .and(predicates::str::contains(".editorconfig:3")),
+        );
+}
+
+#[test]
+fn explain_warns_about_an_unrecognised_disabled_id_instead_of_claiming_unset() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n").unwrap();
+
+    let assert = prim()
+        .current_dir(dir.path())
+        .args(["explain", "a.md"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("MD999"))
+        .stdout(
+            predicates::str::contains("prim_mdlint_disable")
+                .and(predicates::str::contains(".editorconfig:3")),
+        );
+
+    // `max_line_length` legitimately prints "unset" elsewhere in the same
+    // output, so scope the "no unset" check to the prim_mdlint_disable line
+    // itself rather than the whole stdout.
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let disable_line = stdout
+        .lines()
+        .find(|line| line.contains("prim_mdlint_disable"))
+        .expect("prim_mdlint_disable line present in output");
+    assert!(
+        !disable_line.contains("unset"),
+        "prim_mdlint_disable has a real origin here, so its line must not claim unset: {disable_line}"
+    );
+}
