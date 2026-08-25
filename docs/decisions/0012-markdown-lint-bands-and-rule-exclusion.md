@@ -212,16 +212,28 @@ opt-in agrees with dropping it here.
   Markdown today, but it remains specified for a future content rule outside
   Markdown that might legitimately want a warning.
 - **The floor tier gains six gating rules** (MD045, MD051, MD066, MD068, MD070,
-  MD075) that previously ran only at strict, or not at all. A repository not yet
-  running the strict tier sees new floor-tier failures from those six. A
-  repository already running the strict tier sees no change to `prim lint`'s
-  exit-code behaviour from this: those six already gated as errors under the old
-  strict tier. Every other rule's tier is unchanged or moved down (MD024, MD080
-  leave the floor tier for strict), not up.
+  MD075) that previously did not gate at the floor tier: MD045, MD051, and MD075
+  already ran there and were printed, but only as warnings, so they never failed
+  a build; MD066, MD068, and MD070 did not run at the floor tier at all. A
+  repository not yet running the strict tier sees new floor-tier failures from
+  those six. A repository already running the strict tier sees no change to
+  `prim lint`'s exit-code behaviour from this: those six already gated as errors
+  under the old strict tier. Every other rule's tier is unchanged or moved down
+  (MD024, MD080 leave the floor tier for strict), not up.
+- **Eleven convention rules move from warning to error at the strict tier**:
+  MD001, MD025, MD026, MD033, MD036, MD040, MD041, MD053, MD059, MD067, MD073.
+  Under the old matrix these gated nothing — a finding printed but never failed
+  the build. A repository already running `prim_mdlint_strict = true` sees
+  `prim lint`'s exit code newly fail on any of these eleven where it did not
+  before; this is the migration impact of adopting this decision on an existing
+  strict-tier repository.
 - **`prim init`'s placement map** gained a fourth section,
   `[docs/wip/**.md] prim_mdlint_strict = false`, so Superpowers specs and plans
   committed under `docs/wip/` are never swept into the strict tier by a
   `docs/**` glob (FR-3.5).
+- **`prim_fmt::lint_markdown` gained a third parameter**, the exclusion list
+  (`disabled: &[String]`), to carry `prim_mdlint_disable`'s resolved ids into
+  the engine. Any crate consuming `prim-fmt` directly must update its call site.
 
 ## Alternatives considered
 

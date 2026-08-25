@@ -125,6 +125,97 @@ fn merge_refuses_to_insert_docs_wip_when_existing_sections_are_out_of_canonical_
 }
 
 #[test]
+fn merge_warns_when_all_four_sections_are_present_but_docs_wip_precedes_the_strict_glob() {
+    // Reproduction (whole-branch review, Important 1): every canonical
+    // section already carries an explicit value, so each per-spec iteration
+    // hits the has_key early-continue and, before this fix, took no action
+    // and emitted no warning — `prim init` reported success even though
+    // `[docs/**.md]`, written after `[docs/wip/**.md]`, wins under
+    // EditorConfig's last-match-wins resolution and defeats the docs/wip
+    // exemption for every file under it.
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let merged = merge(existing, "docs/**.md");
+
+    assert_eq!(
+        merged.contents, existing,
+        "prim must not reorder or rewrite sections a person wrote"
+    );
+    assert!(
+        merged.actions.is_empty(),
+        "nothing needed inserting; every section already had its key"
+    );
+    assert_eq!(merged.warnings.len(), 1, "exactly one conflict is expected");
+    assert!(merged.warnings[0].contains("[docs/**.md]"));
+    assert!(merged.warnings[0].contains("[docs/wip/**.md]"));
+}
+
+#[test]
+fn run_does_not_claim_the_map_is_present_when_a_conflict_blocks_an_update() {
+    // Reproduction (whole-branch review, Important 2): before this fix,
+    // emitting a refusal warning still fell through to the
+    // `actions.is_empty()` branch, which unconditionally claimed the map was
+    // already present — a scripted caller or a skimming reader takes that
+    // line, not the warning above it, as the outcome.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
+    )
+    .unwrap();
+
+    let outcome = run(dir.path()).unwrap();
+
+    assert!(
+        !outcome.message.contains("already contains"),
+        "a refusal warning must not be followed by a false claim of success; got: {}",
+        outcome.message
+    );
+    assert!(
+        outcome.message.contains("left unchanged"),
+        "got: {}",
+        outcome.message
+    );
+}
+
+#[test]
+fn scaffold_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
+    // A mdBook with `src = "docs/wip"` derives a strict glob identical to
+    // the literal docs/wip exemption. Emitting both would write
+    // `[docs/wip/**.md] = true` then `[docs/wip/**.md] = false` — the
+    // exemption, written after, wins under last-match-wins and silently
+    // defeats the strict tier for the whole book, even though the author
+    // asked for that directory to be strict.
+    let content = scaffold("docs/wip/**.md");
+
+    assert_eq!(
+        content,
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+    );
+    assert_eq!(
+        content.matches("[docs/wip/**.md]").count(),
+        1,
+        "the exemption section must not duplicate the strict section with a conflicting value"
+    );
+}
+
+#[test]
+fn merge_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let merged = merge(existing, "docs/wip/**.md");
+
+    assert_eq!(
+        merged.actions,
+        vec!["added [docs/wip/**.md] with prim_mdlint_strict = true"],
+        "only the strict section is added; no separate false exemption for the same glob"
+    );
+    assert_eq!(
+        merged.contents.matches("[docs/wip/**.md]").count(),
+        1,
+        "the exemption section must not duplicate the strict section with a conflicting value"
+    );
+}
+
+#[test]
 fn book_toml_custom_src_changes_the_strict_glob() {
     assert_eq!(
         strict_glob_from_book_toml("[book]\nsrc = \"guide\"\n"),

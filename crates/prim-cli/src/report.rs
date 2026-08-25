@@ -126,6 +126,10 @@ fn render_sarif(findings: &[Finding]) -> String {
         .iter()
         .map(|finding| SarifResult {
             rule_id: &finding.code,
+            // The "warning" arm is unreachable today: every `Finding` sets
+            // `is_error: true` (see `Finding::new`/`diagnostic`/`markdown`
+            // above, and AD-0012). Kept for a future non-Markdown content
+            // rule that might legitimately report a warning.
             level: if finding.is_error { "error" } else { "warning" },
             message: SarifMessage {
                 text: &finding.message,

@@ -41,6 +41,10 @@ pub fn compute(
                 .iter()
                 .map(|diagnostic| Diagnostic {
                     range: protocol::point_range(text, diagnostic.line, diagnostic.column),
+                    // The `else` arm is unreachable today:
+                    // `MdDiagnostic::is_error` is always `true` (see
+                    // AD-0012). Kept for a future non-Markdown content rule
+                    // that might legitimately want a warning.
                     severity: if diagnostic.is_error {
                         protocol::SEVERITY_ERROR
                     } else {

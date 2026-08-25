@@ -246,6 +246,29 @@ could be recovered), or `prim's default` when no `.editorconfig` entry set it.
 classification `fmt`/`lint`/`fix` use, so `explain` also works for a
 not-yet-created file to preview what settings it would get.
 
+Given a `.editorconfig` such as:
+
+```ini
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+max_line_length = 80
+
+[docs/**.md]
+prim_mdlint_strict = true
+prim_mdlint_disable = MD033, MD041
+```
+
+`prim explain` prints:
+
 ```console
 $ prim explain docs/USAGE.md
 docs/USAGE.md
@@ -255,9 +278,14 @@ docs/USAGE.md
   indent_style             = space      (/repo/.editorconfig:8 [*])
   indent_size              = 2          (/repo/.editorconfig:9 [*])
   max_line_length          = 80         (/repo/.editorconfig:12 [*.md])
-  prim_mdlint_strict       = true       (/repo/.editorconfig:13 [docs/**.md])
-  prim_mdlint_disable      = MD033, MD041 (/repo/.editorconfig:14 [docs/**.md])
+  prim_mdlint_strict       = true       (/repo/.editorconfig:15 [docs/**.md])
+  prim_mdlint_disable      = MD033, MD041 (/repo/.editorconfig:16 [docs/**.md])
 ```
+
+(prim's own `.editorconfig` sets neither `prim_mdlint_strict` nor
+`prim_mdlint_disable`, so running this against the repository prim ships in
+would instead print `false (prim's default)` and `unset (prim's default)` for
+those two lines — see below.)
 
 The settings shown depend on the file's kind: un-owned text files (the
 [Orphan allowlist](#what-prim-formats)) only get the three universal hygiene

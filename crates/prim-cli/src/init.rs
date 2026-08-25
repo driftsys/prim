@@ -12,11 +12,20 @@ use toml::Value;
 use crate::ui;
 use crate::write;
 
+use sections::{
+    SectionSpec, bool_word, existing_order_conflicts, has_top_level_root, header_lines, key_line,
+    lower_bound, matching_sections, push_insert, section_block, split_lines, upper_bound,
+};
+
 const EDITORCONFIG_NAME: &str = ".editorconfig";
 const MDBOOK_NAME: &str = "book.toml";
 const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
 const DEFAULT_STRICT_DIR: &str = "docs";
 const MDBOOK_DEFAULT_SRC: &str = "src";
+/// The literal docs/wip exemption glob — a constant so it can be compared
+/// against a detected strict glob (a mdBook `src = "docs/wip"` derives this
+/// same glob) rather than duplicated as a string literal.
+const DOCS_WIP_GLOB: &str = "docs/wip/**.md";
 
 /// The user-visible result of `prim init`.
 #[derive(Debug)]
@@ -49,32 +58,13 @@ impl fmt::Display for Error {
 struct MergeResult {
     contents: String,
     actions: Vec<String>,
-    /// One entry per canonical section prim could not place because the
-    /// file's own section order contradicts the canonical order — prim never
-    /// reorders sections a person wrote, so the section is left out rather
-    /// than inserted somewhere that would resolve incorrectly.
+    /// One entry per canonical-order violation prim found: either a section
+    /// it could not place because the file's own section order contradicts
+    /// the canonical order, or two already-present sections whose relative
+    /// order contradicts it. Either way, prim never reorders sections a
+    /// person wrote, so the file is left exactly as found and the warning is
+    /// the only output.
     warnings: Vec<String>,
-}
-
-struct SectionSpec<'a> {
-    glob: &'a str,
-    value: bool,
-}
-
-#[derive(Clone, Copy)]
-struct SectionOccurrence {
-    header_line: usize,
-    insert_at: usize,
-    has_key: bool,
-}
-
-/// One end of the range a missing section's insertion point must fall in,
-/// established by an existing occurrence of some other canonical spec.
-/// `line` is 1-indexed, for warning text.
-struct Bound<'a> {
-    position: usize,
-    glob: &'a str,
-    line: usize,
 }
 
 /// Scaffold or minimally merge `.editorconfig` in `target_dir`.
@@ -93,9 +83,16 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
                 source,
             }
         })?;
+        // The docs/wip exemption is only its own arrow in the summary when it
+        // is a distinct section from the strict glob (see `scaffold`).
+        let placement = if strict_glob == DOCS_WIP_GLOB {
+            format!("[*.md] → [{strict_glob}] → [**/SUMMARY.md]")
+        } else {
+            format!("[*.md] → [{strict_glob}] → [{DOCS_WIP_GLOB}] → [**/SUMMARY.md]")
+        };
         return Ok(Outcome {
             message: format!(
-                "created {} with Markdown strict-glob map ([*.md] → [{strict_glob}] → [docs/wip/**.md] → [**/SUMMARY.md])",
+                "created {} with Markdown strict-glob map ({placement})",
                 editorconfig.display()
             ),
         });
@@ -112,12 +109,23 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     }
 
     if merged.actions.is_empty() {
-        return Ok(Outcome {
-            message: format!(
+        // A warning above means at least one canonical section was left out
+        // or is contradicted by the file's own order — that is not the same
+        // outcome as "the map is already present", and a scripted caller or
+        // a skimming reader takes this message, not the warnings, as the
+        // result.
+        let message = if merged.warnings.is_empty() {
+            format!(
                 "{} already contains the Markdown strict-glob map",
                 editorconfig.display()
-            ),
-        });
+            )
+        } else {
+            format!(
+                "{} left unchanged — see the warning(s) above",
+                editorconfig.display()
+            )
+        };
+        return Ok(Outcome { message });
     }
 
     write::atomic(&editorconfig, &merged.contents).map_err(|source| Error::WriteEditorConfig {
@@ -174,13 +182,24 @@ fn strict_glob_for_dir(dir: &str) -> String {
 }
 
 fn scaffold(strict_glob: &str) -> String {
+    // When the detected strict glob is itself `docs/wip/**.md` (e.g. a
+    // mdBook with `src = "docs/wip"`), the exemption would be a second
+    // section for the exact same glob, written after the strict one — under
+    // EditorConfig's last-match-wins resolution that silently flips the
+    // whole directory back to the floor tier. The author asked for that
+    // directory to be strict, so skip the exemption rather than defeat it.
+    let docs_wip_exemption = if strict_glob == DOCS_WIP_GLOB {
+        String::new()
+    } else {
+        format!("[{DOCS_WIP_GLOB}]\n{MDLINT_STRICT_KEY} = false\n")
+    };
     format!(
-        "root = true\n[*.md]\n{MDLINT_STRICT_KEY} = false\n[{strict_glob}]\n{MDLINT_STRICT_KEY} = true\n[docs/wip/**.md]\n{MDLINT_STRICT_KEY} = false\n[**/SUMMARY.md]\n{MDLINT_STRICT_KEY} = false\n"
+        "root = true\n[*.md]\n{MDLINT_STRICT_KEY} = false\n[{strict_glob}]\n{MDLINT_STRICT_KEY} = true\n{docs_wip_exemption}[**/SUMMARY.md]\n{MDLINT_STRICT_KEY} = false\n"
     )
 }
 
 fn merge(existing: &str, strict_glob: &str) -> MergeResult {
-    let specs = [
+    let mut specs = vec![
         SectionSpec {
             glob: "*.md",
             value: false,
@@ -189,28 +208,38 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
             glob: strict_glob,
             value: true,
         },
-        // Superpowers specs and plans under `docs/wip/` are transient working
-        // memory, so the strict tier must not apply to them even when the
-        // strict glob covers `docs/**`.
-        SectionSpec {
-            glob: "docs/wip/**.md",
-            value: false,
-        },
-        SectionSpec {
-            glob: "**/SUMMARY.md",
-            value: false,
-        },
     ];
+    // Superpowers specs and plans under `docs/wip/` are transient working
+    // memory, so the strict tier must not apply to them even when the strict
+    // glob covers `docs/**` — unless the strict glob already IS
+    // `docs/wip/**.md`, in which case the author asked for that directory to
+    // be strict and a separate exemption section would just defeat it (see
+    // `scaffold`).
+    if strict_glob != DOCS_WIP_GLOB {
+        specs.push(SectionSpec {
+            glob: DOCS_WIP_GLOB,
+            value: false,
+        });
+    }
+    specs.push(SectionSpec {
+        glob: "**/SUMMARY.md",
+        value: false,
+    });
 
     let lines = split_lines(existing);
     let headers = header_lines(&lines);
-    let mut actions = Vec::new();
-    let mut warnings = Vec::new();
-    let mut inserts: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     let occurrences_by_spec = specs
         .iter()
         .map(|spec| matching_sections(&lines, &headers, spec.glob))
         .collect::<Vec<_>>();
+
+    let mut actions = Vec::new();
+    // Sections that are already present can be out of canonical order too —
+    // the per-spec loop below only notices a missing section's placement is
+    // ambiguous, so an already-present, wrongly-ordered pair would otherwise
+    // sail through every iteration's has_key check with no warning at all.
+    let mut warnings = existing_order_conflicts(&specs, &occurrences_by_spec);
+    let mut inserts: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     let added_root = !has_top_level_root(&lines, &headers);
 
     if added_root {
@@ -309,141 +338,7 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     }
 }
 
-/// The latest point any already-present, canonically earlier spec's section
-/// ends at, if one exists in `existing` — every section that must precede the
-/// spec at `index`.
-fn lower_bound<'a>(
-    specs: &[SectionSpec<'a>],
-    occurrences_by_spec: &[Vec<SectionOccurrence>],
-    index: usize,
-) -> Option<Bound<'a>> {
-    specs[..index]
-        .iter()
-        .zip(&occurrences_by_spec[..index])
-        .filter_map(|(spec, occurrences)| {
-            occurrences.last().map(|occurrence| Bound {
-                position: occurrence.insert_at,
-                glob: spec.glob,
-                line: occurrence.header_line + 1,
-            })
-        })
-        .max_by_key(|bound| bound.position)
-}
-
-/// The earliest point any already-present, canonically later spec's section
-/// starts at, if one exists in `existing` — every section that must follow
-/// the spec at `index`.
-fn upper_bound<'a>(
-    specs: &[SectionSpec<'a>],
-    occurrences_by_spec: &[Vec<SectionOccurrence>],
-    index: usize,
-) -> Option<Bound<'a>> {
-    specs[index + 1..]
-        .iter()
-        .zip(&occurrences_by_spec[index + 1..])
-        .filter_map(|(spec, occurrences)| {
-            occurrences.first().map(|occurrence| Bound {
-                position: occurrence.header_line,
-                glob: spec.glob,
-                line: occurrence.header_line + 1,
-            })
-        })
-        .min_by_key(|bound| bound.position)
-}
-
-fn split_lines(content: &str) -> Vec<&str> {
-    if content.is_empty() {
-        Vec::new()
-    } else {
-        content.split_inclusive('\n').collect()
-    }
-}
-
-fn header_lines(lines: &[&str]) -> Vec<(usize, String)> {
-    lines
-        .iter()
-        .enumerate()
-        .filter_map(|(index, line)| parse_header(line).map(|glob| (index, glob.to_string())))
-        .collect()
-}
-
-fn has_top_level_root(lines: &[&str], headers: &[(usize, String)]) -> bool {
-    let first_section = headers.first().map_or(lines.len(), |(index, _)| *index);
-    lines
-        .iter()
-        .take(first_section)
-        .filter_map(|line| parse_key(line))
-        .any(|key| key.eq_ignore_ascii_case("root"))
-}
-
-fn matching_sections(
-    lines: &[&str],
-    headers: &[(usize, String)],
-    glob: &str,
-) -> Vec<SectionOccurrence> {
-    headers
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, header_glob))| header_glob == glob)
-        .map(|(header_pos, (line_index, _))| {
-            let next_header = headers
-                .get(header_pos + 1)
-                .map_or(lines.len(), |(next_index, _)| *next_index);
-            let has_key = lines[*line_index + 1..next_header]
-                .iter()
-                .filter_map(|line| parse_key(line))
-                .any(|key| key.eq_ignore_ascii_case(MDLINT_STRICT_KEY));
-            SectionOccurrence {
-                header_line: *line_index,
-                insert_at: next_header,
-                has_key,
-            }
-        })
-        .collect()
-}
-
-fn push_insert(
-    inserts: &mut BTreeMap<usize, Vec<String>>,
-    index: usize,
-    mut addition: String,
-    existing: &str,
-    lines: &[&str],
-) {
-    let entry = inserts.entry(index).or_default();
-    if index == lines.len() && !existing.is_empty() && !existing.ends_with('\n') && entry.is_empty()
-    {
-        addition.insert(0, '\n');
-    }
-    entry.push(addition);
-}
-
-fn parse_header(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-    trimmed
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-        .map(str::trim)
-}
-
-fn parse_key(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-        return None;
-    }
-    trimmed.split_once('=').map(|(key, _)| key.trim())
-}
-
-fn section_block(glob: &str, value: bool) -> String {
-    format!("[{glob}]\n{}", key_line(value))
-}
-
-fn key_line(value: bool) -> String {
-    format!("{MDLINT_STRICT_KEY} = {}\n", bool_word(value))
-}
-
-fn bool_word(value: bool) -> &'static str {
-    if value { "true" } else { "false" }
-}
+mod sections;
 
 #[cfg(test)]
 mod tests;
