@@ -28,7 +28,7 @@ pub(super) struct Bound<'a> {
     pub(super) line: usize,
 }
 
-/// Warn about every canonically-adjacent pair of specs that are BOTH already
+/// Every canonically-adjacent pair of spec indices that are BOTH already
 /// present in `existing` but appear in the wrong relative order — the
 /// canonically earlier spec's section starts at or after the canonically
 /// later one's. This is checked only between adjacent specs, not every pair:
@@ -36,11 +36,17 @@ pub(super) struct Bound<'a> {
 /// `merge`'s main loop, which already spans the gap around it, so this
 /// function only has to notice sections that already exist and therefore
 /// never go through that loop's insertion path at all.
+///
+/// Returns index pairs rather than pre-rendered warnings so `merge` can also
+/// use them to work out which specs it must not write into — a conflicted
+/// spec's own section sits in a position prim has just told the user is
+/// broken, so inserting a key into it (or worse, a fresh section) would make
+/// the warning a lie.
 pub(super) fn existing_order_conflicts(
     specs: &[SectionSpec<'_>],
     occurrences_by_spec: &[Vec<SectionOccurrence>],
-) -> Vec<String> {
-    let mut warnings = Vec::new();
+) -> Vec<(usize, usize)> {
+    let mut conflicts = Vec::new();
     for index in 0..specs.len().saturating_sub(1) {
         let Some(earlier) = occurrences_by_spec[index].last() else {
             continue;
@@ -49,18 +55,33 @@ pub(super) fn existing_order_conflicts(
             continue;
         };
         if earlier.insert_at > later.header_line {
-            warnings.push(format!(
-                "[{}] (line {}) comes after [{}] (line {}) in this .editorconfig, which \
-                 contradicts prim's canonical section order; prim will not reorder sections a \
-                 person wrote, so reorder them yourself",
-                specs[index].glob,
-                earlier.header_line + 1,
-                specs[index + 1].glob,
-                later.header_line + 1,
-            ));
+            conflicts.push((index, index + 1));
         }
     }
-    warnings
+    conflicts
+}
+
+/// Render one `existing_order_conflicts` pair as the warning shown to the
+/// user, naming both sections and the lines they start at.
+pub(super) fn order_conflict_warning(
+    specs: &[SectionSpec<'_>],
+    occurrences_by_spec: &[Vec<SectionOccurrence>],
+    (earlier_index, later_index): (usize, usize),
+) -> String {
+    // Safe to index: callers only ever pass pairs `existing_order_conflicts`
+    // itself returned, which by construction have an occurrence on both
+    // sides.
+    let earlier = occurrences_by_spec[earlier_index].last().unwrap();
+    let later = occurrences_by_spec[later_index].first().unwrap();
+    format!(
+        "[{}] (line {}) comes after [{}] (line {}) in this .editorconfig, which contradicts \
+         prim's canonical section order; prim will not reorder sections a person wrote, so \
+         reorder them yourself",
+        specs[earlier_index].glob,
+        earlier.header_line + 1,
+        specs[later_index].glob,
+        later.header_line + 1,
+    )
 }
 
 /// The latest point any already-present, canonically earlier spec's section
