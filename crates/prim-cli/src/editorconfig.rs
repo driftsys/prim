@@ -16,8 +16,6 @@ use prim_fmt::{Indent, LineEnding, Style};
 
 use crate::ui;
 
-pub(crate) const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
-
 /// One parsed `.editorconfig` in a cascade: the directory that contains it
 /// (globs match relative to it) and its sections, parsed once and reused.
 struct CachedConfig {
@@ -60,19 +58,10 @@ impl Resolver {
         style_from(self.properties_for(path))
     }
 
-    /// Resolve one documented `prim_*` boolean key for `path`. This stays
-    /// private so prim keeps a closed allowlist rather than exposing a generic
-    /// custom-key lookup API.
-    fn resolve_prim_bool_key(&mut self, path: &Path, key: &str) -> Option<bool> {
-        prim_bool_from(&self.properties_for(path), key)
-    }
-
     /// Resolve `prim_mdlint_strict` for `path`, reusing the cached cascade for
-    /// its directory when one is present. Unset or non-`true` values fall back
-    /// to `false`, matching story G3's floor-by-default contract.
+    /// its directory when one is present.
     pub fn resolve_mdlint_strict(&mut self, path: &Path) -> bool {
-        self.resolve_prim_bool_key(path, MDLINT_STRICT_KEY)
-            .unwrap_or(false)
+        crate::mdlint_policy::strict_from(&self.properties_for(path))
     }
 }
 
@@ -197,12 +186,6 @@ fn indent_width(cfg: &Properties) -> Option<usize> {
 /// and unit tests.
 pub fn resolve(path: &Path) -> Style {
     Resolver::new().resolve(path)
-}
-
-/// One-shot resolution of `prim_mdlint_strict` without caching — used by
-/// `lint --stdin-filepath` and unit tests.
-pub fn resolve_mdlint_strict(path: &Path) -> bool {
-    Resolver::new().resolve_mdlint_strict(path)
 }
 
 #[cfg(test)]
@@ -408,83 +391,6 @@ mod tests {
 
     // --- Custom `prim_*` keys + glob-section precedence ---
 
-    /// Test-only helper over the production resolver.
-    fn resolve_prim_bool(dir: &Path, relative: &str, key: &str) -> Option<bool> {
-        let path = dir.join(relative);
-        Resolver::new().resolve_prim_bool_key(&path, key)
-    }
-
-    #[test]
-    fn prim_custom_key_resolves_per_glob_more_specific_later_wins() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(
-            dir.path().join(".editorconfig"),
-            "root = true\n\
-             [*.md]\n\
-             prim_mdlint_strict = false\n\
-             [docs/**.md]\n\
-             prim_mdlint_strict = true\n\
-             [**/SUMMARY.md]\n\
-             prim_mdlint_strict = false\n",
-        )
-        .unwrap();
-
-        let key = "prim_mdlint_strict";
-        assert_eq!(
-            resolve_prim_bool(dir.path(), "README.md", key),
-            Some(false),
-            "top-level doc is floor"
-        );
-        assert_eq!(
-            resolve_prim_bool(dir.path(), "docs/guide.md", key),
-            Some(true),
-            "docs/ doc is strict"
-        );
-        assert_eq!(
-            resolve_prim_bool(dir.path(), "docs/SUMMARY.md", key),
-            Some(false),
-            "SUMMARY.md is floor (SUMMARY-safe)"
-        );
-    }
-
-    #[test]
-    fn nearer_config_overrides_prim_key_from_a_farther_one() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(
-            dir.path().join(".editorconfig"),
-            "root = true\n[*.md]\nprim_mdlint_strict = false\n",
-        )
-        .unwrap();
-        let sub = dir.path().join("pkg");
-        fs::create_dir(&sub).unwrap();
-        fs::write(
-            sub.join(".editorconfig"),
-            "[*.md]\nprim_mdlint_strict = true\n",
-        )
-        .unwrap();
-
-        assert_eq!(
-            resolve_prim_bool(dir.path(), "pkg/child.md", "prim_mdlint_strict"),
-            Some(true),
-            "nearer config overrides the farther one for custom keys"
-        );
-    }
-
-    #[test]
-    fn unset_prim_key_is_none() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(
-            dir.path().join(".editorconfig"),
-            "root = true\n[*.md]\nindent_size = 2\n",
-        )
-        .unwrap();
-        assert_eq!(
-            resolve_prim_bool(dir.path(), "a.md", "prim_mdlint_strict"),
-            None,
-            "an unset custom key resolves to None"
-        );
-    }
-
     #[test]
     fn unknown_prim_keys_are_ignored_without_affecting_known_keys_or_style() {
         let (_d, style) = resolve_in(
@@ -496,7 +402,7 @@ mod tests {
             "a.md",
         );
         let path = _d.path().join("a.md");
-        assert!(resolve_mdlint_strict(&path));
+        assert!(crate::mdlint_policy::resolve_strict(&path));
         assert_eq!(style.max_line_length, Some(100));
         assert_eq!(
             style,
@@ -523,7 +429,7 @@ mod tests {
             "guide.md",
         );
         let path = _d.path().join("guide.md");
-        assert!(resolve_mdlint_strict(&path));
+        assert!(crate::mdlint_policy::resolve_strict(&path));
         assert_eq!(
             style,
             Style {

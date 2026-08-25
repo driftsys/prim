@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use ec4rs::Properties;
 use prim_fmt::{FileKind, Indent, LineEnding};
 
-use crate::editorconfig::{self, MDLINT_STRICT_KEY, Resolver};
+use crate::editorconfig::{self, Resolver};
+use crate::mdlint_policy::MDLINT_STRICT_KEY;
 
 impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
