@@ -14,6 +14,41 @@ formatted, and exits `1` (listing the offending files) otherwise. The top-level
 `prim --check` spelling still works as deprecated sugar (warns on stderr;
 removed in v2.0) — prefer `prim fmt --check` in new pipelines.
 
+## CI Markdown lint gate
+
+Fail the build when a Markdown file has a content-lint finding:
+
+```yaml
+- name: Lint Markdown content
+  run: prim lint .
+```
+
+`prim lint` never rewrites; it reports findings and exits `1` when any are
+present. For Markdown specifically, every rule prim runs — the always-on floor
+tier, plus the strict tier once a path opts in via `.editorconfig`
+`prim_mdlint_strict = true` — is an error, so there is no silent warn-tier pass
+to worry about: if `prim lint` prints a Markdown finding, the gate fails. See
+[USAGE.md](USAGE.md#operating-modes) for the floor/strict rule lists.
+
+## Excluding a Markdown lint rule for a tree
+
+A convention rule can legitimately fire across an entire tree — for example
+MD033 (inline HTML) on a docs tree that intentionally uses `<kbd>` or
+`<img align="right">`. Rather than adding a
+`<!-- markdownlint-disable-file MD033 -->` comment to every affected file,
+exclude the rule once per glob:
+
+```ini
+[docs/**.md]
+prim_mdlint_strict = true
+prim_mdlint_disable = MD033, MD041
+```
+
+`prim_mdlint_disable` only removes rules from the tier prim already selected for
+that path — it is subtract-only, so it can never turn on a rule prim decided not
+to run. See [USAGE.md](USAGE.md#configuration) for the full resolution
+semantics.
+
 ## Editor format-on-save
 
 Point your editor's "format with external command" hook at:

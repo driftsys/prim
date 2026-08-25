@@ -94,13 +94,27 @@ source-code formatter and has **no plugin system**.
   AD-0002.)
 - **FR-3.2a** prim shall also read a small, closed, documented set of namespaced
   `prim_*` keys from the same `.editorconfig` cascade. The current set contains
-  exactly one key: `prim_mdlint_strict = true|false` (default `false`) for
-  Markdown lint-tier selection.
+  two keys: `prim_mdlint_strict = true|false` (default `false`) for Markdown
+  lint-tier selection, and `prim_mdlint_disable = <rule ids>` (FR-3.2c) for
+  excluding named Markdown lint rules from the tier selected for a matching
+  path.
 - **FR-3.2b** Any other `prim_*` key is ignored silently. Unknown custom keys
   must never error, widen the public configuration surface, or interfere with
   standard EditorConfig-key resolution.
+- **FR-3.2c** `prim_mdlint_disable`'s value shall be a comma-separated list of
+  rule ids, resolved through the same per-glob `.editorconfig` cascade as
+  `prim_mdlint_strict`: EditorConfig's ordinary last-match-wins resolution
+  applies per section, so a narrower section's value replaces a wider section's
+  list rather than merging with it. Rule ids shall match case-insensitively. The
+  key is subtract-only: it shall remove named rules from the tier already
+  selected for that path and shall never add a rule prim did not already select
+  for that tier. An id that names no rule prim runs in either tier disables
+  nothing; prim shall report it once per run on stderr without changing the exit
+  code.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
-  per-rule flags).
+  per-rule flags, and no way for a repository to configure a rule's options).
+  `prim_mdlint_disable` (FR-3.2c) is not an exception: it only ever narrows the
+  rule set prim already selected, never widens it or changes a rule's behaviour.
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
 - **FR-3.5** prim shall provide `prim init [PATH]` as a one-time `.editorconfig`
   scaffolder for Markdown lint-tier placement. With no existing `.editorconfig`,
@@ -112,23 +126,36 @@ source-code formatter and has **no plugin system**.
   prim_mdlint_strict = false
   [docs/**.md]
   prim_mdlint_strict = true
+  [docs/wip/**.md]
+  prim_mdlint_strict = false
   [**/SUMMARY.md]
   prim_mdlint_strict = false
   ```
 
-  When `PATH/book.toml` exists, the strict middle glob shall use mdBook's
-  `[book].src` directory instead of `docs/`, defaulting to `src/**.md` when the
-  key is absent or the TOML is malformed. When `PATH/.editorconfig` already
-  exists, `prim init` shall merge minimally and never reorder or rewrite
-  unrelated bytes: leave an existing top-level `root = ...` untouched, otherwise
-  prepend `root = true` plus one blank line; for `[*.md]`, the detected strict
-  glob, and `[**/SUMMARY.md]`, leave any existing explicit
-  `prim_mdlint_strict = ...` untouched, append the missing key inside an
-  existing section, and insert any missing sections without moving existing
-  bytes so the final relative order still reads `[*.md]` → strict glob →
-  `[**/SUMMARY.md]` (appending at end-of-file only when no later prim section
-  needs to stay after it). Running `prim init` twice shall be a byte-identical
-  no-op on the second run.
+  When `PATH/book.toml` exists, the strict glob shall use mdBook's `[book].src`
+  directory instead of `docs/`, defaulting to `src/**.md` when the key is absent
+  or the TOML is malformed. `[docs/wip/**.md]` is a literal, not derived from
+  the strict glob: Superpowers specs and plans committed under `docs/wip/` are
+  transient working memory, so the strict tier must not apply to them even when
+  the strict glob covers `docs/**` or a custom mdBook `src` directory.
+
+  When `PATH/.editorconfig` already exists, `prim init` shall merge minimally
+  and never reorder or rewrite unrelated bytes: leave an existing top-level
+  `root = ...` untouched, otherwise prepend `root = true` plus one blank line;
+  for `[*.md]`, the detected strict glob, `[docs/wip/**.md]`, and
+  `[**/SUMMARY.md]`, leave any existing explicit `prim_mdlint_strict = ...`
+  untouched, append the missing key inside an existing section, and insert any
+  missing section without moving existing bytes so the final relative order
+  still reads `[*.md]` → strict glob → `[docs/wip/**.md]` → `[**/SUMMARY.md]`
+  (appending at end-of-file only when no later prim section needs to stay after
+  it). When a section is missing and the file's own existing section order
+  already contradicts that canonical order — for example an existing
+  `[**/SUMMARY.md]` written before the strict glob — inserting the missing
+  section at any position would resolve incorrectly under EditorConfig's
+  last-match-wins cascade; `prim init` shall then leave that section out, print
+  a warning naming the two conflicting sections and the lines they start at, and
+  leave every existing byte untouched rather than reorder what the author wrote.
+  Running `prim init` twice shall be a byte-identical no-op on the second run.
 
 ## FR-4 — File discovery
 
@@ -228,53 +255,46 @@ default, format-in-place action.
     `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
     prim's active rule subset by `Rule::name()`. The per-file `.editorconfig`
     key `prim_mdlint_strict = true|false` (default `false`) is resolved through
-    the normal EditorConfig cascade; `false` runs the always-on floor tier,
-    `true` adds the strict tier and escalates warn-tier floor findings to
-    errors. Each finding carries rumdl's rule code verbatim and a 1-indexed
-    `path:line:col`, printed as `path:line:col: message [MD0xx]`. This path is
-    lint-only: prim shall never invoke rumdl's formatter or auto-fix Markdown
-    findings, and `prim fix` does not yet auto-fix these rules.
-    - **Severity matrix (floor / strict):**
-
-      | Group               | Rule                                     | Floor | Strict |
-      | ------------------- | ---------------------------------------- | ----- | ------ |
-      | defects / integrity | MD045                                    | warn  | error  |
-      | defects / integrity | MD042                                    | error | error  |
-      | defects / integrity | MD011                                    | error | error  |
-      | defects / integrity | MD052                                    | error | error  |
-      | defects / integrity | MD056                                    | error | error  |
-      | defects / integrity | MD062                                    | error | error  |
-      | defects / integrity | MD034                                    | error | error  |
-      | defects / integrity | MD057                                    | error | error  |
-      | defects / integrity | MD024                                    | warn  | error  |
-      | defects / integrity | MD051                                    | warn  | error  |
-      | defects / integrity | MD080                                    | warn  | error  |
-      | defects / integrity | MD075                                    | warn  | error  |
-      | defects / integrity | MD066                                    | off   | error  |
-      | defects / integrity | MD068                                    | off   | error  |
-      | defects / integrity | MD070                                    | off   | error  |
-      | structure / opinion | MD025 (SUMMARY-safe via `.editorconfig`) | off   | warn   |
-      | structure / opinion | MD041                                    | off   | warn   |
-      | structure / opinion | MD001                                    | off   | warn   |
-      | structure / opinion | MD040                                    | off   | warn   |
-      | structure / opinion | MD033                                    | off   | warn   |
-      | structure / opinion | MD026                                    | off   | warn   |
-      | structure / opinion | MD036                                    | off   | warn   |
-      | structure / opinion | MD059                                    | off   | warn   |
-      | structure / opinion | MD053                                    | off   | warn   |
-      | structure / opinion | MD073                                    | off   | warn   |
-      | structure / opinion | MD082                                    | off   | warn   |
-      | structure / opinion | MD067                                    | off   | warn   |
-
+    the normal EditorConfig cascade; `false` runs the always-on floor tier of 13
+    defect rules, `true` adds 13 convention rules on top. Every rule prim runs,
+    at either tier, is an error: there is no warning severity for Markdown, so a
+    finding's presence is its severity. Each finding carries rumdl's rule code
+    verbatim and a 1-indexed `path:line:col`, printed as
+    `path:line:col: message [MD0xx]`. This path is lint-only: prim shall never
+    invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
+    not yet auto-fix these rules.
+    - **Floor tier — defect rules (always on, error at floor and strict):**
+      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066,
+      MD068, MD070, MD075. Each reports something objectively broken — a dead
+      link, a dangling reference, a malformed table — independent of what the
+      author intended, so it can gate every repository with no opt-in.
+    - **Strict tier — convention rules (`prim_mdlint_strict = true` only, error
+      when active):** MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
+      front-matter title excluded by default, see below), MD026, MD033, MD036,
+      MD040, MD041, MD053, MD059, MD067, MD073, MD080. Each is decidable but
+      fires on documents that are otherwise fine, so it gates only once a
+      repository opts in.
     - **Never linted (formatter territory):** MD003-005, MD007, MD009, MD010,
       MD012, MD018-023, MD027-032, MD035, MD037-039, MD046-050, MD055, MD058,
       MD060, MD064, MD065, MD071, MD076, MD077.
     - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
       MD069, MD072 (frontmatter key sorting would violate prim's
-      semantics-preserving guardrail), MD074, MD078, MD079, MD081.
-    - **Exit-code implication:** warn-tier Markdown findings are still printed
-      (and appear in JSON/SARIF output), but only error-tier findings raise
-      `prim lint`'s exit code to `1`.
+      semantics-preserving guardrail), MD074, MD078, MD079, MD081, and MD082
+      (dropped from `ACTIVE_RULES` entirely: absent from markdownlint, opt-in in
+      rumdl, no fix by design, and — measured across six public documentation
+      sites — 569 of 573 findings flag a parent heading immediately followed by
+      a deeper one, an ordinary outline shape rather than an empty section; see
+      AD-0012).
+    - **Exit-code implication:** floor-tier findings and strict-tier findings
+      alike raise `prim lint`'s exit code to `1`; no Markdown rule emits a
+      warning.
+    - **Rule configuration prim owns:** prim passes rumdl a `Config` with one
+      override — MD025's `front-matter-title` option is emptied, so a page's
+      front-matter `title:` is treated as metadata rather than a heading. This
+      is prim choosing its own canonical default for a rule it already runs, not
+      a configuration surface a repository can reach: there is still no way for
+      a repository to configure a rule's options (FR-3.3). See AD-0012 for the
+      evidence behind the choice.
   - **FR-5.5c** _(override surface, story G5)_ A standalone
     `<!-- prim-mdlint-strict: true|false -->` line anywhere in a Markdown file
     (the whole line, once trimmed) overrides FR-5.5b's `.editorconfig`-resolved

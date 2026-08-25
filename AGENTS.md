@@ -76,7 +76,10 @@ never raise the exit code.
 **Key design decisions:**
 
 - One canonical style; honor `.editorconfig` only. No `prim.toml`, no per-rule
-  flags.
+  flags to configure a rule's options or run a rule prim did not select. The one
+  subtract-only exception is `.editorconfig` `prim_mdlint_disable`, which can
+  only remove a rule from the Markdown lint tier prim already selected for a
+  path (AD-0012).
 - Semantics-preserving: never reorder keys, table entries, or array elements.
 - Fail-safe: unparseable or non-UTF-8 files are left byte-for-byte unchanged and
   reported (exit `2`). Writes are atomic (temp file + rename).
