@@ -1,7 +1,7 @@
 //! Scaffold or minimally merge prim's Markdown strict-glob placement map into
 //! `.editorconfig` (story G4).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -12,9 +12,12 @@ use toml::Value;
 use crate::ui;
 use crate::write;
 
+mod sections;
+
 use sections::{
     SectionSpec, bool_word, existing_order_conflicts, has_top_level_root, header_lines, key_line,
-    lower_bound, matching_sections, push_insert, section_block, split_lines, upper_bound,
+    lower_bound, matching_sections, order_conflict_warning, push_insert, section_block,
+    split_lines, upper_bound,
 };
 
 const EDITORCONFIG_NAME: &str = ".editorconfig";
@@ -238,7 +241,19 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     // the per-spec loop below only notices a missing section's placement is
     // ambiguous, so an already-present, wrongly-ordered pair would otherwise
     // sail through every iteration's has_key check with no warning at all.
-    let mut warnings = existing_order_conflicts(&specs, &occurrences_by_spec);
+    let conflicts = existing_order_conflicts(&specs, &occurrences_by_spec);
+    let mut warnings: Vec<String> = conflicts
+        .iter()
+        .map(|&pair| order_conflict_warning(&specs, &occurrences_by_spec, pair))
+        .collect();
+    // Every spec on either side of a conflict already has a section sitting
+    // in a position prim has just warned is broken. Writing into it — a
+    // missing key inserted in place, or worse a fresh section — would
+    // resolve incorrectly under EditorConfig's last-match-wins cascade and
+    // turn the warning above into a lie, so those specs are excluded from
+    // the loop below entirely: prim reports the conflict and otherwise
+    // leaves them untouched.
+    let blocked: HashSet<usize> = conflicts.iter().flat_map(|&(a, b)| [a, b]).collect();
     let mut inserts: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     let added_root = !has_top_level_root(&lines, &headers);
 
@@ -247,6 +262,10 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     }
 
     for (index, spec) in specs.iter().enumerate() {
+        if blocked.contains(&index) {
+            continue;
+        }
+
         let occurrences = &occurrences_by_spec[index];
         if occurrences.iter().any(|occurrence| occurrence.has_key) {
             continue;
@@ -337,8 +356,6 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
         warnings,
     }
 }
-
-mod sections;
 
 #[cfg(test)]
 mod tests;

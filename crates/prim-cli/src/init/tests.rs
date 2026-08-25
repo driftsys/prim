@@ -178,6 +178,59 @@ fn run_does_not_claim_the_map_is_present_when_a_conflict_blocks_an_update() {
 }
 
 #[test]
+fn merge_does_not_write_into_a_section_the_order_pre_pass_flagged() {
+    // Reproduction (whole-branch re-review): `[docs/wip/**.md]` exists but is
+    // KEYLESS, written before `[docs/**.md]` which already has its key. The
+    // pre-pass correctly flags the pair as out of canonical order, but
+    // before this fix the per-spec loop never consulted that finding: it
+    // only tests `has_key`, saw docs/wip's section has no key, and inserted
+    // one into it anyway — writing into a position it had just warned was
+    // broken, and reporting "updated" over a file that still resolves to
+    // the wrong tier (the freshly-inserted `false` loses to `[docs/**.md]`'s
+    // `true` under last-match-wins, so `docs/wip/**.md` stays strict).
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let merged = merge(existing, "docs/**.md");
+
+    assert_eq!(
+        merged.contents, existing,
+        "a section on either side of a flagged conflict must not be written into"
+    );
+    assert!(
+        merged.actions.is_empty(),
+        "no action may claim an update for a section the pre-pass just flagged; got: {:?}",
+        merged.actions
+    );
+    assert_eq!(merged.warnings.len(), 1, "exactly one conflict is expected");
+    assert!(merged.warnings[0].contains("[docs/**.md]"));
+    assert!(merged.warnings[0].contains("[docs/wip/**.md]"));
+}
+
+#[test]
+fn run_reports_no_update_for_a_keyless_section_the_order_pre_pass_flagged() {
+    // Same reproduction as `merge_does_not_write_into_a_section_the_order_pre_pass_flagged`,
+    // checked end-to-end through `run`: the outcome message must not say
+    // "updated" (which `merge`'s now-empty `actions` already rules out) and
+    // the file on disk must be byte-identical to what was written.
+    let dir = tempfile::tempdir().unwrap();
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let editorconfig = dir.path().join(".editorconfig");
+    fs::write(&editorconfig, content).unwrap();
+
+    let outcome = run(dir.path()).unwrap();
+
+    assert!(
+        !outcome.message.contains("updated"),
+        "got: {}",
+        outcome.message
+    );
+    assert_eq!(
+        fs::read_to_string(&editorconfig).unwrap(),
+        content,
+        "the file must be left exactly as written"
+    );
+}
+
+#[test]
 fn scaffold_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
     // A mdBook with `src = "docs/wip"` derives a strict glob identical to
     // the literal docs/wip exemption. Emitting both would write
