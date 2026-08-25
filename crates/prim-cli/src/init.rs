@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use toml::Value;
 
+use crate::ui;
 use crate::write;
 
 const EDITORCONFIG_NAME: &str = ".editorconfig";
@@ -48,6 +49,11 @@ impl fmt::Display for Error {
 struct MergeResult {
     contents: String,
     actions: Vec<String>,
+    /// One entry per canonical section prim could not place because the
+    /// file's own section order contradicts the canonical order — prim never
+    /// reorders sections a person wrote, so the section is left out rather
+    /// than inserted somewhere that would resolve incorrectly.
+    warnings: Vec<String>,
 }
 
 struct SectionSpec<'a> {
@@ -60,6 +66,15 @@ struct SectionOccurrence {
     header_line: usize,
     insert_at: usize,
     has_key: bool,
+}
+
+/// One end of the range a missing section's insertion point must fall in,
+/// established by an existing occurrence of some other canonical spec.
+/// `line` is 1-indexed, for warning text.
+struct Bound<'a> {
+    position: usize,
+    glob: &'a str,
+    line: usize,
 }
 
 /// Scaffold or minimally merge `.editorconfig` in `target_dir`.
@@ -91,6 +106,10 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         source,
     })?;
     let merged = merge(&existing, &strict_glob);
+
+    for warning in &merged.warnings {
+        ui::warning(warning);
+    }
 
     if merged.actions.is_empty() {
         return Ok(Outcome {
@@ -186,6 +205,7 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     let lines = split_lines(existing);
     let headers = header_lines(&lines);
     let mut actions = Vec::new();
+    let mut warnings = Vec::new();
     let mut inserts: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     let occurrences_by_spec = specs
         .iter()
@@ -217,13 +237,36 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
                 spec.glob
             ));
         } else {
-            let insert_at = occurrences_by_spec[index + 1..]
-                .iter()
-                .filter_map(|occurrences| {
-                    occurrences.first().map(|occurrence| occurrence.header_line)
-                })
-                .min()
-                .unwrap_or(lines.len());
+            let lower = lower_bound(&specs, &occurrences_by_spec, index);
+            let upper = upper_bound(&specs, &occurrences_by_spec, index);
+
+            let out_of_order = matches!(
+                (&lower, &upper),
+                (Some(lower), Some(upper)) if lower.position > upper.position
+            );
+
+            if out_of_order {
+                // Safe to unwrap: `out_of_order` only matches when both are
+                // `Some`.
+                let lower = lower.unwrap();
+                let upper = upper.unwrap();
+                warnings.push(format!(
+                    "not adding [{}]: [{}] (line {}) comes after [{}] (line {}) in this \
+                     .editorconfig, which contradicts prim's canonical section order; prim will \
+                     not reorder sections a person wrote, so add {MDLINT_STRICT_KEY} = {} under \
+                     [{}] yourself",
+                    spec.glob,
+                    lower.glob,
+                    lower.line,
+                    upper.glob,
+                    upper.line,
+                    bool_word(spec.value),
+                    spec.glob
+                ));
+                continue;
+            }
+
+            let insert_at = upper.map_or(lines.len(), |bound| bound.position);
             push_insert(
                 &mut inserts,
                 insert_at,
@@ -259,7 +302,53 @@ fn merge(existing: &str, strict_glob: &str) -> MergeResult {
         contents = existing.to_string();
     }
 
-    MergeResult { contents, actions }
+    MergeResult {
+        contents,
+        actions,
+        warnings,
+    }
+}
+
+/// The latest point any already-present, canonically earlier spec's section
+/// ends at, if one exists in `existing` — every section that must precede the
+/// spec at `index`.
+fn lower_bound<'a>(
+    specs: &[SectionSpec<'a>],
+    occurrences_by_spec: &[Vec<SectionOccurrence>],
+    index: usize,
+) -> Option<Bound<'a>> {
+    specs[..index]
+        .iter()
+        .zip(&occurrences_by_spec[..index])
+        .filter_map(|(spec, occurrences)| {
+            occurrences.last().map(|occurrence| Bound {
+                position: occurrence.insert_at,
+                glob: spec.glob,
+                line: occurrence.header_line + 1,
+            })
+        })
+        .max_by_key(|bound| bound.position)
+}
+
+/// The earliest point any already-present, canonically later spec's section
+/// starts at, if one exists in `existing` — every section that must follow
+/// the spec at `index`.
+fn upper_bound<'a>(
+    specs: &[SectionSpec<'a>],
+    occurrences_by_spec: &[Vec<SectionOccurrence>],
+    index: usize,
+) -> Option<Bound<'a>> {
+    specs[index + 1..]
+        .iter()
+        .zip(&occurrences_by_spec[index + 1..])
+        .filter_map(|(spec, occurrences)| {
+            occurrences.first().map(|occurrence| Bound {
+                position: occurrence.header_line,
+                glob: spec.glob,
+                line: occurrence.header_line + 1,
+            })
+        })
+        .min_by_key(|bound| bound.position)
 }
 
 fn split_lines(content: &str) -> Vec<&str> {
@@ -357,125 +446,4 @@ fn bool_word(value: bool) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scaffold_matches_the_default_contract() {
-        assert_eq!(
-            scaffold("docs/**.md"),
-            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-        );
-    }
-
-    #[test]
-    fn merge_prepends_root_and_appends_missing_sections_without_reordering_existing_content() {
-        let existing = "[*]\nindent_style = space\nindent_size = 2\n";
-        let merged = merge(existing, "docs/**.md");
-
-        assert_eq!(
-            merged.contents,
-            "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-        );
-        assert_eq!(
-            merged.actions,
-            vec![
-                "added top-level root = true",
-                "added [*.md] with prim_mdlint_strict = false",
-                "added [docs/**.md] with prim_mdlint_strict = true",
-                "added [docs/wip/**.md] with prim_mdlint_strict = false",
-                "added [**/SUMMARY.md] with prim_mdlint_strict = false",
-            ]
-        );
-    }
-
-    #[test]
-    fn merge_adds_the_missing_key_in_place_for_an_existing_section() {
-        let existing =
-            "root = true\n[*.md]\nmax_line_length = 100\n[*.txt]\nindent_style = space\n";
-        let merged = merge(existing, "docs/**.md");
-
-        assert_eq!(
-            merged.contents,
-            "root = true\n[*.md]\nmax_line_length = 100\nprim_mdlint_strict = false\n[*.txt]\nindent_style = space\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-        );
-    }
-
-    #[test]
-    fn merge_inserts_a_missing_floor_before_an_existing_strict_section() {
-        let existing = "root = true\n[docs/**.md]\nprim_mdlint_strict = true\n";
-        let merged = merge(existing, "docs/**.md");
-
-        assert_eq!(
-            merged.contents,
-            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-        );
-    }
-
-    #[test]
-    fn merge_leaves_an_existing_explicit_choice_untouched() {
-        let existing =
-            "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\n[**/SUMMARY.md]\n";
-        let merged = merge(existing, "docs/**.md");
-
-        assert_eq!(
-            merged.contents,
-            "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
-        );
-    }
-
-    #[test]
-    fn book_toml_custom_src_changes_the_strict_glob() {
-        assert_eq!(
-            strict_glob_from_book_toml("[book]\nsrc = \"guide\"\n"),
-            "guide/**.md"
-        );
-    }
-
-    #[test]
-    fn book_toml_src_is_normalized_before_becoming_a_glob() {
-        assert_eq!(
-            strict_glob_from_book_toml("[book]\nsrc = \"./guide/\"\n"),
-            "guide/**.md"
-        );
-    }
-
-    #[test]
-    fn book_toml_without_src_defaults_to_src_directory() {
-        assert_eq!(
-            strict_glob_from_book_toml("[book]\ntitle = \"prim\"\n"),
-            "src/**.md"
-        );
-    }
-
-    #[test]
-    fn malformed_book_toml_also_defaults_to_src_directory() {
-        assert_eq!(strict_glob_from_book_toml("[book]\nsrc =\n"), "src/**.md");
-    }
-
-    #[test]
-    fn running_twice_is_idempotent() {
-        let dir = tempfile::tempdir().unwrap();
-
-        let first = run(dir.path()).unwrap();
-        let once = fs::read_to_string(dir.path().join(".editorconfig")).unwrap();
-        let second = run(dir.path()).unwrap();
-        let twice = fs::read_to_string(dir.path().join(".editorconfig")).unwrap();
-
-        assert!(first.message.contains("created"));
-        assert!(second.message.contains("already contains"));
-        assert_eq!(once, twice);
-    }
-
-    #[test]
-    fn non_utf8_editorconfig_is_reported_and_left_untouched() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".editorconfig");
-        fs::write(&path, [0xFFu8, 0xFE, 0x00]).unwrap();
-
-        let err = run(dir.path()).unwrap_err();
-
-        assert!(matches!(err, Error::ReadEditorConfig { .. }));
-        assert_eq!(fs::read(&path).unwrap(), [0xFFu8, 0xFE, 0x00]);
-    }
-}
+mod tests;
