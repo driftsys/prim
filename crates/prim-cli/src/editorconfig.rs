@@ -62,7 +62,7 @@ impl Resolver {
     /// cascade for its directory when one is present.
     pub fn resolve_mdlint_policy(&mut self, path: &Path) -> crate::mdlint_policy::MdLintPolicy {
         let props = self.properties_for(path);
-        crate::mdlint_policy::policy_from(&props, path)
+        crate::mdlint_policy::policy_from(&props)
     }
 }
 
