@@ -258,7 +258,7 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         }
         Some(FileKind::Markdown) => {
             let diagnostics =
-                prim_fmt::lint_markdown(&input, editorconfig::resolve_mdlint_strict(path));
+                prim_fmt::lint_markdown(&input, editorconfig::resolve_mdlint_strict(path), &[]);
             let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
                 let findings = diagnostics
@@ -464,7 +464,7 @@ fn run_lint_paths(
                 }
             }
         } else if kind == FileKind::Markdown {
-            let diagnostics = prim_fmt::lint_markdown(&original, markdown_strict);
+            let diagnostics = prim_fmt::lint_markdown(&original, markdown_strict, &[]);
             if !diagnostics.is_empty() {
                 any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);
                 for diagnostic in &diagnostics {

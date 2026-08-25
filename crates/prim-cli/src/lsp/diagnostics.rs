@@ -37,7 +37,7 @@ pub fn compute(
         }
         prim_fmt::FileKind::Markdown => {
             let strict = resolver.resolve_mdlint_strict(path);
-            prim_fmt::lint_markdown(text, strict)
+            prim_fmt::lint_markdown(text, strict, &[])
                 .iter()
                 .map(|diagnostic| Diagnostic {
                     range: protocol::point_range(text, diagnostic.line, diagnostic.column),
@@ -90,7 +90,7 @@ mod tests {
             .iter()
             .find(|d| d.code == "MD045")
             .expect("MD045 reported");
-        assert_eq!(md045.severity, protocol::SEVERITY_WARNING, "floor tier");
+        assert_eq!(md045.severity, protocol::SEVERITY_ERROR, "floor tier");
     }
 
     #[test]

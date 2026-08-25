@@ -34,7 +34,7 @@ fn init_scaffolds_the_default_map_and_lint_resolves_it_end_to_end() {
         .args(["lint", "--stdin-filepath", "README.md"])
         .write_stdin("# Title\n\n![](hero.png)\n")
         .assert()
-        .success()
+        .code(1)
         .stdout(
             predicates::str::contains("README.md:3:")
                 .and(predicates::str::contains("[MD045]"))
@@ -58,7 +58,7 @@ fn init_scaffolds_the_default_map_and_lint_resolves_it_end_to_end() {
         .args(["lint", "--stdin-filepath", "docs/SUMMARY.md"])
         .write_stdin("# Title\n\n![](hero.png)\n")
         .assert()
-        .success()
+        .code(1)
         .stdout(
             predicates::str::contains("docs/SUMMARY.md:3:")
                 .and(predicates::str::contains("[MD045]"))

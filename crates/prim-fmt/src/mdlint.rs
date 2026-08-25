@@ -5,11 +5,11 @@
 //! issues a formatter cannot and **never rewrites** — prim never invokes rumdl's
 //! formatter, LSP, or file walker, only [`rumdl_lib::lint`].
 //!
-//! Story G3 (#59) defines prim's own off/warn/error matrix over rumdl's rules.
-//! The floor tier is always on; `.editorconfig` `prim_mdlint_strict = true`
-//! enables the strict tier, which adds strict-only rules and escalates selected
-//! warnings to errors. prim's severity is derived from that matrix, not from
-//! rumdl's built-in defaults.
+//! Story G3 (#59) splits rumdl's rules into two bands. The floor tier is
+//! always on and runs the defect rules — rules that report something
+//! objectively broken. `.editorconfig` `prim_mdlint_strict = true` adds the
+//! convention tier on top. Every rule prim runs is an error: there is no
+//! warning severity, so a finding's presence is its severity.
 //!
 //! Story G5 (#61) adds the surgical override surface on top: a standalone
 //! `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
@@ -28,7 +28,15 @@
 //!   line:col that stories B1/D2 want (and which serde-based formats lack, per
 //!   spike #42).
 
-use rumdl_lib::config::{Config, MarkdownFlavor};
+use std::collections::BTreeMap;
+
+// The crate root also declares `mod toml;` (this crate's own TOML formatter),
+// which shadows the `toml` dependency's extern-prelude entry crate-wide. This
+// explicit `extern crate` binds the dependency's name back into scope, local
+// to this module only.
+extern crate toml;
+
+use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
 
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
@@ -41,120 +49,137 @@ pub struct MdDiagnostic {
     pub line: usize,
     /// 1-indexed column of the finding.
     pub column: usize,
-    /// Whether prim treats the finding as an error (fails) or a warning.
+    /// Always `true`: every rule prim runs is an error, so a reported
+    /// finding's presence is its severity. There is no warning severity.
     pub is_error: bool,
     /// Human-readable message from rumdl.
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrimSeverity {
-    Warn,
-    Error,
-}
-
+/// One rule prim runs, and the tier at which it starts running.
+///
+/// There is no severity column: every rule prim runs is an error. prim reports
+/// nothing it will not fail on, so a finding's presence is its severity. The
+/// tier chooses *which* rules run, never how loudly they speak.
 #[derive(Debug, Clone, Copy)]
 struct RulePolicy {
     rule: &'static str,
-    floor: Option<PrimSeverity>,
-    strict: Option<PrimSeverity>,
+    /// `true` when the rule runs in the always-on floor tier, and therefore in
+    /// the strict tier as well.
+    floor: bool,
 }
 
-const fn rule(
-    rule: &'static str,
-    floor: Option<PrimSeverity>,
-    strict: Option<PrimSeverity>,
-) -> RulePolicy {
-    RulePolicy {
-        rule,
-        floor,
-        strict,
-    }
+/// A rule that reports something objectively broken: a dead link, a dangling
+/// reference, a malformed table. Runs in both tiers.
+const fn defect(rule: &'static str) -> RulePolicy {
+    RulePolicy { rule, floor: true }
+}
+
+/// A rule that reports a documentation convention — decidable, but it fires on
+/// documents that are otherwise fine. Runs only under `prim_mdlint_strict`.
+const fn convention(rule: &'static str) -> RulePolicy {
+    RulePolicy { rule, floor: false }
 }
 
 const ACTIVE_RULES: &[RulePolicy] = &[
-    rule("MD045", Some(PrimSeverity::Warn), Some(PrimSeverity::Error)),
-    rule(
-        "MD042",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule(
-        "MD011",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule(
-        "MD052",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule(
-        "MD056",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule(
-        "MD062",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule(
-        "MD034",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule(
-        "MD057",
-        Some(PrimSeverity::Error),
-        Some(PrimSeverity::Error),
-    ),
-    rule("MD024", Some(PrimSeverity::Warn), Some(PrimSeverity::Error)),
-    rule("MD051", Some(PrimSeverity::Warn), Some(PrimSeverity::Error)),
-    rule("MD080", Some(PrimSeverity::Warn), Some(PrimSeverity::Error)),
-    rule("MD075", Some(PrimSeverity::Warn), Some(PrimSeverity::Error)),
-    rule("MD066", None, Some(PrimSeverity::Error)),
-    rule("MD068", None, Some(PrimSeverity::Error)),
-    rule("MD070", None, Some(PrimSeverity::Error)),
-    rule("MD025", None, Some(PrimSeverity::Warn)),
-    rule("MD041", None, Some(PrimSeverity::Warn)),
-    rule("MD001", None, Some(PrimSeverity::Warn)),
-    rule("MD040", None, Some(PrimSeverity::Warn)),
-    rule("MD033", None, Some(PrimSeverity::Warn)),
-    rule("MD026", None, Some(PrimSeverity::Warn)),
-    rule("MD036", None, Some(PrimSeverity::Warn)),
-    rule("MD059", None, Some(PrimSeverity::Warn)),
-    rule("MD053", None, Some(PrimSeverity::Warn)),
-    rule("MD073", None, Some(PrimSeverity::Warn)),
-    rule("MD082", None, Some(PrimSeverity::Warn)),
-    rule("MD067", None, Some(PrimSeverity::Warn)),
+    defect("MD042"),
+    defect("MD011"),
+    defect("MD052"),
+    defect("MD056"),
+    defect("MD062"),
+    defect("MD057"),
+    defect("MD034"),
+    defect("MD051"),
+    defect("MD045"),
+    defect("MD075"),
+    defect("MD066"),
+    defect("MD068"),
+    defect("MD070"),
+    convention("MD040"),
+    convention("MD041"),
+    convention("MD080"),
+    convention("MD024"),
+    convention("MD036"),
+    convention("MD025"),
+    convention("MD001"),
+    convention("MD026"),
+    convention("MD053"),
+    convention("MD033"),
+    convention("MD059"),
+    convention("MD073"),
+    convention("MD067"),
 ];
 
-fn effective_severity(rule: &str, strict: bool) -> Option<PrimSeverity> {
+/// Whether `rule` runs for a file at this tier.
+fn is_active(rule: &str, strict: bool) -> bool {
     ACTIVE_RULES
         .iter()
-        .find(|policy| policy.rule == rule)
-        .and_then(|policy| if strict { policy.strict } else { policy.floor })
+        .any(|policy| policy.rule == rule && (policy.floor || strict))
+}
+
+/// Whether `rule` names a rule prim can run in either tier. Callers validating
+/// user-supplied rule ids use this so a typo can be reported rather than
+/// silently matching nothing.
+pub fn is_known_rule(rule: &str) -> bool {
+    ACTIVE_RULES
+        .iter()
+        .any(|policy| policy.rule.eq_ignore_ascii_case(rule))
+}
+
+/// Whether `rule` was excluded for this file by `prim_mdlint_disable`.
+fn is_disabled(rule: &str, disabled: &[String]) -> bool {
+    disabled
+        .iter()
+        .any(|excluded| excluded.eq_ignore_ascii_case(rule))
+}
+
+/// prim's canonical rumdl configuration.
+///
+/// MD025 counts a front-matter `title:` as a top-level heading by default, so a
+/// page written the way Docusaurus and VitePress expect — front-matter title for
+/// the sidebar, one body H1 for the rendered heading — reports a duplicate
+/// title. Measured across six documentation sites, 123 of 139 MD025 findings
+/// were that shape and only 16 were two real H1s. An empty `front-matter-title`
+/// stops the rule counting page metadata as a heading.
+///
+/// This is prim choosing its canonical defaults, not a user-facing surface:
+/// there is still no way for a repository to configure a rule's options.
+fn prim_config() -> Config {
+    let mut config = Config::default();
+    config.rules.insert(
+        "MD025".to_string(),
+        RuleConfig {
+            severity: None,
+            values: BTreeMap::from([(
+                "front-matter-title".to_string(),
+                toml::Value::String(String::new()),
+            )]),
+        },
+    );
+    config
 }
 
 /// Lint `source` as Markdown content, returning prim's own diagnostics.
 ///
-/// `strict = false` runs the always-on floor tier; `strict = true` adds the
-/// strict tier and escalates warning-tier floor rules to errors. A file-level
+/// `strict = false` runs the always-on floor tier (defect rules only);
+/// `strict = true` adds the convention tier on top. The tier chooses which
+/// rules run; every rule that runs reports an error. `disabled` subtracts
+/// rule ids (case-insensitive) from whichever tier is selected — it can only
+/// narrow the active set, never add to it. A file-level
 /// `<!-- prim-mdlint-strict: true|false -->` directive (story G5, #61)
 /// overrides `strict` for this file only — a surgical, per-file escape hatch
 /// on top of the `.editorconfig`-resolved default, matching the same
 /// precedence rumdl's own `rumdl-disable`/`markdownlint-disable` inline
 /// directives already get (rumdl applies those inside `rumdl_lib::lint`
-/// itself, independent of prim's `strict` matrix). Lint-only: `source` is
+/// itself, independent of prim's tier table). Lint-only: `source` is
 /// never modified. Rules are filtered from the full rumdl set by name so
 /// off/formatter-territory rules never run.
-pub fn lint(source: &str, strict: bool) -> Vec<MdDiagnostic> {
+pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic> {
     let strict = file_level_strict_override(source).unwrap_or(strict);
-    let cfg = Config::default();
+    let cfg = prim_config();
     let rules: Vec<_> = all_rules(&cfg)
         .into_iter()
-        .filter(|rule| effective_severity(rule.name(), strict).is_some())
+        .filter(|rule| is_active(rule.name(), strict) && !is_disabled(rule.name(), disabled))
         .collect();
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
@@ -176,12 +201,14 @@ pub fn lint(source: &str, strict: bool) -> Vec<MdDiagnostic> {
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
-            let severity = effective_severity(&rule, strict)?;
+            if !is_active(&rule, strict) || is_disabled(&rule, disabled) {
+                return None;
+            }
             Some(MdDiagnostic {
                 rule,
                 line: warning.line,
                 column: warning.column,
-                is_error: severity == PrimSeverity::Error,
+                is_error: true,
                 message: warning.message,
             })
         })
@@ -219,230 +246,4 @@ fn directive_value(line: &str) -> Option<bool> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn severity_matrix_matches_issue_59() {
-        let warn = Some(PrimSeverity::Warn);
-        let error = Some(PrimSeverity::Error);
-
-        for rule in ["MD045", "MD024", "MD051", "MD075", "MD080"] {
-            assert_eq!(effective_severity(rule, false), warn, "{rule} floor");
-            assert_eq!(effective_severity(rule, true), error, "{rule} strict");
-        }
-
-        for rule in [
-            "MD042", "MD011", "MD052", "MD056", "MD062", "MD034", "MD057",
-        ] {
-            assert_eq!(effective_severity(rule, false), error, "{rule} floor");
-            assert_eq!(effective_severity(rule, true), error, "{rule} strict");
-        }
-
-        for rule in ["MD066", "MD068", "MD070"] {
-            assert_eq!(effective_severity(rule, false), None, "{rule} floor");
-            assert_eq!(effective_severity(rule, true), error, "{rule} strict");
-        }
-
-        for rule in [
-            "MD025", "MD041", "MD001", "MD040", "MD033", "MD026", "MD036", "MD059", "MD053",
-            "MD073", "MD082", "MD067",
-        ] {
-            assert_eq!(effective_severity(rule, false), None, "{rule} floor");
-            assert_eq!(effective_severity(rule, true), warn, "{rule} strict");
-        }
-
-        for rule in [
-            "MD003", "MD004", "MD005", "MD007", "MD009", "MD010", "MD012", "MD018", "MD019",
-            "MD020", "MD021", "MD022", "MD023", "MD027", "MD028", "MD029", "MD030", "MD031",
-            "MD032", "MD035", "MD037", "MD038", "MD039", "MD046", "MD047", "MD048", "MD049",
-            "MD050", "MD055", "MD058", "MD060", "MD064", "MD065", "MD071", "MD076", "MD077",
-            "MD013", "MD014", "MD043", "MD044", "MD054", "MD061", "MD063", "MD069", "MD072",
-            "MD074", "MD078", "MD079", "MD081",
-        ] {
-            assert_eq!(effective_severity(rule, false), None, "{rule} floor");
-            assert_eq!(effective_severity(rule, true), None, "{rule} strict");
-        }
-    }
-
-    #[test]
-    fn floor_and_strict_tiers_use_prim_owned_severities() {
-        let floor = lint("![](image.png)\n", false);
-        let strict = lint("![](image.png)\n", true);
-        let floor_image = floor.iter().find(|d| d.rule == "MD045").unwrap();
-        let strict_image = strict.iter().find(|d| d.rule == "MD045").unwrap();
-        assert!(!floor_image.is_error, "floor warning: {floor:?}");
-        assert!(strict_image.is_error, "strict error: {strict:?}");
-
-        let structure_floor = lint("Intro\n\n# Title\n", false);
-        let structure_strict = lint("Intro\n\n# Title\n", true);
-        assert!(
-            structure_floor.iter().all(|d| d.rule != "MD041"),
-            "strict-only rule stays off by default: {structure_floor:?}"
-        );
-        let first_line_heading = structure_strict
-            .iter()
-            .find(|d| d.rule == "MD041")
-            .expect("MD041 enabled in strict");
-        assert!(
-            !first_line_heading.is_error,
-            "strict warning: {structure_strict:?}"
-        );
-
-        let strict_only_defect = lint("Text with orphan[^missing].\n", true);
-        let footnote = strict_only_defect
-            .iter()
-            .find(|d| d.rule == "MD066")
-            .expect("MD066 enabled in strict");
-        assert!(footnote.is_error, "strict error: {strict_only_defect:?}");
-    }
-
-    #[test]
-    fn never_linted_and_off_rules_stay_excluded() {
-        let src = "\
-| a | bb |
-| c | d |
-
-This is an intentionally long line that would violate line-length linting if prim enabled MD013 for Markdown content checks.\n";
-        assert!(
-            lint(src, false)
-                .iter()
-                .all(|d| d.rule != "MD060" && d.rule != "MD013"),
-            "formatter-territory and off rules stay disabled: {:?}",
-            lint(src, false)
-        );
-    }
-
-    #[test]
-    fn verifies_selected_rumdl_extension_rules_on_real_markdown() {
-        let cases = [
-            ("MD062", "[link]( https://example.com )\n", true),
-            ("MD066", "Text with orphan[^missing].\n", true),
-            ("MD068", "Text with [^1].\n\n[^1]:\n", true),
-            (
-                "MD070",
-                "```markdown\n```rust\nfn main() {}\n```\n```\n",
-                true,
-            ),
-            (
-                "MD075",
-                "Some text.\n\n| value1 | description1 |\n| value2 | description2 |\n",
-                true,
-            ),
-            ("MD080", "# Setup & Run\n\n# Setup  Run\n", true),
-            (
-                "MD082",
-                "# Level 1 heading\n\nLevel 1 content\n\n## Empty Section\n### Level 3 heading\n",
-                false,
-            ),
-        ];
-
-        for (rule, src, is_error) in cases {
-            let diags = lint(src, true);
-            let diag = diags
-                .iter()
-                .find(|d| d.rule == rule)
-                .unwrap_or_else(|| panic!("{rule} did not fire: {diags:?}"));
-            assert_eq!(diag.is_error, is_error, "{rule} severity: {diags:?}");
-            assert!(diag.line >= 1, "{rule} keeps 1-indexed lines: {diags:?}");
-            assert!(
-                diag.column >= 1,
-                "{rule} keeps 1-indexed columns: {diags:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn reports_a_bare_url_with_real_line_col() {
-        let src = "See https://example.com for details.\n";
-        let diags = lint(src, false);
-        let bare = diags
-            .iter()
-            .find(|d| d.rule == "MD034")
-            .expect("MD034 bare-url reported");
-        assert_eq!(bare.line, 1, "1-indexed line: {diags:?}");
-        assert!(bare.column >= 1, "1-indexed column: {diags:?}");
-    }
-
-    #[test]
-    fn clean_markdown_yields_no_findings() {
-        let src = "# Title\n\nSome prose with a [link](https://example.com).\n";
-        assert!(lint(src, false).is_empty(), "{:?}", lint(src, false));
-    }
-
-    #[test]
-    fn lint_never_mutates_source() {
-        let src = "See https://example.com\n";
-        let before = src.to_string();
-        let _ = lint(src, false);
-        assert_eq!(src, before, "lint is read-only");
-    }
-
-    #[test]
-    fn file_level_directive_false_overrides_editorconfig_strict_true() {
-        // MD041 is strict-only; the directive drops the file back to floor
-        // even though the caller (an .editorconfig `prim_mdlint_strict =
-        // true` glob) asked for strict.
-        let src = "<!-- prim-mdlint-strict: false -->\nIntro\n\n# Title\n";
-        let diags = lint(src, true);
-        assert!(
-            diags.iter().all(|d| d.rule != "MD041"),
-            "directive drops the file to floor: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn file_level_directive_true_overrides_editorconfig_strict_false() {
-        // MD041 is strict-only; the directive raises this file to strict even
-        // though the caller (an .editorconfig floor-tier glob) asked for
-        // floor.
-        let src = "<!-- prim-mdlint-strict: true -->\nIntro\n\n# Title\n";
-        let diags = lint(src, false);
-        assert!(
-            diags.iter().any(|d| d.rule == "MD041"),
-            "directive raises the file to strict: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn last_file_level_directive_wins_when_several_are_present() {
-        let src = "<!-- prim-mdlint-strict: true -->\n\
-                    Intro\n\n# Title\n\n\
-                    <!-- prim-mdlint-strict: false -->\n";
-        let diags = lint(src, false);
-        assert!(
-            diags.iter().all(|d| d.rule != "MD041"),
-            "the later directive wins: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn directive_boolean_is_case_insensitive() {
-        let src = "<!-- prim-mdlint-strict: TRUE -->\nIntro\n\n# Title\n";
-        let diags = lint(src, false);
-        assert!(
-            diags.iter().any(|d| d.rule == "MD041"),
-            "TRUE is accepted: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn malformed_directive_value_is_ignored() {
-        let src = "<!-- prim-mdlint-strict: yes -->\nIntro\n\n# Title\n";
-        let diags = lint(src, true);
-        assert!(
-            diags.iter().any(|d| d.rule == "MD041"),
-            "a bad value falls back to the caller's strict setting: {diags:?}"
-        );
-    }
-
-    #[test]
-    fn a_look_alike_comment_that_is_not_the_sole_line_content_is_ignored() {
-        let src = "Some text <!-- prim-mdlint-strict: false --> more text\nIntro\n\n# Title\n";
-        let diags = lint(src, true);
-        assert!(
-            diags.iter().any(|d| d.rule == "MD041"),
-            "an inline (non-standalone) comment is not a directive: {diags:?}"
-        );
-    }
-}
+mod tests;
