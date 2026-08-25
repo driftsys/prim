@@ -12,6 +12,7 @@ mod editorconfig;
 mod explain;
 mod init;
 mod lsp;
+mod mdlint_policy;
 mod provenance;
 mod report;
 mod ui;
