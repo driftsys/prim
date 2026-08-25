@@ -59,6 +59,15 @@ fn disabled_from(props: &Properties) -> (Vec<String>, Vec<String>) {
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
     {
+        // `unset` is EditorConfig's own reserved word for "clear the
+        // inherited value"; `none` is prim's own accepted spelling of the
+        // same intent. Neither names a rule, so neither belongs in
+        // `unknown` — that list feeds a warning that the id "is not a rule
+        // prim runs", which would be a misleading way to describe a
+        // deliberate clear.
+        if entry.eq_ignore_ascii_case("unset") || entry.eq_ignore_ascii_case("none") {
+            continue;
+        }
         if prim_fmt::is_known_rule(entry) {
             disabled.push(entry.to_ascii_uppercase());
         } else {
@@ -249,5 +258,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(".editorconfig"), "root = true\n[*.md]\n").unwrap();
         assert!(resolve(&dir.path().join("a.md")).disabled.is_empty());
+    }
+
+    #[test]
+    fn a_value_of_unset_or_none_disables_nothing_and_is_not_reported_as_unknown() {
+        // `prim_mdlint_disable = unset` (EditorConfig's own reserved word)
+        // and `= none` (prim's accepted spelling of the same intent) must
+        // clear the list on purpose, not by accident of failing to match a
+        // known rule id — and neither should trigger the "is not a rule
+        // prim runs" warning that a genuine typo gets.
+        for value in ["unset", "UNSET", "none", "None"] {
+            let dir = tempfile::tempdir().unwrap();
+            fs::write(
+                dir.path().join(".editorconfig"),
+                format!("root = true\n[*.md]\nprim_mdlint_disable = {value}\n"),
+            )
+            .unwrap();
+
+            let policy = resolve(&dir.path().join("a.md"));
+            assert!(policy.disabled.is_empty(), "value: {value:?}");
+            assert!(
+                policy.unknown.is_empty(),
+                "value {value:?} must not be reported as an unrecognised rule id"
+            );
+        }
     }
 }

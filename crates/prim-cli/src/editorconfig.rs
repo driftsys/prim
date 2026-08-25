@@ -145,6 +145,14 @@ pub(crate) fn style_from(cfg: Properties) -> Style {
     style
 }
 
+/// Read one of prim's documented `prim_*` `.editorconfig` keys as a bare
+/// boolean: the raw value `true` (case-insensitively) resolves to `true`,
+/// any other set value resolves to `false`, and an unset key resolves to
+/// `None`. There is no generic custom-key lookup here — `key` is always one
+/// of the specific, hard-coded `prim_*` keys a caller (e.g.
+/// [`crate::mdlint_policy`]) already knows about; prim keeps a closed
+/// allowlist of documented keys rather than exposing arbitrary custom
+/// properties.
 pub(crate) fn prim_bool_from(cfg: &Properties, key: &str) -> Option<bool> {
     cfg.get_raw_for_key(key)
         .into_option()
