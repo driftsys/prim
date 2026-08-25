@@ -4,23 +4,50 @@
 //! `init`.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use super::MDLINT_STRICT_KEY;
 
 pub(super) struct SectionSpec<'a> {
     pub(super) glob: &'a str,
     pub(super) value: bool,
-    /// A path this section is meant to decide the tier of — one
-    /// representative per canonical glob, used to check what prim's writes
-    /// would actually resolve to (see [`super::outcome`]).
-    pub(super) probe: String,
+    /// Paths this section is meant to decide the tier of — the
+    /// representatives prim checks its work against (see [`super::outcome`]).
+    /// Usually one; `[**/SUMMARY.md]` needs two, because a summary under
+    /// `docs/wip/` is decided by a different set of sections from one under
+    /// the strict glob.
+    pub(super) probes: Vec<String>,
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct SectionOccurrence {
+pub(super) struct SectionOccurrence<'a> {
     pub(super) header_line: usize,
     pub(super) insert_at: usize,
-    pub(super) has_key: bool,
+    /// The text written after `prim_mdlint_strict =` in this section, if the
+    /// key is there at all. Kept verbatim rather than parsed: a value that is
+    /// neither `true` nor `false` resolves to the floor tier silently, and
+    /// reporting that needs the text the author actually wrote.
+    pub(super) key_value: Option<&'a str>,
+}
+
+impl SectionOccurrence<'_> {
+    pub(super) fn has_key(&self) -> bool {
+        self.key_value.is_some()
+    }
+}
+
+/// How prim reads a written `prim_mdlint_strict`. Mirrors
+/// [`crate::editorconfig::prim_bool_from`]: anything but `true` is `false`, so
+/// a typo never errors, it just resolves to the floor tier.
+pub(super) fn reads_as_strict(value: &str) -> bool {
+    value.eq_ignore_ascii_case("true")
+}
+
+/// Whether a written value is one prim recognises at all. A value outside
+/// `true`/`false` still resolves (to `false`), so this separates "the author
+/// chose the floor tier" from "the author wrote something prim cannot read".
+pub(super) fn is_boolean(value: &str) -> bool {
+    value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
 }
 
 /// One end of the range a missing section's insertion point must fall in,
@@ -44,67 +71,14 @@ pub(super) struct Bound<'a> {
 /// key into. Any other occurrence (an ordinary `[*.md] max_line_length = 80`
 /// somebody appended) sets nothing prim resolves and must not constrain
 /// prim's ordering.
-pub(super) fn governing(occurrences: &[SectionOccurrence]) -> Option<SectionOccurrence> {
+pub(super) fn governing<'a>(
+    occurrences: &[SectionOccurrence<'a>],
+) -> Option<SectionOccurrence<'a>> {
     occurrences
         .iter()
         .rev()
-        .find(|occurrence| occurrence.has_key)
+        .find(|occurrence| occurrence.has_key())
         .or_else(|| occurrences.last())
-        .copied()
-}
-
-/// A warning for each pair of specs whose sections both already carry
-/// `prim_mdlint_strict` but appear in the wrong relative order — the
-/// canonically earlier spec's section ends after the canonically later one's
-/// starts. prim writes nothing into either in that case (both already have
-/// their key), so without this the run would report plain success over a file
-/// that resolves the wrong way.
-///
-/// Every pair is compared, not only canonically adjacent ones: a canonical
-/// section that sits between two of them without carrying the key takes no
-/// part in the order, and must not hide the pair it separates.
-///
-/// Only occurrences that carry the key are compared: an occurrence prim would
-/// write into is judged by [`super::outcome`] instead, which reports the
-/// resolution it would produce rather than its position. `line_of` maps a
-/// 0-indexed line of the file prim read to the 1-indexed line it will have
-/// once prim's own writes land.
-pub(super) fn existing_order_warnings(
-    specs: &[SectionSpec<'_>],
-    occurrences_by_spec: &[Vec<SectionOccurrence>],
-    line_of: &dyn Fn(usize) -> usize,
-) -> Vec<String> {
-    let mut warnings = Vec::new();
-    for index in 0..specs.len() {
-        let Some(earlier) = keyed(&occurrences_by_spec[index]).next_back() else {
-            continue;
-        };
-        for (offset, later_occurrences) in occurrences_by_spec[index + 1..].iter().enumerate() {
-            let Some(later) = keyed(later_occurrences).next() else {
-                continue;
-            };
-            if earlier.insert_at > later.header_line {
-                warnings.push(format!(
-                    "[{}] (line {}) comes after [{}] (line {}) in this .editorconfig, which \
-                     contradicts prim's canonical section order; prim will not reorder sections a \
-                     person wrote, so reorder them yourself",
-                    specs[index].glob,
-                    line_of(earlier.header_line),
-                    specs[index + 1 + offset].glob,
-                    line_of(later.header_line),
-                ));
-            }
-        }
-    }
-    warnings
-}
-
-fn keyed(
-    occurrences: &[SectionOccurrence],
-) -> impl DoubleEndedIterator<Item = SectionOccurrence> + '_ {
-    occurrences
-        .iter()
-        .filter(|occurrence| occurrence.has_key)
         .copied()
 }
 
@@ -113,7 +87,7 @@ fn keyed(
 /// precede the spec at `index`.
 pub(super) fn lower_bound<'a>(
     specs: &[SectionSpec<'a>],
-    occurrences_by_spec: &[Vec<SectionOccurrence>],
+    occurrences_by_spec: &[Vec<SectionOccurrence<'_>>],
     index: usize,
 ) -> Option<Bound<'a>> {
     specs[..index]
@@ -134,7 +108,7 @@ pub(super) fn lower_bound<'a>(
 /// follow the spec at `index`.
 pub(super) fn upper_bound<'a>(
     specs: &[SectionSpec<'a>],
-    occurrences_by_spec: &[Vec<SectionOccurrence>],
+    occurrences_by_spec: &[Vec<SectionOccurrence<'_>>],
     index: usize,
 ) -> Option<Bound<'a>> {
     specs[index + 1..]
@@ -175,30 +149,63 @@ pub(super) fn has_top_level_root(lines: &[&str], headers: &[(usize, String)]) ->
         .any(|key| key.eq_ignore_ascii_case("root"))
 }
 
-pub(super) fn matching_sections(
-    lines: &[&str],
+pub(super) fn matching_sections<'a>(
+    lines: &[&'a str],
     headers: &[(usize, String)],
     glob: &str,
-) -> Vec<SectionOccurrence> {
+) -> Vec<SectionOccurrence<'a>> {
     headers
         .iter()
         .enumerate()
         .filter(|(_, (_, header_glob))| header_glob == glob)
         .map(|(header_pos, (line_index, _))| {
-            let next_header = headers
-                .get(header_pos + 1)
-                .map_or(lines.len(), |(next_index, _)| *next_index);
-            let has_key = lines[*line_index + 1..next_header]
-                .iter()
-                .filter_map(|line| parse_key(line))
-                .any(|key| key.eq_ignore_ascii_case(MDLINT_STRICT_KEY));
+            let next_header = next_header_line(lines, headers, header_pos);
             SectionOccurrence {
                 header_line: *line_index,
                 insert_at: next_header,
-                has_key,
+                key_value: strict_value_in(&lines[*line_index + 1..next_header]),
             }
         })
         .collect()
+}
+
+/// The section that decides `path`'s `prim_mdlint_strict` in this file: the
+/// last one whose glob applies to `path` and that sets the key at all. Glob
+/// matching goes through `ec4rs`, the same matcher that resolves the file, so
+/// a section written with any EditorConfig glob syntax is accounted for —
+/// not only the ones prim writes itself.
+pub(super) fn deciding_section<'a>(
+    lines: &[&str],
+    headers: &'a [(usize, String)],
+    path: &str,
+) -> Option<&'a (usize, String)> {
+    headers
+        .iter()
+        .enumerate()
+        .filter(|(header_pos, (line_index, glob))| {
+            let next_header = next_header_line(lines, headers, *header_pos);
+            strict_value_in(&lines[*line_index + 1..next_header]).is_some()
+                && ec4rs::Section::new(glob).applies_to(Path::new(path))
+        })
+        .map(|(_, header)| header)
+        .next_back()
+}
+
+/// The text written after `prim_mdlint_strict =` in a section's body, taking
+/// the last one when a section repeats the key — that is the one `ec4rs`
+/// keeps.
+fn strict_value_in<'a>(body: &[&'a str]) -> Option<&'a str> {
+    body.iter()
+        .filter_map(|line| parse_pair(line))
+        .filter(|(key, _)| key.eq_ignore_ascii_case(MDLINT_STRICT_KEY))
+        .map(|(_, value)| value)
+        .next_back()
+}
+
+fn next_header_line(lines: &[&str], headers: &[(usize, String)], header_pos: usize) -> usize {
+    headers
+        .get(header_pos + 1)
+        .map_or(lines.len(), |(next_index, _)| *next_index)
 }
 
 pub(super) fn push_insert(
@@ -225,11 +232,17 @@ fn parse_header(line: &str) -> Option<&str> {
 }
 
 fn parse_key(line: &str) -> Option<&str> {
+    parse_pair(line).map(|(key, _)| key)
+}
+
+fn parse_pair(line: &str) -> Option<(&str, &str)> {
     let trimmed = line.trim();
     if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
         return None;
     }
-    trimmed.split_once('=').map(|(key, _)| key.trim())
+    trimmed
+        .split_once('=')
+        .map(|(key, value)| (key.trim(), value.trim()))
 }
 
 pub(super) fn section_block(glob: &str, value: bool) -> String {

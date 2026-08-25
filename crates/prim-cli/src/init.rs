@@ -26,6 +26,12 @@ const MDBOOK_DEFAULT_SRC: &str = "src";
 /// against a detected strict glob (a mdBook `src = "docs/wip"` derives this
 /// same glob) rather than duplicated as a string literal.
 const DOCS_WIP_GLOB: &str = "docs/wip/**.md";
+/// The directory [`DOCS_WIP_GLOB`] exempts, for comparing a detected strict
+/// glob against it.
+const DOCS_WIP_DIR: &str = "docs/wip";
+/// The strict glob a book rooted at the repository itself derives — it covers
+/// every Markdown file, so no floor section can sit under it.
+const EVERYTHING_GLOB: &str = "**.md";
 
 /// The user-visible result of `prim init`.
 #[derive(Debug)]
@@ -37,15 +43,36 @@ pub struct Outcome {
 #[derive(Debug)]
 pub enum Error {
     NotDirectory(PathBuf),
-    ReadBookToml { path: PathBuf, source: io::Error },
-    ReadEditorConfig { path: PathBuf, source: io::Error },
-    WriteEditorConfig { path: PathBuf, source: io::Error },
+    /// prim's own placement map for this strict glob does not resolve the way
+    /// its sections say it should. A bug in prim, not in the repository.
+    DefectiveMap {
+        glob: String,
+        flaws: Vec<String>,
+    },
+    ReadBookToml {
+        path: PathBuf,
+        source: io::Error,
+    },
+    ReadEditorConfig {
+        path: PathBuf,
+        source: io::Error,
+    },
+    WriteEditorConfig {
+        path: PathBuf,
+        source: io::Error,
+    },
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotDirectory(path) => write!(f, "{}: not a directory", path.display()),
+            Self::DefectiveMap { glob, flaws } => write!(
+                f,
+                "prim's own Markdown map for [{glob}] does not resolve the way it is meant to \
+                 ({}); this is a bug in prim, so it wrote nothing — please report it",
+                flaws.join("; ")
+            ),
             Self::ReadBookToml { path, source }
             | Self::ReadEditorConfig { path, source }
             | Self::WriteEditorConfig { path, source } => {
@@ -62,22 +89,28 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     }
 
     let strict_glob = detect_strict_glob(target_dir)?;
+    // The map is only obtainable already checked, so no path here can write
+    // an unchecked one. Intent comes from the declared sections, never from
+    // this text, so the check cannot pass by circularity.
+    let scaffold = map::checked_scaffold(&strict_glob).map_err(|flaws| Error::DefectiveMap {
+        glob: strict_glob.clone(),
+        flaws,
+    })?;
     let editorconfig = target_dir.join(EDITORCONFIG_NAME);
 
     if !editorconfig.exists() {
-        write::atomic(&editorconfig, &scaffold(&strict_glob)).map_err(|source| {
-            Error::WriteEditorConfig {
-                path: editorconfig.clone(),
-                source,
-            }
+        write::atomic(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
+            path: editorconfig.clone(),
+            source,
         })?;
-        // The docs/wip exemption is only its own arrow in the summary when it
-        // is a distinct section from the strict glob (see `scaffold`).
-        let placement = if strict_glob == DOCS_WIP_GLOB {
-            format!("[*.md] → [{strict_glob}] → [**/SUMMARY.md]")
-        } else {
-            format!("[*.md] → [{strict_glob}] → [{DOCS_WIP_GLOB}] → [**/SUMMARY.md]")
-        };
+        // Read off the same sections the scaffold was built from: a summary
+        // that advertises a section prim decided not to write is the same
+        // defect in miniature as writing one that does not hold.
+        let placement = map::canonical_specs(&strict_glob)
+            .iter()
+            .map(|spec| format!("[{}]", spec.glob))
+            .collect::<Vec<_>>()
+            .join(" → ");
         return Ok(Outcome {
             message: format!(
                 "created {} with Markdown strict-glob map ({placement})",
@@ -167,23 +200,6 @@ fn strict_glob_for_dir(dir: &str) -> String {
     } else {
         format!("{dir}/**.md")
     }
-}
-
-fn scaffold(strict_glob: &str) -> String {
-    // When the detected strict glob is itself `docs/wip/**.md` (e.g. a
-    // mdBook with `src = "docs/wip"`), the exemption would be a second
-    // section for the exact same glob, written after the strict one — under
-    // EditorConfig's last-match-wins resolution that silently flips the
-    // whole directory back to the floor tier. The author asked for that
-    // directory to be strict, so skip the exemption rather than defeat it.
-    let docs_wip_exemption = if strict_glob == DOCS_WIP_GLOB {
-        String::new()
-    } else {
-        format!("[{DOCS_WIP_GLOB}]\n{MDLINT_STRICT_KEY} = false\n")
-    };
-    format!(
-        "root = true\n[*.md]\n{MDLINT_STRICT_KEY} = false\n[{strict_glob}]\n{MDLINT_STRICT_KEY} = true\n{docs_wip_exemption}[**/SUMMARY.md]\n{MDLINT_STRICT_KEY} = false\n"
-    )
 }
 
 #[cfg(test)]

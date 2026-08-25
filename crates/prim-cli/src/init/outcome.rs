@@ -30,7 +30,10 @@ use std::path::Path;
 use ec4rs::{ConfigParser, Properties, PropertiesSource};
 
 use super::MDLINT_STRICT_KEY;
-use super::sections::{Bound, SectionSpec, bool_word};
+use super::sections::{
+    Bound, SectionSpec, bool_word, deciding_section, governing, header_lines, is_boolean,
+    matching_sections, reads_as_strict, split_lines,
+};
 use crate::mdlint_policy;
 
 /// One way a candidate `.editorconfig` breaks the invariant.
@@ -73,55 +76,212 @@ pub(super) fn resolves_strict(content: &str, path: &str) -> Option<bool> {
     Some(mdlint_policy::strict_from(&props))
 }
 
-/// The value prim intends each spec's representative path to resolve to: the
-/// value the canonical map prim writes from scratch gives it. Taking the
-/// intent from `scaffold` rather than from each spec's own `value` is what
-/// makes the check right for a strict glob that overlaps another canonical
-/// glob (an mdBook whose `src` is `.`, say, where `[**.md] = true` legitimately
-/// covers top-level files too).
-pub(super) fn intended_values(specs: &[SectionSpec<'_>], scaffold: &str) -> Vec<bool> {
-    specs
-        .iter()
-        .map(|spec| resolves_strict(scaffold, &spec.probe).unwrap_or(spec.value))
-        .collect()
-}
-
 /// Every way `candidate` breaks the invariant, in canonical spec order.
 /// `written[i]` says whether `candidate` contains prim's write for `specs[i]`;
 /// `before` is the text prim started from.
+///
+/// The value each spec is meant to reach is the one the spec declares. It is
+/// deliberately not read back out of the map prim would write from scratch:
+/// deriving intent from the scaffold makes the scaffold correct by
+/// definition, so a defective one could never be a violation. Passing the
+/// scaffold as both `before` and `candidate`, with everything `written`, is
+/// therefore a self-check of the scaffold itself.
 pub(super) fn violations(
     specs: &[SectionSpec<'_>],
-    intended: &[bool],
     written: &[bool],
     before: &str,
     candidate: &str,
 ) -> Vec<Violation> {
     let mut found = Vec::new();
     for (index, spec) in specs.iter().enumerate() {
-        let (Some(after_value), Some(before_value)) = (
-            resolves_strict(candidate, &spec.probe),
-            resolves_strict(before, &spec.probe),
-        ) else {
-            return vec![Violation::Unverifiable];
-        };
-        if written[index] {
-            if after_value != intended[index] {
-                found.push(Violation::Ineffective {
-                    path: spec.probe.clone(),
-                    resolved: after_value,
-                    intended: intended[index],
+        for probe in &spec.probes {
+            let (Some(after_value), Some(before_value)) = (
+                resolves_strict(candidate, probe),
+                resolves_strict(before, probe),
+            ) else {
+                return vec![Violation::Unverifiable];
+            };
+            if written[index] {
+                let intended = intended_for(specs, probe);
+                if after_value != intended {
+                    found.push(Violation::Ineffective {
+                        path: probe.clone(),
+                        resolved: after_value,
+                        intended,
+                    });
+                }
+            } else if after_value != before_value {
+                found.push(Violation::Collateral {
+                    owner: index,
+                    path: probe.clone(),
+                    before: before_value,
+                    after: after_value,
                 });
             }
-        } else if after_value != before_value {
-            found.push(Violation::Collateral {
-                owner: index,
-                path: spec.probe.clone(),
-                before: before_value,
-                after: after_value,
-            });
         }
     }
     found
+}
+
+/// What prim's canonical map means for `probe`: the value of the last section
+/// prim writes whose glob matches it, since a later section wins.
+///
+/// This evaluates the declared map — globs and values — and never the text
+/// prim renders from it. That is what keeps the check honest: intent read back
+/// out of the rendered file would make any defect in that file correct by
+/// definition, while a divergence between the declared map and the rendered
+/// one is exactly what the scaffold self-check is for.
+///
+fn intended_for(specs: &[SectionSpec<'_>], probe: &str) -> bool {
+    specs
+        .iter()
+        .filter(|spec| ec4rs::Section::new(spec.glob).applies_to(Path::new(probe)))
+        .map(|spec| spec.value)
+        .next_back()
+        .unwrap_or(false)
+}
+
+/// One violation as a phrase, for a message that is not about a write prim
+/// chose to skip — the scaffold self-check, where every section is prim's own
+/// and there is nothing to advise the reader to do.
+///
+/// Only [`Violation::Ineffective`] can arise from that self-check: it passes
+/// the same text as `before` and `candidate`, so nothing can move, and marks
+/// every section written, so nothing is left to move it. The other two arms
+/// are here because this is total over the type, and would be what a future
+/// caller with a real `before` needs.
+pub(super) fn describe(violation: &Violation) -> String {
+    match violation {
+        Violation::Ineffective {
+            path,
+            resolved,
+            intended,
+        } => format!(
+            "{path} resolves to {MDLINT_STRICT_KEY} = {}, not {}",
+            bool_word(*resolved),
+            bool_word(*intended)
+        ),
+        Violation::Collateral {
+            path,
+            before,
+            after,
+            ..
+        } => format!(
+            "{path} resolves to {MDLINT_STRICT_KEY} = {}, not {}",
+            bool_word(*after),
+            bool_word(*before)
+        ),
+        Violation::Unverifiable => "prim could not read the map it built".to_string(),
+    }
+}
+
+/// A warning for each canonical section the file already has, with its key,
+/// that does not actually decide its own representative path.
+///
+/// prim plans no write for such a section — the key is already there — so
+/// nothing it writes can be checked, and the run would otherwise report plain
+/// success over a map that does not hold. Two ways a written section fails:
+/// a later section overrides it for the very path it is there to place, or
+/// its value is one prim does not read as a tier.
+///
+/// This is a warning, never a refusal. A person's narrower override is
+/// legitimate, and prim must stay able to report on a file it disagrees with.
+///
+/// It also subsumes the pairwise section-order check prim used to run beside
+/// it: two keyed canonical sections in the wrong relative order defeat one of
+/// them, which shows up here as the defeated section — and only when the
+/// order actually changes an outcome, rather than whenever positions
+/// disagree.
+pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<String> {
+    let lines = split_lines(file);
+    let headers = header_lines(&lines);
+    let mut warnings = Vec::new();
+    for spec in specs {
+        let occurrences = matching_sections(&lines, &headers, spec.glob);
+        let Some(occurrence) = governing(&occurrences) else {
+            continue;
+        };
+        let Some(written) = occurrence.key_value else {
+            continue;
+        };
+        let value = reads_as_strict(written);
+        let at = occurrence.header_line + 1;
+
+        // One entry per distinct thing that went wrong, each collecting the
+        // paths it went wrong for: a section's representatives usually fail
+        // the same way, and saying it twice is noise, not detail.
+        let mut failures: Vec<(Cause, Vec<String>)> = Vec::new();
+        for probe in &spec.probes {
+            // What the file actually does, asked before anything is claimed
+            // about it — including in the non-boolean case, where the tier is
+            // still whatever the cascade says and not necessarily this
+            // section's.
+            let Some(resolved) = resolves_strict(file, probe) else {
+                continue;
+            };
+
+            let cause = if !is_boolean(written) {
+                Cause::NotBoolean {
+                    tier: tier_word(resolved),
+                }
+            } else if resolved == value {
+                continue;
+            } else {
+                // A section cannot come after itself: when the scan and
+                // EditorConfig's own matcher disagree about a header —
+                // `[ *.md ]` with spaces, say — the section prim found can be
+                // this very one, and naming it as the winner would be
+                // nonsense.
+                let winner = deciding_section(&lines, &headers, probe)
+                    .filter(|(line, _)| *line != occurrence.header_line)
+                    .map(|(line, glob)| {
+                        format!("[{glob}] (line {}) comes after it and wins", line + 1)
+                    })
+                    .unwrap_or_else(|| "a later section in this .editorconfig wins".to_string());
+                Cause::Defeated { winner, resolved }
+            };
+
+            match failures.iter_mut().find(|(seen, _)| seen == &cause) {
+                Some((_, paths)) => paths.push(probe.clone()),
+                None => failures.push((cause, vec![probe.clone()])),
+            }
+        }
+
+        warnings.extend(failures.into_iter().map(|(cause, paths)| {
+            let paths = paths.join(" and ");
+            match cause {
+                Cause::NotBoolean { tier } => format!(
+                    "[{}] (line {at}) sets {MDLINT_STRICT_KEY} = {written}, which is neither true \
+                     nor false; prim reads every value but true as false, so the {tier} tier \
+                     applies to {paths} — write true or false there instead",
+                    spec.glob,
+                ),
+                Cause::Defeated { winner, resolved } => format!(
+                    "[{}] (line {at}) sets {MDLINT_STRICT_KEY} = {}, but {winner}, so \
+                     {MDLINT_STRICT_KEY} = {} applies to {paths} instead; prim will not reorder \
+                     sections a person wrote, so reorder them yourself",
+                    spec.glob,
+                    bool_word(value),
+                    bool_word(resolved),
+                ),
+            }
+        }));
+    }
+    warnings
+}
+
+/// Why a section that is written does not decide a path of its own. Grouped
+/// on, so that a section failing the same way for two paths is one report.
+#[derive(PartialEq, Eq)]
+enum Cause {
+    NotBoolean { tier: &'static str },
+    Defeated { winner: String, resolved: bool },
+}
+
+/// The tier a resolved `prim_mdlint_strict` names, for a message about which
+/// tier a path ended up in rather than which value a key holds.
+fn tier_word(strict: bool) -> &'static str {
+    if strict { "strict" } else { "floor" }
 }
 
 /// The warning for a write prim planned and then dropped, explaining it by
