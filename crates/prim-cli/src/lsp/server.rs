@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn did_open_publishes_markdown_diagnostics_with_warning_severity() {
+    fn did_open_publishes_markdown_diagnostics_at_error_severity() {
         let mut server = Server::new();
         let uri = "file:///tmp/prim-lsp-diag.md";
         let reaction = server.handle(&json!({
@@ -468,7 +468,7 @@ mod tests {
             .iter()
             .find(|d| d["code"] == "MD045")
             .expect("MD045 reported");
-        assert_eq!(md045["severity"], 2, "floor tier is warning: {md045:?}");
+        assert_eq!(md045["severity"], 1, "floor tier is an error: {md045:?}");
         assert_eq!(md045["source"], "prim");
     }
 

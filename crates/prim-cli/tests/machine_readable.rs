@@ -209,7 +209,7 @@ fn lint_json_reports_markdown_rumdl_findings() {
 }
 
 #[test]
-fn lint_sarif_marks_floor_markdown_warnings_as_warnings() {
+fn lint_sarif_marks_floor_markdown_defects_as_errors() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("README.md");
     fs::write(&file, "# Title\n\n![](hero.png)\n").unwrap();
@@ -218,14 +218,14 @@ fn lint_sarif_marks_floor_markdown_warnings_as_warnings() {
         .args(["lint", "--format", "sarif"])
         .arg(&file)
         .assert()
-        .code(0);
+        .code(1);
     let report = stdout_json(&output);
     validate_sarif(&report);
 
     let results = report["runs"][0]["results"].as_array().unwrap();
     assert!(results.iter().any(|result| {
         result["ruleId"] == json!("MD045")
-            && result["level"] == json!("warning")
+            && result["level"] == json!("error")
             && result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
                 == json!(file.display().to_string())
     }));
