@@ -1,7 +1,6 @@
 //! Scaffold or minimally merge prim's Markdown strict-glob placement map into
 //! `.editorconfig` (story G4).
 
-use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
@@ -12,13 +11,11 @@ use toml::Value;
 use crate::ui;
 use crate::write;
 
+mod map;
+mod outcome;
 mod sections;
 
-use sections::{
-    SectionSpec, bool_word, existing_order_conflicts, has_top_level_root, header_lines, key_line,
-    lower_bound, matching_sections, order_conflict_warning, push_insert, section_block,
-    split_lines, upper_bound,
-};
+use map::merge;
 
 const EDITORCONFIG_NAME: &str = ".editorconfig";
 const MDBOOK_NAME: &str = "book.toml";
@@ -56,18 +53,6 @@ impl fmt::Display for Error {
             }
         }
     }
-}
-
-struct MergeResult {
-    contents: String,
-    actions: Vec<String>,
-    /// One entry per canonical-order violation prim found: either a section
-    /// it could not place because the file's own section order contradicts
-    /// the canonical order, or two already-present sections whose relative
-    /// order contradicts it. Either way, prim never reorders sections a
-    /// person wrote, so the file is left exactly as found and the warning is
-    /// the only output.
-    warnings: Vec<String>,
 }
 
 /// Scaffold or minimally merge `.editorconfig` in `target_dir`.
@@ -199,162 +184,6 @@ fn scaffold(strict_glob: &str) -> String {
     format!(
         "root = true\n[*.md]\n{MDLINT_STRICT_KEY} = false\n[{strict_glob}]\n{MDLINT_STRICT_KEY} = true\n{docs_wip_exemption}[**/SUMMARY.md]\n{MDLINT_STRICT_KEY} = false\n"
     )
-}
-
-fn merge(existing: &str, strict_glob: &str) -> MergeResult {
-    let mut specs = vec![
-        SectionSpec {
-            glob: "*.md",
-            value: false,
-        },
-        SectionSpec {
-            glob: strict_glob,
-            value: true,
-        },
-    ];
-    // Superpowers specs and plans under `docs/wip/` are transient working
-    // memory, so the strict tier must not apply to them even when the strict
-    // glob covers `docs/**` — unless the strict glob already IS
-    // `docs/wip/**.md`, in which case the author asked for that directory to
-    // be strict and a separate exemption section would just defeat it (see
-    // `scaffold`).
-    if strict_glob != DOCS_WIP_GLOB {
-        specs.push(SectionSpec {
-            glob: DOCS_WIP_GLOB,
-            value: false,
-        });
-    }
-    specs.push(SectionSpec {
-        glob: "**/SUMMARY.md",
-        value: false,
-    });
-
-    let lines = split_lines(existing);
-    let headers = header_lines(&lines);
-    let occurrences_by_spec = specs
-        .iter()
-        .map(|spec| matching_sections(&lines, &headers, spec.glob))
-        .collect::<Vec<_>>();
-
-    let mut actions = Vec::new();
-    // Sections that are already present can be out of canonical order too —
-    // the per-spec loop below only notices a missing section's placement is
-    // ambiguous, so an already-present, wrongly-ordered pair would otherwise
-    // sail through every iteration's has_key check with no warning at all.
-    let conflicts = existing_order_conflicts(&specs, &occurrences_by_spec);
-    let mut warnings: Vec<String> = conflicts
-        .iter()
-        .map(|&pair| order_conflict_warning(&specs, &occurrences_by_spec, pair))
-        .collect();
-    // Every spec on either side of a conflict already has a section sitting
-    // in a position prim has just warned is broken. Writing into it — a
-    // missing key inserted in place, or worse a fresh section — would
-    // resolve incorrectly under EditorConfig's last-match-wins cascade and
-    // turn the warning above into a lie, so those specs are excluded from
-    // the loop below entirely: prim reports the conflict and otherwise
-    // leaves them untouched.
-    let blocked: HashSet<usize> = conflicts.iter().flat_map(|&(a, b)| [a, b]).collect();
-    let mut inserts: BTreeMap<usize, Vec<String>> = BTreeMap::new();
-    let added_root = !has_top_level_root(&lines, &headers);
-
-    if added_root {
-        actions.push("added top-level root = true".to_string());
-    }
-
-    for (index, spec) in specs.iter().enumerate() {
-        if blocked.contains(&index) {
-            continue;
-        }
-
-        let occurrences = &occurrences_by_spec[index];
-        if occurrences.iter().any(|occurrence| occurrence.has_key) {
-            continue;
-        }
-
-        if let Some(occurrence) = occurrences.last().copied() {
-            push_insert(
-                &mut inserts,
-                occurrence.insert_at,
-                key_line(spec.value),
-                existing,
-                &lines,
-            );
-            actions.push(format!(
-                "set {MDLINT_STRICT_KEY} = {} in [{}]",
-                bool_word(spec.value),
-                spec.glob
-            ));
-        } else {
-            let lower = lower_bound(&specs, &occurrences_by_spec, index);
-            let upper = upper_bound(&specs, &occurrences_by_spec, index);
-
-            let out_of_order = matches!(
-                (&lower, &upper),
-                (Some(lower), Some(upper)) if lower.position > upper.position
-            );
-
-            if out_of_order {
-                // Safe to unwrap: `out_of_order` only matches when both are
-                // `Some`.
-                let lower = lower.unwrap();
-                let upper = upper.unwrap();
-                warnings.push(format!(
-                    "not adding [{}]: [{}] (line {}) comes after [{}] (line {}) in this \
-                     .editorconfig, which contradicts prim's canonical section order; prim will \
-                     not reorder sections a person wrote, so add {MDLINT_STRICT_KEY} = {} under \
-                     [{}] yourself",
-                    spec.glob,
-                    lower.glob,
-                    lower.line,
-                    upper.glob,
-                    upper.line,
-                    bool_word(spec.value),
-                    spec.glob
-                ));
-                continue;
-            }
-
-            let insert_at = upper.map_or(lines.len(), |bound| bound.position);
-            push_insert(
-                &mut inserts,
-                insert_at,
-                section_block(spec.glob, spec.value),
-                existing,
-                &lines,
-            );
-            actions.push(format!(
-                "added [{}] with {MDLINT_STRICT_KEY} = {}",
-                spec.glob,
-                bool_word(spec.value)
-            ));
-        }
-    }
-
-    let mut contents = String::new();
-    if added_root {
-        contents.push_str("root = true\n\n");
-    }
-
-    for index in 0..=lines.len() {
-        if let Some(pending) = inserts.get(&index) {
-            for addition in pending {
-                contents.push_str(addition);
-            }
-        }
-        if let Some(line) = lines.get(index) {
-            contents.push_str(line);
-        }
-    }
-
-    if actions.is_empty() {
-        contents = existing.to_string();
-    }
-
-    MergeResult {
-        contents,
-        actions,
-        warnings,
-    }
 }
 
 #[cfg(test)]

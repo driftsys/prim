@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::provenance::{ResolvedSetting, SettingOrigin};
+use crate::provenance::{self, ResolvedSetting, SettingOrigin};
 
 /// Render `settings` for `path` as plain-text `key = value  (origin)` lines,
 /// one per setting, in the order [`crate::editorconfig::Resolver::explain`]
@@ -31,13 +31,6 @@ pub fn render(path: &Path, settings: &[ResolvedSetting]) -> String {
 fn render_origin(origin: &SettingOrigin) -> String {
     match origin {
         SettingOrigin::Default => "prim's default".to_string(),
-        SettingOrigin::EditorConfig {
-            file,
-            line,
-            section,
-        } => match section {
-            Some(section) => format!("{}:{line} {section}", file.display()),
-            None => format!("{}:{line}", file.display()),
-        },
+        written => provenance::location_of(written),
     }
 }

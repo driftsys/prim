@@ -13,15 +13,15 @@ use ec4rs::Properties;
 use prim_fmt::{FileKind, Indent, LineEnding};
 
 use crate::editorconfig::{self, Resolver};
-use crate::mdlint_policy::{self, MDLINT_DISABLE_KEY, MDLINT_STRICT_KEY};
+use crate::mdlint_policy::{self, MDLINT_DISABLE_KEY, MDLINT_STRICT_KEY, MdLintPolicy};
 
 impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
     /// `kind` at `path`, alongside where its effective value came from.
     /// Settings irrelevant to `kind` (indent and max-line-length for
-    /// [`FileKind::Orphan`], `prim_mdlint_strict` outside
+    /// [`FileKind::Orphan`], both `prim_mdlint_*` keys outside
     /// [`FileKind::Markdown`]) are omitted rather than shown as inapplicable.
-    pub fn explain(&mut self, path: &Path, kind: FileKind) -> Vec<ResolvedSetting> {
+    pub fn explain(&mut self, path: &Path, kind: FileKind) -> Explanation {
         let props = self.properties_for(path);
         let style = editorconfig::style_from(props.clone());
 
@@ -72,42 +72,65 @@ impl Resolver {
             });
         }
 
-        if kind == FileKind::Markdown {
-            let policy = mdlint_policy::policy_from(&props);
-            mdlint_policy::UnknownRuleReporter::new().report(path, &policy.unknown);
-
-            settings.push(ResolvedSetting {
-                key: MDLINT_STRICT_KEY,
-                value: policy.strict.to_string(),
-                origin: origin_of(&props, MDLINT_STRICT_KEY),
-            });
-
-            let disable_origin = origin_of(&props, MDLINT_DISABLE_KEY);
-            let disable_value = if policy.disabled.is_empty() {
-                match &disable_origin {
-                    // The key itself was never set: there is nothing to
-                    // report and nothing to blame on an .editorconfig line.
-                    SettingOrigin::Default => "unset".to_string(),
-                    // The key was set but every id it listed was
-                    // unrecognised (warned above) and dropped, so the
-                    // exclusion set is empty even though the key has a real
-                    // origin. Printing "unset" next to that origin would
-                    // read as a contradiction, so show the (empty) value
-                    // prim actually applies instead.
-                    SettingOrigin::EditorConfig { .. } => String::new(),
-                }
-            } else {
-                policy.disabled.join(", ")
+        if kind != FileKind::Markdown {
+            return Explanation {
+                settings,
+                mdlint_policy: None,
             };
-            settings.push(ResolvedSetting {
-                key: MDLINT_DISABLE_KEY,
-                value: disable_value,
-                origin: disable_origin,
-            });
         }
 
-        settings
+        let policy = mdlint_policy::policy_from(&props);
+        settings.push(ResolvedSetting {
+            key: MDLINT_STRICT_KEY,
+            value: policy.strict.to_string(),
+            origin: origin_of(&props, MDLINT_STRICT_KEY),
+        });
+        let disable_origin = origin_of(&props, MDLINT_DISABLE_KEY);
+        settings.push(ResolvedSetting {
+            key: MDLINT_DISABLE_KEY,
+            value: disable_value(&policy, &disable_origin),
+            origin: disable_origin,
+        });
+
+        Explanation {
+            settings,
+            mdlint_policy: Some(policy),
+        }
     }
+}
+
+/// What `prim_mdlint_disable` excludes for this file, rendered the way it
+/// would be written back.
+///
+/// An empty exclusion set has two very different origins, and neither may
+/// print an empty value next to a real `.editorconfig` line — a blank value
+/// beside a real origin reads as prim having lost the value:
+///
+/// - the key was never set anywhere in the cascade, which is `unset`;
+/// - the key was set and resolved to nothing — a deliberate `= none` or
+///   `= unset`, or a list whose every id was unrecognised (reported
+///   separately on stderr). prim applies no exclusions in either case, which
+///   is exactly what `none` says.
+fn disable_value(policy: &MdLintPolicy, origin: &SettingOrigin) -> String {
+    if !policy.disabled.is_empty() {
+        return policy.disabled.join(", ");
+    }
+    match origin {
+        SettingOrigin::Default => "unset".to_string(),
+        SettingOrigin::EditorConfig { .. } => "none".to_string(),
+    }
+}
+
+/// One file's resolved settings, plus the Markdown lint policy they were read
+/// from when the file is Markdown.
+///
+/// The policy travels with the answer rather than being reported here: an
+/// unrecognised `prim_mdlint_disable` id is warned about once per run, and a
+/// query that writes to stderr on every call cannot honour that (see
+/// [`mdlint_policy::UnknownRuleReporter`]).
+pub struct Explanation {
+    pub settings: Vec<ResolvedSetting>,
+    pub mdlint_policy: Option<MdLintPolicy>,
 }
 
 /// One `.editorconfig`-recognized setting resolved for a single file: its
@@ -123,9 +146,11 @@ pub struct ResolvedSetting {
 }
 
 /// Where a [`ResolvedSetting`]'s value came from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum SettingOrigin {
     /// No `.editorconfig` entry set this key; prim's built-in canonical
     /// default applies.
+    #[default]
     Default,
     /// Set by an entry in `file` at `line` (1-indexed), inside the section
     /// whose header text is `section` when it could be recovered.
@@ -141,7 +166,7 @@ pub enum SettingOrigin {
 /// built-in default when the key was never set (including when
 /// `Properties::use_fallbacks` synthesized a value with no source of its
 /// own — see [`indent_size_origin`] for the one case prim attributes better).
-fn origin_of(props: &Properties, key: &str) -> SettingOrigin {
+pub(crate) fn origin_of(props: &Properties, key: &str) -> SettingOrigin {
     let raw = props.get_raw_for_key(key);
     if raw.into_option().is_none() {
         return SettingOrigin::Default;
@@ -184,9 +209,26 @@ fn section_header_before(file: &Path, line: usize) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Where a setting was written, as `file:line [section]`, for a message that
+/// has to send the reader to the line they must edit. Empty when the value
+/// has no `.editorconfig` origin to name.
+pub(crate) fn location_of(origin: &SettingOrigin) -> String {
+    match origin {
+        SettingOrigin::Default => String::new(),
+        SettingOrigin::EditorConfig {
+            file,
+            line,
+            section,
+        } => match section {
+            Some(section) => format!("{}:{line} {section}", file.display()),
+            None => format!("{}:{line}", file.display()),
+        },
+    }
+}
+
 /// One-shot [`Resolver::explain`] without caching — `prim explain` only ever
 /// resolves a single path per invocation, so there is no cascade to reuse.
-pub fn explain(path: &Path, kind: FileKind) -> Vec<ResolvedSetting> {
+pub fn explain(path: &Path, kind: FileKind) -> Explanation {
     Resolver::new().explain(path, kind)
 }
 
@@ -203,7 +245,7 @@ mod tests {
     ) -> (tempfile::TempDir, Vec<ResolvedSetting>) {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(".editorconfig"), content).unwrap();
-        let settings = explain(&dir.path().join(relative), kind);
+        let settings = explain(&dir.path().join(relative), kind).settings;
         (dir, settings)
     }
 
@@ -217,7 +259,7 @@ mod tests {
     #[test]
     fn unset_key_is_attributed_to_prims_default() {
         let dir = tempfile::tempdir().unwrap();
-        let settings = explain(&dir.path().join("a.json"), FileKind::Json);
+        let settings = explain(&dir.path().join("a.json"), FileKind::Json).settings;
         assert!(matches!(
             setting(&settings, "end_of_line").origin,
             SettingOrigin::Default

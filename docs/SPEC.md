@@ -108,9 +108,12 @@ source-code formatter and has **no plugin system**.
   list rather than merging with it. Rule ids shall match case-insensitively. The
   key is subtract-only: it shall remove named rules from the tier already
   selected for that path and shall never add a rule prim did not already select
-  for that tier. An id that names no rule prim runs in either tier disables
-  nothing; prim shall report it once per run on stderr without changing the exit
-  code.
+  for that tier. A value of `unset` (EditorConfig's own reserved word) or `none`
+  shall clear the list rather than name a rule, and shall not be reported as
+  unrecognised. An id that names no rule prim runs in either tier disables
+  nothing; prim shall report it on stderr, naming the `.editorconfig` file, line
+  and section that set it, once per run for each section that carries it,
+  without changing the exit code.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags, and no way for a repository to configure a rule's options).
   `prim_mdlint_disable` (FR-3.2c) is not an exception: it only ever narrows the
@@ -148,14 +151,30 @@ source-code formatter and has **no plugin system**.
   missing section without moving existing bytes so the final relative order
   still reads `[*.md]` → strict glob → `[docs/wip/**.md]` → `[**/SUMMARY.md]`
   (appending at end-of-file only when no later prim section needs to stay after
-  it). When a section is missing and the file's own existing section order
-  already contradicts that canonical order — for example an existing
-  `[**/SUMMARY.md]` written before the strict glob — inserting the missing
-  section at any position would resolve incorrectly under EditorConfig's
-  last-match-wins cascade; `prim init` shall then leave that section out, print
-  a warning naming the two conflicting sections and the lines they start at, and
-  leave every existing byte untouched rather than reorder what the author wrote.
-  Running `prim init` twice shall be a byte-identical no-op on the second run.
+  it). `prim init` shall check each write against the file it would produce
+  before making it. For one representative path per canonical section it places
+  — a top-level file, a file under the strict glob, a file under `docs/wip/`
+  where that section applies, and a `SUMMARY.md` — it shall resolve
+  `prim_mdlint_strict` through EditorConfig's last-match-wins section order, and
+  shall make a write only when the path that write is meant to place resolves to
+  the value prim intended and every other representative path resolves exactly
+  as it did before the run. A write that fails that check shall not be made:
+  `prim init` shall print a warning naming the path that would resolve
+  differently and the value it would take, and shall still make whatever other
+  writes pass the check.
+
+  When a section is missing and the file's own existing section order already
+  contradicts the canonical order — for example an existing `[**/SUMMARY.md]`
+  written before the strict glob — no position satisfies that order; `prim init`
+  shall leave that section out and print a warning naming the two conflicting
+  sections, the lines they start at, and where the section has to be added by
+  hand. When two sections that are already present and already carry
+  `prim_mdlint_strict` contradict that order, `prim init` shall print the same
+  kind of warning and write into neither. It shall never reorder sections a
+  person wrote. An occurrence of a canonical glob that neither sets
+  `prim_mdlint_strict` nor receives it — an ordinary
+  `[*.md] max_line_length = 80` — shall take no part in that ordering. Running
+  `prim init` twice shall be a byte-identical no-op on the second run.
 
 ## FR-4 — File discovery
 

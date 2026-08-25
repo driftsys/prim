@@ -1,5 +1,7 @@
 use super::*;
 
+mod regressions;
+
 #[test]
 fn scaffold_matches_the_default_contract() {
     assert_eq!(
@@ -118,10 +120,25 @@ fn merge_refuses_to_insert_docs_wip_when_existing_sections_are_out_of_canonical_
         !merged.contents.contains("docs/wip"),
         "the exemption must not be inserted in a losing position"
     );
-    assert_eq!(merged.warnings.len(), 1, "exactly one conflict is expected");
-    assert!(merged.warnings[0].contains("[docs/wip/**.md]"));
-    assert!(merged.warnings[0].contains("[docs/**.md]"));
-    assert!(merged.warnings[0].contains("[**/SUMMARY.md]"));
+    // Two distinct problems, two warnings: the pair that is already out of
+    // order, and the section prim therefore cannot add.
+    assert_eq!(merged.warnings.len(), 2, "{:?}", merged.warnings);
+    let refusal = merged
+        .warnings
+        .iter()
+        .find(|warning| warning.contains("[docs/wip/**.md]"))
+        .expect("a refusal naming the section prim did not add");
+    // The line numbers are what make this message actionable, and they must
+    // be lines of the file prim leaves behind: prim inserts [*.md] above
+    // both sections in the same run, moving them down by two lines.
+    assert!(
+        refusal.contains("[docs/**.md] (line 6) comes after [**/SUMMARY.md] (line 4)"),
+        "got: {refusal}"
+    );
+    assert!(
+        refusal.contains("put [docs/**.md] before [**/SUMMARY.md] yourself"),
+        "the advice must be possible to follow; got: {refusal}"
+    );
 }
 
 #[test]
@@ -178,26 +195,23 @@ fn run_does_not_claim_the_map_is_present_when_a_conflict_blocks_an_update() {
 }
 
 #[test]
-fn merge_does_not_write_into_a_section_the_order_pre_pass_flagged() {
+fn merge_does_not_write_into_a_keyless_section_a_later_one_overrides() {
     // Reproduction (whole-branch re-review): `[docs/wip/**.md]` exists but is
-    // KEYLESS, written before `[docs/**.md]` which already has its key. The
-    // pre-pass correctly flags the pair as out of canonical order, but
-    // before this fix the per-spec loop never consulted that finding: it
-    // only tests `has_key`, saw docs/wip's section has no key, and inserted
-    // one into it anyway — writing into a position it had just warned was
-    // broken, and reporting "updated" over a file that still resolves to
-    // the wrong tier (the freshly-inserted `false` loses to `[docs/**.md]`'s
-    // `true` under last-match-wins, so `docs/wip/**.md` stays strict).
+    // KEYLESS, written before `[docs/**.md]` which already has its key.
+    // Inserting the key into it would report "updated" over a file that still
+    // resolves to the wrong tier — the freshly-inserted `false` loses to
+    // `[docs/**.md]`'s `true` under last-match-wins, so `docs/wip/**.md`
+    // stays strict. The outcome check is what refuses the write now.
     let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let merged = merge(existing, "docs/**.md");
 
     assert_eq!(
         merged.contents, existing,
-        "a section on either side of a flagged conflict must not be written into"
+        "a section whose freshly-written value would lose must not be written into"
     );
     assert!(
         merged.actions.is_empty(),
-        "no action may claim an update for a section the pre-pass just flagged; got: {:?}",
+        "no action may claim an update the file would not actually resolve to; got: {:?}",
         merged.actions
     );
     assert_eq!(merged.warnings.len(), 1, "exactly one conflict is expected");
@@ -206,8 +220,9 @@ fn merge_does_not_write_into_a_section_the_order_pre_pass_flagged() {
 }
 
 #[test]
-fn run_reports_no_update_for_a_keyless_section_the_order_pre_pass_flagged() {
-    // Same reproduction as `merge_does_not_write_into_a_section_the_order_pre_pass_flagged`,
+fn run_reports_no_update_for_a_keyless_section_a_later_one_overrides() {
+    // Same reproduction as
+    // `merge_does_not_write_into_a_keyless_section_a_later_one_overrides`,
     // checked end-to-end through `run`: the outcome message must not say
     // "updated" (which `merge`'s now-empty `actions` already rules out) and
     // the file on disk must be byte-identical to what was written.
@@ -321,4 +336,37 @@ fn non_utf8_editorconfig_is_reported_and_left_untouched() {
 
     assert!(matches!(err, Error::ReadEditorConfig { .. }));
     assert_eq!(fs::read(&path).unwrap(), [0xFFu8, 0xFE, 0x00]);
+}
+
+#[test]
+fn merge_makes_no_change_to_an_editorconfig_it_cannot_parse() {
+    // prim's own section scanner tolerates a line an EditorConfig parser
+    // rejects. Without a resolution there is nothing to check a write
+    // against, so prim reports the file and leaves it alone rather than
+    // writing blind.
+    let existing = "root = true\ngarbage\n[*.md]\nindent_size = 2\n";
+    let merged = merge(existing, "docs/**.md");
+
+    assert_eq!(merged.contents, existing);
+    assert!(merged.actions.is_empty());
+    assert_eq!(merged.warnings.len(), 1, "{:?}", merged.warnings);
+    assert!(
+        merged.warnings[0].contains("does not parse"),
+        "got: {}",
+        merged.warnings[0]
+    );
+}
+
+#[test]
+fn a_strict_glob_that_covers_every_directory_still_lands_on_the_canonical_map() {
+    // An mdBook with `src = "."` yields `[**.md]`, which legitimately covers
+    // top-level files too — so `[*.md] = false` written above it does not
+    // decide `README.md`, `[**.md] = true` does. prim takes what it intends
+    // each path to resolve to from the map it would write from scratch, so
+    // the overlap is intended rather than a violation to refuse.
+    let merged = merge("root = true\n[**.md]\n", "**.md");
+
+    assert_eq!(merged.contents, scaffold("**.md"));
+    assert!(merged.warnings.is_empty(), "{:?}", merged.warnings);
+    assert_eq!(merged.actions.len(), 4, "{:?}", merged.actions);
 }

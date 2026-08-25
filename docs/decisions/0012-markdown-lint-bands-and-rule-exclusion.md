@@ -179,10 +179,11 @@ opt-in agrees with dropping it here.
    tier prim already selected for that path — it can never add a rule prim
    decided not to run, so a repository cannot invent a stricter dialect of prim,
    and prim's curated set stays the ceiling. An id that names no rule prim runs
-   in either tier disables nothing; prim reports it once per run on stderr and
-   the exit code is unaffected. `prim explain` shows the key with its resolved
-   value and its `.editorconfig` file, line, and section, the same provenance
-   every other resolved setting gets.
+   in either tier disables nothing; prim reports it on stderr — naming the
+   `.editorconfig` file, line and section that set it, once per run for each
+   section that carries it — and the exit code is unaffected. `prim explain`
+   shows the key with its resolved value and its `.editorconfig` file, line, and
+   section, the same provenance every other resolved setting gets.
 
 5. **Two escapes already existed and needed no new code, only documentation.**
    rumdl's own inline directives pass through `rumdl_lib::lint` untouched:

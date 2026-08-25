@@ -331,3 +331,56 @@ fn fmt_never_warns_about_an_unknown_disabled_rule() {
         "prim fmt must not warn about prim_mdlint_disable, it never consumes it:\n{stderr}"
     );
 }
+
+#[test]
+fn an_unknown_disabled_rule_names_the_editorconfig_line_the_typo_is_on() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n\nText.\n").unwrap();
+
+    let assert = prim().arg("lint").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(
+        stderr.contains(".editorconfig:3 [*.md]"),
+        "the typo is in .editorconfig, not in the Markdown file that inherits it:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("a.md:"),
+        "naming the Markdown file sends the reader to a file with nothing to fix:\n{stderr}"
+    );
+}
+
+#[test]
+fn the_same_unknown_id_in_two_sections_warns_about_each_one() {
+    // Two sections, two separate typos to fix. Deduplicating by rule id alone
+    // reports one of them and names a line the other one is not on.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("docs")).unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n[docs/**.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n\nText.\n").unwrap();
+    std::fs::write(dir.path().join("docs/g.md"), "# Title\n\nText.\n").unwrap();
+
+    let assert = prim().arg("lint").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(
+        stderr.contains(".editorconfig:3 [*.md]"),
+        "missing the warning for the first section:\n{stderr}"
+    );
+    assert!(
+        stderr.contains(".editorconfig:5 [docs/**.md]"),
+        "missing the warning for the second section:\n{stderr}"
+    );
+    assert_eq!(
+        stderr.matches("MD999").count(),
+        2,
+        "one warning per section that carries the typo:\n{stderr}"
+    );
+}

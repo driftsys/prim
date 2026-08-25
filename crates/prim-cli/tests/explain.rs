@@ -188,3 +188,69 @@ fn explain_warns_about_an_unrecognised_disabled_id_instead_of_claiming_unset() {
         "prim_mdlint_disable has a real origin here, so its line must not claim unset: {disable_line}"
     );
 }
+
+/// The rendered `prim explain` line for `key`, for assertions that must not
+/// be satisfied by some other setting's value.
+fn line_for(output: &[u8], key: &str) -> String {
+    String::from_utf8_lossy(output)
+        .lines()
+        .find(|line| line.contains(key))
+        .unwrap_or_else(|| panic!("no {key} line in output"))
+        .to_string()
+}
+
+#[test]
+fn explain_reports_an_unset_disable_key_as_prims_default() {
+    // Nothing in the cascade sets `prim_mdlint_disable`, so there is no
+    // `.editorconfig` line to blame and nothing is excluded: `unset` is the
+    // whole truth.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = true\n",
+    )
+    .unwrap();
+
+    let assert = prim()
+        .current_dir(dir.path())
+        .args(["explain", "a.md"])
+        .assert()
+        .success();
+
+    let disable = line_for(&assert.get_output().stdout, "prim_mdlint_disable");
+    assert!(disable.contains("unset"), "got: {disable}");
+    assert!(disable.contains("prim's default"), "got: {disable}");
+}
+
+#[test]
+fn explain_reports_a_deliberately_cleared_disable_key_as_none() {
+    // `= none` and `= unset` both clear the list on purpose. The key has a
+    // real `.editorconfig` origin, so the value beside it must say what prim
+    // applies — no rules — rather than being blank or claiming the key was
+    // never set.
+    for value in ["none", "unset"] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            format!("root = true\n[*.md]\nprim_mdlint_disable = {value}\n"),
+        )
+        .unwrap();
+
+        let assert = prim()
+            .current_dir(dir.path())
+            .args(["explain", "a.md"])
+            .assert()
+            .success()
+            .stderr(predicate::str::contains("not a rule prim runs").not());
+
+        let disable = line_for(&assert.get_output().stdout, "prim_mdlint_disable");
+        assert!(
+            disable.contains("= none"),
+            "value {value:?} resolves to no exclusions; got: {disable}"
+        );
+        assert!(
+            disable.contains(".editorconfig:3"),
+            "value {value:?} was set on a real line; got: {disable}"
+        );
+    }
+}

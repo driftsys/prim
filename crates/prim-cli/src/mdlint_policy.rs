@@ -10,6 +10,7 @@ use std::path::Path;
 use ec4rs::Properties;
 
 use crate::editorconfig::{self, Resolver};
+use crate::provenance::{self, SettingOrigin};
 use crate::ui;
 
 pub(crate) const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
@@ -35,6 +36,16 @@ pub struct MdLintPolicy {
     /// reports these itself — see [`UnknownRuleReporter`] for where and how
     /// often that happens.
     pub unknown: Vec<String>,
+    /// Where `prim_mdlint_disable` was set, so a typo in it can be reported
+    /// against the `.editorconfig` line that has to be edited rather than
+    /// against a Markdown file that merely inherits it.
+    ///
+    /// Resolved only when `unknown` is non-empty: recovering the section
+    /// header re-reads the `.editorconfig`, and reporting a typo is the only
+    /// thing this field is for. It is [`SettingOrigin::Default`] otherwise —
+    /// `prim explain`, which needs the origin of a value that resolved fine,
+    /// asks [`crate::provenance::origin_of`] for it directly.
+    pub unknown_origin: SettingOrigin,
 }
 
 /// Parse `prim_mdlint_disable` out of already-resolved properties.
@@ -44,7 +55,8 @@ pub struct MdLintPolicy {
 /// tier) and ids it does not recognise (returned separately, dropped from
 /// the exclusion set either way). This stays pure — reporting an
 /// unrecognised id is a caller's job, not resolution's, so a warning fires
-/// once per run rather than once per file (see [`UnknownRuleReporter`]).
+/// once per run per section rather than once per file (see
+/// [`UnknownRuleReporter`]).
 ///
 /// Returns `(disabled, unknown)`.
 fn disabled_from(props: &Properties) -> (Vec<String>, Vec<String>) {
@@ -88,20 +100,32 @@ pub fn resolve(path: &Path) -> MdLintPolicy {
 /// [`UnknownRuleReporter`] for reporting `unknown` at the point of use.
 pub(crate) fn policy_from(props: &Properties) -> MdLintPolicy {
     let (disabled, unknown) = disabled_from(props);
+    let unknown_origin = if unknown.is_empty() {
+        SettingOrigin::Default
+    } else {
+        provenance::origin_of(props, MDLINT_DISABLE_KEY)
+    };
     MdLintPolicy {
         strict: strict_from(props),
         disabled,
         unknown,
+        unknown_origin,
     }
 }
 
-/// Warns about each unrecognised `prim_mdlint_disable` id once per run,
-/// rather than once per file a matching glob happens to cover. A typo'd rule
-/// id is a mistake in one `.editorconfig` line; it deserves one line of
-/// stderr output, not a repeat for every file that inherits it.
+/// Warns about each unrecognised `prim_mdlint_disable` id once per run for
+/// each `.editorconfig` section that carries it, rather than once per file a
+/// matching glob happens to cover. A typo'd rule id is a mistake in one
+/// `.editorconfig` line; it deserves one line of stderr output, not a repeat
+/// for every file that inherits it — and two sections carrying the same typo
+/// are two mistakes to fix, not one.
 #[derive(Default)]
 pub struct UnknownRuleReporter {
-    reported: HashSet<String>,
+    /// Already-warned `(location, id)` pairs. The location is part of the key
+    /// because the same typo in two different sections is two mistakes to
+    /// fix, and reporting only the first would name a line the second one is
+    /// not on.
+    reported: HashSet<(String, String)>,
 }
 
 impl UnknownRuleReporter {
@@ -110,16 +134,25 @@ impl UnknownRuleReporter {
         Self::default()
     }
 
-    /// Warn about each id in `unknown`, attributed to `path`, skipping any id
-    /// this reporter already warned about earlier in the run.
-    pub fn report(&mut self, path: &Path, unknown: &[String]) {
-        for id in unknown {
-            if self.reported.insert(id.clone()) {
-                ui::warning(&format!(
-                    "{}: {MDLINT_DISABLE_KEY} lists '{id}', which is not a rule prim runs — ignoring it",
-                    path.display()
-                ));
+    /// Warn about each unrecognised id in `policy`, attributed to the
+    /// `.editorconfig` file, line and section that set the key — that is
+    /// where the typo has to be fixed. Ids this reporter already warned about
+    /// for the same location are skipped.
+    pub fn report(&mut self, policy: &MdLintPolicy) {
+        let location = provenance::location_of(&policy.unknown_origin);
+        for id in &policy.unknown {
+            if !self.reported.insert((location.clone(), id.clone())) {
+                continue;
             }
+            let attribution = if location.is_empty() {
+                String::new()
+            } else {
+                format!("{location}: ")
+            };
+            ui::warning(&format!(
+                "{attribution}{MDLINT_DISABLE_KEY} lists '{id}', which is not a rule prim runs \
+                 — ignoring it"
+            ));
         }
     }
 }
