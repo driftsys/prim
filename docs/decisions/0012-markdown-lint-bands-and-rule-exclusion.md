@@ -192,7 +192,7 @@ opt-in agrees with dropping it here.
    | `<!-- markdownlint-disable-file MD033 -->`        | file     |
    | `<!-- markdownlint-disable MD033 -->` … `-enable` | block    |
    | `<!-- markdownlint-disable-next-line MD033 -->`   | one line |
-   | `<!-- rumdl-disable MD033 -->`                    | file     |
+   | `<!-- rumdl-disable-file MD033 -->`               | file     |
 
    `prim_mdlint_disable` covers what those cannot: a whole tree, in one line, in
    the file where the tier is already chosen.
@@ -211,10 +211,13 @@ opt-in agrees with dropping it here.
   finding sets it to `true` under this placement, so the field is vestigial for
   Markdown today, but it remains specified for a future content rule outside
   Markdown that might legitimately want a warning.
-- **A repository already running the strict tier** sees new floor-tier failures
-  only from the six promoted defect rules (MD045, MD051, MD066, MD068, MD070,
-  MD075); every other rule's tier is unchanged or moved down (MD024, MD080 leave
-  the floor tier for strict), not up.
+- **The floor tier gains six gating rules** (MD045, MD051, MD066, MD068, MD070,
+  MD075) that previously ran only at strict, or not at all. A repository not yet
+  running the strict tier sees new floor-tier failures from those six. A
+  repository already running the strict tier sees no change to `prim lint`'s
+  exit-code behaviour from this: those six already gated as errors under the old
+  strict tier. Every other rule's tier is unchanged or moved down (MD024, MD080
+  leave the floor tier for strict), not up.
 - **`prim init`'s placement map** gained a fourth section,
   `[docs/wip/**.md] prim_mdlint_strict = false`, so Superpowers specs and plans
   committed under `docs/wip/` are never swept into the strict tier by a

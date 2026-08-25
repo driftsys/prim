@@ -99,8 +99,9 @@ raise the exit code — only errors do** (the G1 "errors only" rule).
 Notes:
 
 - **`lint` warnings do not fail.** Warning-severity content findings are printed
-  but exit `0`; only error-severity findings exit `1`. Severity is assigned by
-  the G3 matrix (`prim_mdlint_strict` may escalate warn→error).
+  but exit `0`; only error-severity findings exit `1`. For Markdown, every rule
+  prim runs is an error (AD-0012); `prim_mdlint_strict` chooses which rules run,
+  not how loudly a finding is drawn.
 - **`fix` does not fail on residual errors.** `fix` applies what it can and
   exits `0`; a non-autofixable error-severity finding does not raise the code —
   run `prim lint` for the gate. This keeps `fix` safe to run in a pre-commit
