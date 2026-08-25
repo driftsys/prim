@@ -165,7 +165,7 @@ Warnings never raise the exit code; only errors do.
       | `<!-- markdownlint-disable-file MD033 -->`        | file     |
       | `<!-- markdownlint-disable MD033 -->` … `-enable` | block    |
       | `<!-- markdownlint-disable-next-line MD033 -->`   | one line |
-      | `<!-- rumdl-disable MD033 -->`                    | file     |
+      | `<!-- rumdl-disable-file MD033 -->`               | file     |
 
   - JSON/JSONC/YAML/TOML still report the coarser format drift `fmt --check`
     would report; their own content diagnostics are future work.
