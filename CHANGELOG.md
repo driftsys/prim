@@ -1,5 +1,60 @@
 # Changelog
 
+## [0.4.0] (2026-08-25)
+
+### Refactoring
+
+- **prim-cli:** extract Markdown lint policy resolution ([fbcaa27])
+
+### Features
+
+- **prim-cli:** exempt docs/wip from the strict glob in prim init ([0e4fd05])
+- **prim-cli:** show prim_mdlint_disable in prim explain ([0f54fe5])
+- **prim-cli:** add prim_mdlint_disable for per-glob rule exclusion ([8895773])
+- **prim-fmt:** re-place Markdown lint rules into defect and convention bands
+  ([8473cfe])
+
+### Bug Fixes
+
+- **prim-cli:** check prim init's success claim and its own map by outcome
+  ([da7b20b])
+- **prim-cli:** decide prim init writes by what the file resolves to ([310d6ba])
+- **prim-cli:** stop prim init from writing into a section it just flagged as
+  out of order ([c46d622])
+- **prim-cli:** detect out-of-order sections already present in prim init
+  ([9d77c58])
+- **prim-cli:** refuse to insert docs/wip when .editorconfig sections are out of
+  order ([1c7f062])
+- **prim-cli:** report unknown prim_mdlint_disable ids once per run ([d9480ca])
+
+### Documentation
+
+- **prim:** fix rumdl-disable scope and amend AD-0007's severity note
+  ([4c9d6b8])
+- **prim:** record the Markdown lint bands and rule exclusion ([21e51a4])
+
+### BREAKING CHANGES
+
+- prim lint now exits 1 on findings that were previously warning-severity, and
+  MD082 is no longer reported.
+- `prim_fmt::lint_markdown` takes a third parameter, the list of rule ids to
+  exclude. Pass an empty slice to keep the previous behaviour.
+
+[0.4.0]: https://github.com/driftsys/prim/compare/v0.3.2...v0.4.0
+[fbcaa27]: https://github.com/driftsys/prim/commit/fbcaa27
+[0e4fd05]: https://github.com/driftsys/prim/commit/0e4fd05
+[0f54fe5]: https://github.com/driftsys/prim/commit/0f54fe5
+[8895773]: https://github.com/driftsys/prim/commit/8895773
+[8473cfe]: https://github.com/driftsys/prim/commit/8473cfe
+[da7b20b]: https://github.com/driftsys/prim/commit/da7b20b
+[310d6ba]: https://github.com/driftsys/prim/commit/310d6ba
+[c46d622]: https://github.com/driftsys/prim/commit/c46d622
+[9d77c58]: https://github.com/driftsys/prim/commit/9d77c58
+[1c7f062]: https://github.com/driftsys/prim/commit/1c7f062
+[d9480ca]: https://github.com/driftsys/prim/commit/d9480ca
+[4c9d6b8]: https://github.com/driftsys/prim/commit/4c9d6b8
+[21e51a4]: https://github.com/driftsys/prim/commit/21e51a4
+
 ## [0.3.2] (2026-08-24)
 
 ### Bug Fixes
