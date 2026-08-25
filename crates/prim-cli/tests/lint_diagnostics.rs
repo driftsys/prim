@@ -226,3 +226,62 @@ fn clean_orphan_file_reports_nothing() {
         .success()
         .stdout(predicates::str::is_empty());
 }
+
+#[test]
+fn disable_key_subtracts_a_rule_from_the_strict_tier() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("docs")).unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\nprim_mdlint_disable = MD033\n",
+    )
+    .unwrap();
+    let file = dir.path().join("docs/guide.md");
+    std::fs::write(&file, "# Title\n\nPress <kbd>Ctrl</kbd>.\n").unwrap();
+
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("[MD033]").not());
+}
+
+#[test]
+fn disable_key_does_not_reach_other_globs() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("docs")).unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_disable = MD033\n",
+    )
+    .unwrap();
+    let outside = dir.path().join("README.md");
+    std::fs::write(&outside, "# Title\n\nPress <kbd>Ctrl</kbd>.\n").unwrap();
+
+    prim()
+        .arg("lint")
+        .arg(&outside)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD033]"));
+}
+
+#[test]
+fn an_unknown_disabled_rule_warns_without_changing_the_exit_code() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    let file = dir.path().join("README.md");
+    std::fs::write(&file, "# Title\n\nText.\n").unwrap();
+
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .code(0)
+        .stderr(predicates::str::contains("MD999"));
+}

@@ -36,8 +36,8 @@ pub fn compute(
                 .collect()
         }
         prim_fmt::FileKind::Markdown => {
-            let strict = resolver.resolve_mdlint_strict(path);
-            prim_fmt::lint_markdown(text, strict, &[])
+            let policy = resolver.resolve_mdlint_policy(path);
+            prim_fmt::lint_markdown(text, policy.strict, &policy.disabled)
                 .iter()
                 .map(|diagnostic| Diagnostic {
                     range: protocol::point_range(text, diagnostic.line, diagnostic.column),

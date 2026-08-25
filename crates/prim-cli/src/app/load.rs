@@ -3,10 +3,11 @@ use std::path::PathBuf;
 use rayon::prelude::*;
 
 use crate::changed_files::ChangedFilesScope;
+use crate::mdlint_policy::MdLintPolicy;
 use crate::{discover, editorconfig, ui};
 use prim_fmt::{FileKind, Style};
 
-pub(super) type FormattedFile = (PathBuf, FileKind, Style, bool, String, String);
+pub(super) type FormattedFile = (PathBuf, FileKind, Style, MdLintPolicy, String, String);
 
 #[derive(Debug, PartialEq, Eq)]
 enum LoadMessageKind {
@@ -102,13 +103,13 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
         }
     };
 
-    let markdown_strict = if kind == FileKind::Markdown {
-        resolver.resolve_mdlint_strict(&file.path)
+    let markdown_policy = if kind == FileKind::Markdown {
+        resolver.resolve_mdlint_policy(&file.path)
     } else {
-        false
+        MdLintPolicy::default()
     };
 
-    LoadOutcome::Formatted((file.path, kind, style, markdown_strict, original, formatted))
+    LoadOutcome::Formatted((file.path, kind, style, markdown_policy, original, formatted))
 }
 
 fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<LoadMessage>, bool) {

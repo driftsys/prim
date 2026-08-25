@@ -257,8 +257,8 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
             }
         }
         Some(FileKind::Markdown) => {
-            let diagnostics =
-                prim_fmt::lint_markdown(&input, crate::mdlint_policy::resolve_strict(path), &[]);
+            let policy = crate::mdlint_policy::resolve(path);
+            let diagnostics = prim_fmt::lint_markdown(&input, policy.strict, &policy.disabled);
             let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
                 let findings = diagnostics
@@ -332,7 +332,7 @@ fn run_fmt_paths(
 
     let mut any_would_change = false;
     let mut findings = Vec::new();
-    for (path, _kind, _style, _markdown_strict, original, formatted) in results {
+    for (path, _kind, _style, _markdown_policy, original, formatted) in results {
         if formatted == original {
             continue;
         }
@@ -390,7 +390,7 @@ fn run_check_idempotence_paths(
         };
 
     let mut any_non_idempotent = false;
-    for (path, kind, style, _markdown_strict, _original, formatted) in results {
+    for (path, kind, style, _markdown_policy, _original, formatted) in results {
         let stable = match is_idempotent_second_pass(kind, &formatted, &style) {
             Ok(stable) => stable,
             Err(err) => {
@@ -448,7 +448,7 @@ fn run_lint_paths(
 
     let mut any_error_finding = false;
     let mut findings = Vec::new();
-    for (path, kind, style, markdown_strict, original, formatted) in results {
+    for (path, kind, style, markdown_policy, original, formatted) in results {
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
             // un-owned-text allowlist — the same set A1's BOM strip covers.
@@ -464,7 +464,11 @@ fn run_lint_paths(
                 }
             }
         } else if kind == FileKind::Markdown {
-            let diagnostics = prim_fmt::lint_markdown(&original, markdown_strict, &[]);
+            let diagnostics = prim_fmt::lint_markdown(
+                &original,
+                markdown_policy.strict,
+                &markdown_policy.disabled,
+            );
             if !diagnostics.is_empty() {
                 any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);
                 for diagnostic in &diagnostics {
