@@ -109,59 +109,41 @@ Warnings never raise the exit code; only errors do.
     `path:line:col: message [code]` (e.g.
     `notes.txt:1:6: trailing whitespace
     [hygiene::trailing-whitespace]`).
-  - For Markdown, `prim lint` runs rumdl in Standard flavor with prim's own
-    severity matrix, selected per file through `.editorconfig`
-    `prim_mdlint_strict = true|false` (default `false`). `false` runs the
-    always-on floor tier; `true` adds the strict tier and escalates the
-    warn-tier floor rules to errors. prim prints each finding as
-    `path:line:col: message [MD0xx]`, passes rumdl's rule codes through
-    verbatim, never invokes rumdl's formatter/fixer, and does not auto-fix these
-    findings in `fix` yet.
-    - **Defects / integrity (floor → strict):**
-
-      | Rule  | Floor | Strict |
-      | ----- | ----- | ------ |
-      | MD045 | warn  | error  |
-      | MD042 | error | error  |
-      | MD011 | error | error  |
-      | MD052 | error | error  |
-      | MD056 | error | error  |
-      | MD062 | error | error  |
-      | MD034 | error | error  |
-      | MD057 | error | error  |
-      | MD024 | warn  | error  |
-      | MD051 | warn  | error  |
-      | MD080 | warn  | error  |
-      | MD075 | warn  | error  |
-      | MD066 | off   | error  |
-      | MD068 | off   | error  |
-      | MD070 | off   | error  |
-
-    - **Structure / opinion (floor → strict):**
-
-      | Rule                                     | Floor | Strict |
-      | ---------------------------------------- | ----- | ------ |
-      | MD025 (SUMMARY-safe via `.editorconfig`) | off   | warn   |
-      | MD041                                    | off   | warn   |
-      | MD001                                    | off   | warn   |
-      | MD040                                    | off   | warn   |
-      | MD033                                    | off   | warn   |
-      | MD026                                    | off   | warn   |
-      | MD036                                    | off   | warn   |
-      | MD059                                    | off   | warn   |
-      | MD053                                    | off   | warn   |
-      | MD073                                    | off   | warn   |
-      | MD082                                    | off   | warn   |
-      | MD067                                    | off   | warn   |
-
+  - For Markdown, `prim lint` runs rumdl in Standard flavor against prim's own
+    curated rule set, placed into two bands and selected per file through
+    `.editorconfig` `prim_mdlint_strict = true|false` (default `false`). `false`
+    runs the always-on floor tier of 13 defect rules; `true` adds 13 convention
+    rules on top. Every rule prim runs, at either tier, is an error — there is
+    no warning severity for Markdown, so a finding's presence is its severity.
+    prim prints each finding as `path:line:col: message
+    [MD0xx]`, passes
+    rumdl's rule codes through verbatim, never invokes rumdl's formatter/fixer,
+    and does not auto-fix these findings in `fix` yet.
+    - **Floor tier — defect rules** (always on, error at floor and strict):
+      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066,
+      MD068, MD070, MD075. Each reports something objectively broken — a dead
+      link, a dangling reference, a malformed table — so it gates every
+      repository with no opt-in.
+    - **Strict tier — convention rules** (`prim_mdlint_strict = true` only,
+      error when active): MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
+      front-matter title excluded by default, see below), MD026, MD033, MD036,
+      MD040, MD041, MD053, MD059, MD067, MD073, MD080. Each is decidable but
+      fires on documents that are otherwise fine, so it gates only once a
+      repository opts in.
     - **Never linted (formatter territory):** MD003-005, MD007, MD009, MD010,
       MD012, MD018-023, MD027-032, MD035, MD037-039, MD046-050, MD055, MD058,
       MD060, MD064, MD065, MD071, MD076, MD077.
     - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
       MD069, MD072 (frontmatter key sorting stays off because prim must remain
-      semantics-preserving), MD074, MD078, MD079, MD081.
-    - Warn-tier Markdown findings still print, but they do **not** raise the
-      `prim lint` exit code; only error-tier findings do.
+      semantics-preserving), MD074, MD078, MD079, MD081, and MD082 (dropped
+      entirely — see AD-0012).
+    - Floor-tier and strict-tier findings alike raise `prim lint`'s exit code to
+      `1`; no Markdown rule emits a warning.
+    - **A rule option prim sets for itself:** prim configures MD025's
+      `front-matter-title` option to an empty string, so a page's front-matter
+      `title:` is treated as metadata rather than a heading. This is prim's own
+      canonical default for a rule it already runs, not a configuration surface
+      a repository can reach — see "Configuration" below and AD-0012.
     - **Per-file override (story G5):** a standalone
       `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
       overrides `.editorconfig`'s resolved tier for that file only — an escape
@@ -171,11 +153,20 @@ Warnings never raise the exit code; only errors do.
       several are present, the last one wins; an unrecognized value (anything
       but `true`/`false`, case-insensitive) is ignored and falls back to the
       `.editorconfig`-resolved tier.
-    - **rumdl's own inline directives** (`<!-- rumdl-disable MD034 -->` /
-      `<!-- rumdl-enable MD034 -->`, `markdownlint-disable`/`-enable`, and their
-      line/next-line/file-scoped forms) work as-is — prim calls
+    - **Per-glob rule exclusion:** `.editorconfig` `prim_mdlint_disable` removes
+      named rules from whichever tier a path already runs — see "Configuration"
+      below.
+    - **rumdl's own inline directives** work as-is — prim calls
       `rumdl_lib::lint` directly, which applies them before returning findings,
-      so no prim-side wiring was needed.
+      so no prim-side wiring was needed:
+
+      | Directive                                         | Scope    |
+      | ------------------------------------------------- | -------- |
+      | `<!-- markdownlint-disable-file MD033 -->`        | file     |
+      | `<!-- markdownlint-disable MD033 -->` … `-enable` | block    |
+      | `<!-- markdownlint-disable-next-line MD033 -->`   | one line |
+      | `<!-- rumdl-disable MD033 -->`                    | file     |
+
   - JSON/JSONC/YAML/TOML still report the coarser format drift `fmt --check`
     would report; their own content diagnostics are future work.
   - Add `--format json` or `--format sarif` to switch stdout from the plain-text
@@ -200,13 +191,20 @@ root = true
 prim_mdlint_strict = false
 [docs/**.md]
 prim_mdlint_strict = true
+[docs/wip/**.md]
+prim_mdlint_strict = false
 [**/SUMMARY.md]
 prim_mdlint_strict = false
 ```
 
 Section order is part of the contract: EditorConfig has no specificity ranking,
 so the broader `[*.md]` floor must appear before the stricter middle section,
+`[docs/wip/**.md]` must come after it to opt transient working memory back down,
 and `[**/SUMMARY.md]` must come last to opt mdBook summaries back down.
+`[docs/wip/**.md]` is a literal, not derived from the strict glob: Superpowers
+specs and plans committed under `docs/wip/` are transient working memory, so the
+strict tier must never apply to them even when the strict glob covers `docs/**`
+or a custom mdBook `src` directory.
 
 If `PATH/book.toml` exists, prim reads `[book].src` and uses that directory for
 the strict middle glob instead of `docs/`; for example, `src = "guide"` yields
@@ -218,14 +216,22 @@ unrelated content:
 
 - leaves an existing top-level `root = ...` untouched; otherwise prepends
   `root = true` and a blank line
-- for `[*.md]`, the detected strict glob, and `[**/SUMMARY.md]`, leaves an
-  existing explicit `prim_mdlint_strict = ...` untouched
+- for `[*.md]`, the detected strict glob, `[docs/wip/**.md]`, and
+  `[**/SUMMARY.md]`, leaves an existing explicit `prim_mdlint_strict = ...`
+  untouched
 - if one of those sections exists but lacks the key, appends the key inside that
   section immediately before the next section (or end-of-file)
 - if one of those sections is missing entirely, inserts a new block without
   moving existing bytes so the final prim-managed order still reads `[*.md]` →
-  strict glob → `[**/SUMMARY.md]` (falling back to end-of-file only when no
-  later prim-managed section needs to stay after it)
+  strict glob → `[docs/wip/**.md]` → `[**/SUMMARY.md]` (falling back to
+  end-of-file only when no later prim-managed section needs to stay after it)
+- if a section is missing and the file's own existing section order already
+  contradicts that canonical order — for example an existing `[**/SUMMARY.md]`
+  written before the strict glob — prim cannot insert the missing section
+  anywhere without it resolving incorrectly under EditorConfig's last-match-wins
+  cascade; it leaves that section out, prints a warning naming the two
+  conflicting sections and the lines they start at, and leaves every existing
+  byte untouched rather than reorder what the author wrote
 
 Running `prim init` twice is idempotent: once the map is present, the second run
 reports a no-op and leaves `.editorconfig` byte-identical.
@@ -249,15 +255,21 @@ docs/USAGE.md
   indent_style             = space      (/repo/.editorconfig:8 [*])
   indent_size              = 2          (/repo/.editorconfig:9 [*])
   max_line_length          = 80         (/repo/.editorconfig:12 [*.md])
-  prim_mdlint_strict       = false      (prim's default)
+  prim_mdlint_strict       = true       (/repo/.editorconfig:13 [docs/**.md])
+  prim_mdlint_disable      = MD033, MD041 (/repo/.editorconfig:14 [docs/**.md])
 ```
 
 The settings shown depend on the file's kind: un-owned text files (the
 [Orphan allowlist](#what-prim-formats)) only get the three universal hygiene
 settings (`end_of_line`, `trim_trailing_whitespace`, `insert_final_newline`);
-Markdown additionally shows `prim_mdlint_strict`. A path prim does not format at
-all reports a warning (`not a file type prim formats; skipped`) and prints no
-settings, but still exits `0` — `explain` never gates a build.
+Markdown additionally shows `prim_mdlint_strict` and `prim_mdlint_disable`. When
+`prim_mdlint_disable` was never set for a path, its value prints `unset`; when
+it was set but every id it listed was unrecognised, `explain` still reports the
+`.editorconfig` line that set it (with a warning on stderr) rather than showing
+`unset` next to a real origin. A path prim does not format at all reports a
+warning (`not a file type prim formats;
+skipped`) and prints no settings, but
+still exits `0` — `explain` never gates a build.
 
 ## `prim lsp`
 
@@ -538,13 +550,17 @@ neither path consults `.primignore` at all.
 ## Configuration
 
 prim honors [`.editorconfig`](https://editorconfig.org) as its **only** style
-configuration — there is no `prim.toml` and there are no per-rule flags. With no
+configuration — there is no `prim.toml` and there are no per-rule flags to
+configure a rule's options or run a rule prim did not select. With no
 `.editorconfig` present, prim applies its built-in canonical style (LF endings,
 trailing whitespace stripped, exactly one final newline, two-space indent).
 
 Markdown content lint does not add a second config source: `.editorconfig`
 remains prim's only user-facing configuration file, including the documented
-`prim_*` keys below.
+`prim_*` keys below. `prim_mdlint_disable` is the one subtract-only exception to
+"no per-rule flags": it can remove a rule from the tier prim already selected
+for a path, but it can never add one or change a rule's behaviour — see the
+scope notes below.
 
 prim resolves the standard `.editorconfig` cascade for each file: it walks up
 the directory tree, stops at the nearest `root = true`, and applies matching
@@ -553,22 +569,32 @@ resolved relative to that path's directory.
 
 Honored keys (standard EditorConfig keys plus prim's closed custom-key set):
 
-| Key                        | Effect                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                                                              |
-| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.                                              |
-| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                                                    |
-| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                  |
-| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required. |
-| `max_line_length`          | line width for the structured formatters (default 80).                                                          |
-| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                     |
+| Key                        | Effect                                                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                                                                |
+| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.                                                |
+| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                                                      |
+| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                    |
+| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required.   |
+| `max_line_length`          | line width for the structured formatters (default 80).                                                            |
+| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                       |
+| `prim_mdlint_disable`      | comma-separated rule ids to exclude from the tier selected for a matching path (Markdown only, unset by default). |
 
 Scope notes:
 
 - prim treats files as UTF-8; `charset` values other than `utf-8` are not
   supported (a non-UTF-8 file is left unchanged and reported).
 - `end_of_line = cr` (bare carriage return) is treated as `lf`.
-- `prim_mdlint_strict` is currently the **only** documented `prim_*` key.
+- `prim_mdlint_strict` and `prim_mdlint_disable` are currently the **only**
+  documented `prim_*` keys.
+- `prim_mdlint_disable` resolves through the same per-glob cascade as
+  `prim_mdlint_strict`: EditorConfig's ordinary last-match-wins resolution
+  applies per section, so a narrower section's value **replaces** a wider
+  section's list — it does not merge with it. Rule ids match case-insensitively.
+  The key is subtract-only: it removes rules from the tier prim already selected
+  for that path, and can never add a rule prim did not select. An id that names
+  no rule prim runs in either tier disables nothing; prim reports it once per
+  run on stderr and the exit code is unaffected.
 - Any other `prim_*` entry is silently ignored. That is intentional: `prim_*` is
   a closed allowlist, not a generic extension hook or a second config file.
 - Standard EditorConfig keys and documented `prim_*` keys resolve together for
