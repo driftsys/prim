@@ -58,10 +58,11 @@ impl Resolver {
         style_from(self.properties_for(path))
     }
 
-    /// Resolve `prim_mdlint_strict` for `path`, reusing the cached cascade for
-    /// its directory when one is present.
-    pub fn resolve_mdlint_strict(&mut self, path: &Path) -> bool {
-        crate::mdlint_policy::strict_from(&self.properties_for(path))
+    /// Resolve the whole Markdown lint policy for `path`, reusing the cached
+    /// cascade for its directory when one is present.
+    pub fn resolve_mdlint_policy(&mut self, path: &Path) -> crate::mdlint_policy::MdLintPolicy {
+        let props = self.properties_for(path);
+        crate::mdlint_policy::policy_from(&props, path)
     }
 }
 
@@ -402,7 +403,7 @@ mod tests {
             "a.md",
         );
         let path = _d.path().join("a.md");
-        assert!(crate::mdlint_policy::resolve_strict(&path));
+        assert!(crate::mdlint_policy::resolve(&path).strict);
         assert_eq!(style.max_line_length, Some(100));
         assert_eq!(
             style,
@@ -429,7 +430,7 @@ mod tests {
             "guide.md",
         );
         let path = _d.path().join("guide.md");
-        assert!(crate::mdlint_policy::resolve_strict(&path));
+        assert!(crate::mdlint_policy::resolve(&path).strict);
         assert_eq!(
             style,
             Style {
