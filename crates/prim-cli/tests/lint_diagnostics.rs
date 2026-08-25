@@ -276,12 +276,58 @@ fn an_unknown_disabled_rule_warns_without_changing_the_exit_code() {
     )
     .unwrap();
     let file = dir.path().join("README.md");
-    std::fs::write(&file, "# Title\n\nText.\n").unwrap();
+    // A genuine floor-tier violation (MD045) alongside the unknown id: if the
+    // unknown-id path ever swallowed a real finding, this would still pass at
+    // exit 0 with the fixture from before. Asserting the `1` this violation
+    // earns proves the unknown id changed nothing.
+    std::fs::write(&file, "# Title\n\n![](hero.png)\n").unwrap();
 
     prim()
         .arg("lint")
         .arg(&file)
         .assert()
-        .code(0)
+        .code(1)
+        .stdout(predicates::str::contains("[MD045]"))
         .stderr(predicates::str::contains("MD999"));
+}
+
+#[test]
+fn an_unknown_disabled_rule_warns_once_per_run_not_once_per_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    for name in ["a.md", "b.md", "c.md"] {
+        std::fs::write(dir.path().join(name), "# Title\n\nText.\n").unwrap();
+    }
+
+    let assert = prim().arg("lint").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert_eq!(
+        stderr.matches("MD999").count(),
+        1,
+        "an unknown id must warn once per run, not once per matching file:\n{stderr}"
+    );
+}
+
+#[test]
+fn fmt_never_warns_about_an_unknown_disabled_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_disable = MD999\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n\nText.\n").unwrap();
+
+    // `fmt` resolves the policy (to know the tier for a later lint pass) but
+    // never reads `.disabled`/`.unknown` — it must stay silent about this key.
+    let assert = prim().arg("fmt").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(
+        !stderr.contains("MD999"),
+        "prim fmt must not warn about prim_mdlint_disable, it never consumes it:\n{stderr}"
+    );
 }

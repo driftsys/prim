@@ -4,6 +4,7 @@
 //! Lives in the CLI crate because it reads `.editorconfig`; `prim-fmt` takes
 //! the resolved policy as data and stays pure.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use ec4rs::Properties;
@@ -29,34 +30,42 @@ pub struct MdLintPolicy {
     /// Rule ids excluded by `prim_mdlint_disable`, uppercased. Subtract-only:
     /// these are removed from the tier's rule set and can never add to it.
     pub disabled: Vec<String>,
+    /// Ids `prim_mdlint_disable` listed that name no rule prim runs in either
+    /// tier, uppercased, in the order written. Resolving a policy never
+    /// reports these itself — see [`UnknownRuleReporter`] for where and how
+    /// often that happens.
+    pub unknown: Vec<String>,
 }
 
 /// Parse `prim_mdlint_disable` out of already-resolved properties.
 ///
 /// The value is a comma-separated list of rule ids. Entries are trimmed and
-/// uppercased. An id prim does not run is reported once and dropped, so a typo
-/// is visible rather than silently excluding nothing; per AD-0007 that warning
-/// does not raise the exit code.
-fn disabled_from(props: &Properties, path: &Path) -> Vec<String> {
+/// uppercased, then split into ids prim runs (kept, to exclude from the
+/// tier) and ids it does not recognise (returned separately, dropped from
+/// the exclusion set either way). This stays pure — reporting an
+/// unrecognised id is a caller's job, not resolution's, so a warning fires
+/// once per run rather than once per file (see [`UnknownRuleReporter`]).
+///
+/// Returns `(disabled, unknown)`.
+fn disabled_from(props: &Properties) -> (Vec<String>, Vec<String>) {
     let Some(raw) = props.get_raw_for_key(MDLINT_DISABLE_KEY).into_option() else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
 
-    raw.split(',')
+    let mut disabled = Vec::new();
+    let mut unknown = Vec::new();
+    for entry in raw
+        .split(',')
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
-        .filter_map(|entry| {
-            if prim_fmt::is_known_rule(entry) {
-                Some(entry.to_ascii_uppercase())
-            } else {
-                ui::warning(&format!(
-                    "{}: {MDLINT_DISABLE_KEY} lists '{entry}', which is not a rule prim runs — ignoring it",
-                    path.display()
-                ));
-                None
-            }
-        })
-        .collect()
+    {
+        if prim_fmt::is_known_rule(entry) {
+            disabled.push(entry.to_ascii_uppercase());
+        } else {
+            unknown.push(entry.to_ascii_uppercase());
+        }
+    }
+    (disabled, unknown)
 }
 
 /// One-shot resolution without caching — used by `lint --stdin-filepath` and
@@ -65,10 +74,44 @@ pub fn resolve(path: &Path) -> MdLintPolicy {
     Resolver::new().resolve_mdlint_policy(path)
 }
 
-pub(crate) fn policy_from(props: &Properties, path: &Path) -> MdLintPolicy {
+/// Assemble the whole Markdown lint policy from one file's resolved
+/// `.editorconfig` properties. Pure — emits no warnings; see
+/// [`UnknownRuleReporter`] for reporting `unknown` at the point of use.
+pub(crate) fn policy_from(props: &Properties) -> MdLintPolicy {
+    let (disabled, unknown) = disabled_from(props);
     MdLintPolicy {
         strict: strict_from(props),
-        disabled: disabled_from(props, path),
+        disabled,
+        unknown,
+    }
+}
+
+/// Warns about each unrecognised `prim_mdlint_disable` id once per run,
+/// rather than once per file a matching glob happens to cover. A typo'd rule
+/// id is a mistake in one `.editorconfig` line; it deserves one line of
+/// stderr output, not a repeat for every file that inherits it.
+#[derive(Default)]
+pub struct UnknownRuleReporter {
+    reported: HashSet<String>,
+}
+
+impl UnknownRuleReporter {
+    /// A reporter that has not yet warned about anything.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Warn about each id in `unknown`, attributed to `path`, skipping any id
+    /// this reporter already warned about earlier in the run.
+    pub fn report(&mut self, path: &Path, unknown: &[String]) {
+        for id in unknown {
+            if self.reported.insert(id.clone()) {
+                ui::warning(&format!(
+                    "{}: {MDLINT_DISABLE_KEY} lists '{id}', which is not a rule prim runs — ignoring it",
+                    path.display()
+                ));
+            }
+        }
     }
 }
 
@@ -192,7 +235,12 @@ mod tests {
         assert_eq!(
             policy.disabled,
             vec!["MD033"],
-            "unknown ids are reported and dropped"
+            "an unknown id is dropped from the exclusion set"
+        );
+        assert_eq!(
+            policy.unknown,
+            vec!["MD999"],
+            "an unknown id is still surfaced for the caller to report"
         );
     }
 

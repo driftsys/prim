@@ -258,6 +258,7 @@ fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         }
         Some(FileKind::Markdown) => {
             let policy = crate::mdlint_policy::resolve(path);
+            crate::mdlint_policy::UnknownRuleReporter::new().report(path, &policy.unknown);
             let diagnostics = prim_fmt::lint_markdown(&input, policy.strict, &policy.disabled);
             let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
@@ -448,6 +449,7 @@ fn run_lint_paths(
 
     let mut any_error_finding = false;
     let mut findings = Vec::new();
+    let mut unknown_rule_reporter = crate::mdlint_policy::UnknownRuleReporter::new();
     for (path, kind, style, markdown_policy, original, formatted) in results {
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
@@ -464,6 +466,7 @@ fn run_lint_paths(
                 }
             }
         } else if kind == FileKind::Markdown {
+            unknown_rule_reporter.report(&path, &markdown_policy.unknown);
             let diagnostics = prim_fmt::lint_markdown(
                 &original,
                 markdown_policy.strict,
