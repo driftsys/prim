@@ -36,6 +36,32 @@ fn explain_reports_configured_settings_with_their_editorconfig_source() {
 }
 
 #[test]
+fn explain_names_a_section_with_a_trailing_comment_by_its_glob_not_the_raw_line() {
+    // Reproduction (issue #117, shape 2): prim's own scanner required a
+    // trimmed line to end in ']', so a header with a trailing comment was not
+    // recognized at all, and `explain` could not name the section that set
+    // the value. It must now recognize the header and show the glob alone,
+    // without the comment that played no part in matching.
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join(".editorconfig");
+    fs::write(
+        &config,
+        "root = true\n[*.md] # markdown files\nmax_line_length = 100\n",
+    )
+    .unwrap();
+    let file = dir.path().join("doc.md");
+
+    prim().arg("explain").arg(&file).assert().success().stdout(
+        predicate::str::contains("max_line_length")
+            .and(predicate::str::contains("100"))
+            .and(predicate::str::contains(config.display().to_string()))
+            .and(predicate::str::contains(":3"))
+            .and(predicate::str::contains("[*.md]"))
+            .and(predicate::str::contains("markdown files").not()),
+    );
+}
+
+#[test]
 fn explain_reports_prims_default_when_no_editorconfig_sets_a_key() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("a.json");

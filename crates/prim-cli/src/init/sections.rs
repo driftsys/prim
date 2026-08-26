@@ -6,6 +6,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::editorconfig::line;
+
 use super::MDLINT_STRICT_KEY;
 
 pub(super) struct SectionSpec<'a> {
@@ -136,7 +138,7 @@ pub(super) fn header_lines(lines: &[&str]) -> Vec<(usize, String)> {
     lines
         .iter()
         .enumerate()
-        .filter_map(|(index, line)| parse_header(line).map(|glob| (index, glob.to_string())))
+        .filter_map(|(index, line)| parse_header(line, index).map(|glob| (index, glob.to_string())))
         .collect()
 }
 
@@ -144,8 +146,9 @@ pub(super) fn has_top_level_root(lines: &[&str], headers: &[(usize, String)]) ->
     let first_section = headers.first().map_or(lines.len(), |(index, _)| *index);
     lines
         .iter()
+        .enumerate()
         .take(first_section)
-        .filter_map(|line| parse_key(line))
+        .filter_map(|(index, line)| parse_key(line, index))
         .any(|key| key.eq_ignore_ascii_case("root"))
 }
 
@@ -223,26 +226,28 @@ pub(super) fn push_insert(
     entry.push(addition);
 }
 
-fn parse_header(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-    trimmed
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-        .map(str::trim)
-}
-
-fn parse_key(line: &str) -> Option<&str> {
-    parse_pair(line).map(|(key, _)| key)
-}
-
-fn parse_pair(line: &str) -> Option<(&str, &str)> {
-    let trimmed = line.trim();
-    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
-        return None;
+fn parse_header(text: &str, index: usize) -> Option<&str> {
+    match line::parse_at(text, index) {
+        line::Line::Section(glob) => Some(glob),
+        _ => None,
     }
-    trimmed
-        .split_once('=')
-        .map(|(key, value)| (key.trim(), value.trim()))
+}
+
+fn parse_key(text: &str, index: usize) -> Option<&str> {
+    match line::parse_at(text, index) {
+        line::Line::Pair(key, _) => Some(key),
+        _ => None,
+    }
+}
+
+/// Reads a `key = value` line from a *section body*, which is never the
+/// file's first physical line — a header always precedes it — so this needs
+/// no BOM handling and takes no line index.
+fn parse_pair(text: &str) -> Option<(&str, &str)> {
+    match line::parse(text) {
+        line::Line::Pair(key, value) => Some((key, value)),
+        _ => None,
+    }
 }
 
 pub(super) fn section_block(glob: &str, value: bool) -> String {

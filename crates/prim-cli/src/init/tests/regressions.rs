@@ -407,24 +407,37 @@ fn route_7_a_write_that_takes_a_path_off_an_explicit_section_says_so() {
 
 #[test]
 fn route_8_a_section_is_never_named_as_the_thing_that_beat_it() {
-    // `[ docs/**.md ]` — with spaces — is a header prim's own scan trims and
-    // EditorConfig does not match at all. The section really is defeated (it
-    // matches nothing), but the section prim's scan finds for the path can be
-    // that same section, and "it comes after itself" is not a thing that can
-    // happen.
+    // `[ docs/**.md ]` — with spaces — matches nothing, because EditorConfig
+    // does not trim inside the brackets. prim's own scan used to trim, so it
+    // read that header as its canonical `docs/**.md`, appended the key to a
+    // section that decides nothing, and could then name that same section as
+    // the one that defeated the path it was scanning for — "it comes after
+    // itself", which cannot happen (issue #117).
+    //
+    // prim now reads the header the way `ec4rs` does, so the spaced section
+    // is somebody else's, the canonical one is simply missing, and prim adds
+    // it in canonical order.
     let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[ docs/**.md ]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let dir = fixture(content);
 
-    run(dir.path()).unwrap();
+    let outcome = run(dir.path()).unwrap();
+
+    assert!(
+        outcome.message.contains("added [docs/**.md]"),
+        "the spaced header is not prim's section, so prim's is missing and gets \
+         added; got: {}",
+        outcome.message
+    );
+    assert!(
+        strict_for(dir.path(), "docs/a.md"),
+        "and it takes effect: {}",
+        editorconfig(dir.path())
+    );
 
     let warnings = warnings_of(dir.path());
     assert!(
-        warnings.contains("a later section in this .editorconfig wins"),
-        "got: {warnings}"
-    );
-    assert!(
-        !warnings.contains("[docs/**.md] (line 4) comes after it and wins"),
-        "a section cannot come after itself; got: {warnings}"
+        !warnings.contains("comes after it and wins"),
+        "nothing was defeated, so nothing is reported as defeating it; got: {warnings}"
     );
 }
 

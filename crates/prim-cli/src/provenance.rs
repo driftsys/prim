@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use ec4rs::Properties;
 use prim_fmt::{FileKind, Indent, LineEnding};
 
+use crate::editorconfig::line;
 use crate::editorconfig::{self, Resolver};
 use crate::mdlint_policy::{self, MDLINT_DISABLE_KEY, MDLINT_STRICT_KEY, MdLintPolicy};
 
@@ -192,21 +193,36 @@ fn indent_size_origin(props: &Properties) -> SettingOrigin {
     }
 }
 
-/// Scan `file`'s text backward from `line` (1-indexed, inclusive) for the
-/// nearest preceding `[glob]` section header, to show `prim explain` which
+/// Scan `file`'s text backward from `line_number` (1-indexed, inclusive) for
+/// the nearest preceding section header, to show `prim explain` which
 /// section set a value — `ec4rs` parses globs but does not expose their
 /// source text, so this re-reads the (already-open, already-small)
 /// `.editorconfig` file directly rather than duplicating glob parsing.
-fn section_header_before(file: &Path, line: usize) -> Option<String> {
+///
+/// Displays the header reconstructed from what `ec4rs` actually resolved the
+/// glob to — `[` + the exact bracket contents (whitespace kept, any trailing
+/// comment stripped) + `]` — rather than the raw source line. `explain`'s job
+/// is to say what governed the resolution: for a header like
+/// `[docs/**.md] # book docs` or the accidental `[ *.md ]`, the raw line
+/// mixes the glob with text that plays no part in matching (a comment), or
+/// hides which part of the line does (interior whitespace easy to miss at a
+/// glance). The line number `explain` already prints beside this is what
+/// sends the reader to the exact line to edit; this reconstruction is what
+/// tells them what it means.
+fn section_header_before(file: &Path, line_number: usize) -> Option<String> {
     let text = std::fs::read_to_string(file).ok()?;
     text.lines()
-        .take(line)
+        .enumerate()
+        .take(line_number)
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-        .map(str::trim)
-        .find(|candidate| candidate.starts_with('[') && candidate.ends_with(']'))
-        .map(str::to_string)
+        .find_map(
+            |(index, candidate)| match line::parse_at(candidate, index) {
+                line::Line::Section(glob) => Some(format!("[{glob}]")),
+                _ => None,
+            },
+        )
 }
 
 /// Where a setting was written, as `file:line [section]`, for a message that
