@@ -28,34 +28,26 @@ fn no_args_walks_current_directory() {
 }
 
 #[test]
-fn a_directory_walk_with_a_unicode_space_fixture_does_not_panic() {
-    // Issue #115: a debug assertion in dprint-plugin-markdown's tokenizer
-    // panicked (exit 101) on a Unicode space separator following an ASCII
-    // space, aborting the whole walk rather than reporting just that file.
+fn a_walk_reports_neighbours_of_a_file_that_used_to_panic() {
+    // Issue #115: a debug assertion in dprint-plugin-markdown panicked (exit
+    // 101) and took the whole walk down, so the drifty files beside it were
+    // never reported. `fmt --check` makes that observable: the two drifty
+    // neighbours must be listed and the exit code must be 1, not 101.
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("a.md"), "# Hi\n").unwrap();
-    std::fs::write(dir.path().join("b.md"), "# There\n").unwrap();
-    std::fs::write(dir.path().join("c.md"), "# World\n").unwrap();
+    std::fs::write(dir.path().join("a.md"), "#   Hi\n").unwrap();
+    std::fs::write(dir.path().join("b.md"), "#   There\n").unwrap();
     let bad_content = "a \u{2009}b\n";
     std::fs::write(dir.path().join("bad.md"), bad_content).unwrap();
 
     prim()
         .current_dir(dir.path())
-        .args(["lint", "."])
+        .args(["fmt", "--check", "."])
         .assert()
-        .success()
-        .stdout(predicates::str::is_empty())
-        .stderr(predicates::str::is_empty());
+        .code(1)
+        .stdout(predicates::str::contains("a.md").and(predicates::str::contains("b.md")));
 
-    assert_eq!(std::fs::read(dir.path().join("a.md")).unwrap(), b"# Hi\n");
-    assert_eq!(
-        std::fs::read(dir.path().join("b.md")).unwrap(),
-        b"# There\n"
-    );
-    assert_eq!(
-        std::fs::read(dir.path().join("c.md")).unwrap(),
-        b"# World\n"
-    );
+    // The triggering file is already canonical, so it is not reported and not
+    // rewritten.
     assert_eq!(
         std::fs::read(dir.path().join("bad.md")).unwrap(),
         bad_content.as_bytes()

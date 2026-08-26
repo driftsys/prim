@@ -349,6 +349,30 @@ mod tests {
     }
 
     #[test]
+    fn whitespace_inside_a_word_does_not_panic() {
+        // Issue #115: dprint-plugin-markdown's `is_list_word` asserts a word
+        // holds no whitespace other than U+00A0, but words break on ASCII
+        // space and line feed only, so any other whitespace character inside
+        // a word after the first trips it. The assertion is disabled for the
+        // package in the dev profile (see root Cargo.toml / AD-0006). U+00A0
+        // is the assertion's own exemption, pinned here so that losing it
+        // upstream is noticed.
+        const WHITESPACE: [char; 22] = [
+            '\u{0009}', '\u{000b}', '\u{000c}', '\u{0085}', '\u{00a0}', '\u{1680}', '\u{2000}',
+            '\u{2001}', '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}',
+            '\u{2008}', '\u{2009}', '\u{200a}', '\u{2028}', '\u{2029}', '\u{202f}', '\u{205f}',
+            '\u{3000}',
+        ];
+
+        for character in WHITESPACE {
+            let src = format!("alpha bra{character}vo charlie\n");
+            let out = format(&src, &Style::default())
+                .unwrap_or_else(|error| panic!("U+{:04X}: {error}", character as u32));
+            assert_eq!(out, src, "U+{:04X} must round-trip", character as u32);
+        }
+    }
+
+    #[test]
     fn preserves_markdown_tagged_fence_verbatim() {
         let src = "```markdown\nThis single line is deliberately much longer than eighty columns so that the formatter would want to wrap it.\n```\n";
         let out = format(src, &Style::default()).unwrap();
