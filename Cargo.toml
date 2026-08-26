@@ -22,3 +22,11 @@ codegen-units = 1
 # dev/test builds are equally robust. See AD-0006.
 [profile.dev.package.dprint-core]
 debug-assertions = false
+
+# dprint-plugin-markdown ships a debug-only assertion (is_list_word tokenizer in
+# utils.rs) that panics on valid Markdown containing a Unicode space separator
+# (U+1680, U+2000-U+200A, U+202F, U+205F, U+3000) following an ASCII space.
+# Release builds compile it out; disable it here so prim's dev/test builds are
+# equally robust. See AD-0006.
+[profile.dev.package.dprint-plugin-markdown]
+debug-assertions = false

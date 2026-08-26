@@ -23,6 +23,21 @@ fn stdin_filepath_applies_whitespace_hygiene_to_stdout() {
 }
 
 #[test]
+fn stdin_filepath_handles_a_unicode_space_after_an_ascii_space() {
+    // Issue #115: the stdin dispatch path calls prim_fmt::format directly,
+    // bypassing load_and_format, so it needs its own regression coverage for
+    // the debug-assertion panic the file-based tests in markdown.rs and
+    // discovery.rs cover.
+    let content = "a \u{2009}b\n";
+    prim()
+        .args(["fmt", "--stdin-filepath", "doc.md"])
+        .write_stdin(content)
+        .assert()
+        .success()
+        .stdout(content.to_string());
+}
+
+#[test]
 fn stdin_for_unowned_filetype_passes_through_unchanged() {
     // prim does not own .rs, so stdin is emitted verbatim.
     let input = "fn main()  {}  \n";

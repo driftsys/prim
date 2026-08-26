@@ -32,27 +32,49 @@ Because prim uses the same engine and config as the repo's dprint setup, prim's
 output **matches the existing Markdown byte-for-byte** — the migration produced
 zero reformatting churn.
 
-## Decision: disable `dprint-core` debug assertions in the dev profile
+## Decision: disable dependency debug assertions in the dev profile
 
-`dprint-core`'s printer carries a `debug_assert` that panics on valid Markdown
-containing an **inline code span with an embedded newline** (e.g. a long
-backticked span that a previous wrap split across two source lines). Release
-builds — and the dprint wasm plugins — compile the assertion out, which is why
-dprint itself never crashed. prim's dev/test builds hit it.
+`dprint-core`'s printer and `dprint-plugin-markdown`'s tokenizer each carry a
+`debug_assert` that panics on Markdown a formatter must nonetheless accept:
 
-A targeted profile override in the workspace `Cargo.toml` disables debug
-assertions for the `dprint-core` package only:
+- `dprint-core`: an **inline code span with an embedded newline** (e.g. a long
+  backticked span that a previous wrap split across two source lines).
+- `dprint-plugin-markdown`'s `is_list_word` tokenizer (`utils.rs`): a **Unicode
+  space separator** (U+1680, U+2000-U+200A, U+202F, U+205F, U+3000; U+00A0 is
+  exempt) immediately following an ASCII space.
+
+Release builds — and the dprint wasm plugins — compile both assertions out,
+which is why dprint itself never crashed. prim's dev/test builds hit them, and
+in a directory walk the panic (exit 101) aborted the whole run, so healthy files
+next to the one triggering file produced no output either.
+
+Cargo has no mechanism to disable a single assertion inside a dependency; the
+only alternatives are forking or patching the dependency, or waiting for a fixed
+upstream release. A targeted profile override in the workspace `Cargo.toml`
+disables debug assertions for each affected package instead:
 
 ```toml
 [profile.dev.package.dprint-core]
 debug-assertions = false
+
+[profile.dev.package.dprint-plugin-markdown]
+debug-assertions = false
 ```
 
-prim's own assertions are unaffected; only this dependency's over-aggressive
-debug check is silenced, so prim is robust on such input in every build. A
-regression test
-(`markdown::tests::inline_code_spanning_a_newline_does_not_panic`) pins the
-behaviour.
+prim's own assertions are unaffected; only these dependencies' over-aggressive
+debug checks are silenced, so prim is robust on such input in every build.
+Regression tests pin both:
+
+- `crates/prim-fmt/src/markdown.rs::inline_code_spanning_a_newline_does_not_panic`
+  (`dprint-core`).
+- `crates/prim-cli/tests/markdown.rs::unicode_space_after_ascii_space_does_not_panic`,
+  `crates/prim-cli/tests/discovery.rs::a_directory_walk_with_a_unicode_space_fixture_does_not_panic`,
+  and
+  `crates/prim-cli/tests/modes.rs::stdin_filepath_handles_a_unicode_space_after_an_ascii_space`
+  (`dprint-plugin-markdown`).
+
+Each override should be removed once its upstream release fixes the assertion it
+silences.
 
 ## Decision: retire dprint
 

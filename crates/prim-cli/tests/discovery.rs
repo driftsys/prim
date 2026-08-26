@@ -28,6 +28,41 @@ fn no_args_walks_current_directory() {
 }
 
 #[test]
+fn a_directory_walk_with_a_unicode_space_fixture_does_not_panic() {
+    // Issue #115: a debug assertion in dprint-plugin-markdown's tokenizer
+    // panicked (exit 101) on a Unicode space separator following an ASCII
+    // space, aborting the whole walk rather than reporting just that file.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Hi\n").unwrap();
+    std::fs::write(dir.path().join("b.md"), "# There\n").unwrap();
+    std::fs::write(dir.path().join("c.md"), "# World\n").unwrap();
+    let bad_content = "a \u{2009}b\n";
+    std::fs::write(dir.path().join("bad.md"), bad_content).unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "."])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::is_empty());
+
+    assert_eq!(std::fs::read(dir.path().join("a.md")).unwrap(), b"# Hi\n");
+    assert_eq!(
+        std::fs::read(dir.path().join("b.md")).unwrap(),
+        b"# There\n"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("c.md")).unwrap(),
+        b"# World\n"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("bad.md")).unwrap(),
+        bad_content.as_bytes()
+    );
+}
+
+#[test]
 fn walked_binary_is_skipped_not_errored() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("logo.bin"), [0xFFu8, 0xFE, 0x00, 0x01]).unwrap();

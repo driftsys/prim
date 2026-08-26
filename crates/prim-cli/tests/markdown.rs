@@ -109,3 +109,21 @@ fn fenced_code_and_link_preserved_in_place() {
     );
     assert!(out.contains("const x=1"), "fenced code verbatim: {out:?}");
 }
+
+#[test]
+fn unicode_space_after_ascii_space_does_not_panic() {
+    // Issue #115: dprint-plugin-markdown has a debug assertion that panics
+    // on Unicode space separators (U+1680, U+2000-U+200A, U+202F, U+205F, U+3000)
+    // FOLLOWING an ASCII space. The assertion is in the is_list_word tokenizer.
+    for verb in ["fmt", "lint"] {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.md");
+        let content = "a \u{2009}b\n";
+        fs::write(&file, content).unwrap();
+
+        prim().arg(verb).arg(&file).assert().success();
+
+        // The content should remain byte-for-byte unchanged.
+        assert_eq!(fs::read(&file).unwrap(), content.as_bytes());
+    }
+}
