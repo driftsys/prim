@@ -16,10 +16,6 @@ target
 # MarkSpec LSP artifact (no .markspec.yaml in this repo — see driftsys/markspec#609)
 .markspec/
 
-# Superpowers working memory (specs/plans) — private/local working memory
-docs/wip/
-docs/archive/
-
 # Superpowers SDD session scaffolding (briefs, reports, review diffs) — ephemeral
 .superpowers/
 
