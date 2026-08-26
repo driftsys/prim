@@ -109,3 +109,20 @@ fn fenced_code_and_link_preserved_in_place() {
     );
     assert!(out.contains("const x=1"), "fenced code verbatim: {out:?}");
 }
+
+#[test]
+fn whitespace_inside_a_word_does_not_panic() {
+    // Issue #115: dprint-plugin-markdown asserts, in debug builds only, that
+    // a word holds no whitespace other than U+00A0 — see AD-0006 for the full
+    // condition and the dev-profile override that silences it. This pins the
+    // file path end to end; the whole character set is covered by
+    // prim-fmt's markdown::tests::whitespace_inside_a_word_does_not_panic.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.md");
+    let content = "a \u{2009}b\n";
+    fs::write(&file, content).unwrap();
+
+    prim().arg("fmt").arg(&file).assert().success();
+
+    assert_eq!(fs::read(&file).unwrap(), content.as_bytes());
+}

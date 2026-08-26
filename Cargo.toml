@@ -22,3 +22,10 @@ codegen-units = 1
 # dev/test builds are equally robust. See AD-0006.
 [profile.dev.package.dprint-core]
 debug-assertions = false
+
+# dprint-plugin-markdown ships a debug-only assertion (is_list_word in utils.rs)
+# that panics on valid Markdown holding whitespace inside a word. Release builds
+# compile it out; disable it here so prim's dev/test builds are equally robust.
+# AD-0006 states the exact trigger condition. No upstream issue has been filed.
+[profile.dev.package.dprint-plugin-markdown]
+debug-assertions = false
