@@ -1,5 +1,7 @@
 use super::*;
 
+mod rule_fixtures;
+
 const DEFECT_RULES: [&str; 13] = [
     "MD042", "MD011", "MD052", "MD056", "MD062", "MD057", "MD034", "MD051", "MD045", "MD075",
     "MD066", "MD068", "MD070",
@@ -103,40 +105,6 @@ This is an intentionally long line that would violate line-length linting if pri
 }
 
 #[test]
-fn verifies_selected_rumdl_extension_rules_on_real_markdown() {
-    let cases = [
-        ("MD062", "[link]( https://example.com )\n", true),
-        ("MD066", "Text with orphan[^missing].\n", true),
-        ("MD068", "Text with [^1].\n\n[^1]:\n", true),
-        (
-            "MD070",
-            "```markdown\n```rust\nfn main() {}\n```\n```\n",
-            true,
-        ),
-        (
-            "MD075",
-            "Some text.\n\n| value1 | description1 |\n| value2 | description2 |\n",
-            true,
-        ),
-        ("MD080", "# Setup & Run\n\n# Setup  Run\n", true),
-    ];
-
-    for (rule, src, is_error) in cases {
-        let diags = lint(src, true, &[]);
-        let diag = diags
-            .iter()
-            .find(|d| d.rule == rule)
-            .unwrap_or_else(|| panic!("{rule} did not fire: {diags:?}"));
-        assert_eq!(diag.is_error, is_error, "{rule} severity: {diags:?}");
-        assert!(diag.line >= 1, "{rule} keeps 1-indexed lines: {diags:?}");
-        assert!(
-            diag.column >= 1,
-            "{rule} keeps 1-indexed columns: {diags:?}"
-        );
-    }
-}
-
-#[test]
 fn reports_a_bare_url_with_real_line_col() {
     let src = "See https://example.com for details.\n";
     let diags = lint(src, false, &[]);
@@ -234,20 +202,5 @@ fn a_look_alike_comment_that_is_not_the_sole_line_content_is_ignored() {
     );
 }
 
-#[test]
-fn a_front_matter_title_is_metadata_not_a_heading() {
-    let page = "---\ntitle: FAQ\n---\n\n# FAQ\n\nText.\n";
-    assert!(
-        lint(page, true, &[]).iter().all(|d| d.rule != "MD025"),
-        "front-matter title plus one body H1 is a normal page: {:?}",
-        lint(page, true, &[])
-    );
-
-    let two_titles = "# One\n\nText.\n\n# Two\n\nText.\n";
-    assert!(
-        lint(two_titles, true, &[])
-            .iter()
-            .any(|d| d.rule == "MD025"),
-        "two real top-level headings are still reported"
-    );
-}
+// MD025's front-matter-title fixture lives in `rule_fixtures` alongside the
+// rest of the per-rule fixture table (issue #120).
