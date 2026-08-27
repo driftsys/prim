@@ -163,6 +163,17 @@ source-code formatter and has **no plugin system**.
   differently and the value it would take, and shall still make whatever other
   writes pass the check.
 
+  `root = true` stops EditorConfig's upward walk for every key and every file
+  type, not just prim's own, so writing it into a nested directory drops
+  whatever a parent configured. Whenever `prim init` writes `root = true` —
+  scaffolding a new file or prepending to an existing one — and the target
+  directory currently reaches an `.editorconfig` above it that sets at least one
+  key, it shall warn, naming those files and the keys that stop applying. An
+  ancestor that sets nothing but `root` is left out: cutting the walk off from
+  it loses nothing. The write is still made; the prepend is mandated and
+  `prim init` cannot know whether the author wants the parent cascade, so this
+  is a warning and never a refusal.
+
   When a section is missing and the file's own existing section order already
   contradicts the canonical order — for example an existing `[**/SUMMARY.md]`
   written before the strict glob — no position satisfies that order; `prim init`
