@@ -189,6 +189,10 @@ fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
                 )
             });
         assert!(diag.is_error, "{}: {strict_diags:?}", fixture.rule);
+        // A smoke check that the rule reported a position at all, not that it
+        // reported the right one: an offset applied to every diagnostic would
+        // survive this. `mdlint::tests::reports_a_bare_url_with_real_line_col`
+        // is what pins the mapping, and it does catch such an offset.
         assert!(
             diag.line >= 1,
             "{}: 1-indexed line: {strict_diags:?}",
