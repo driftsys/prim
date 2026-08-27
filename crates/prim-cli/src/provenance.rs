@@ -203,12 +203,13 @@ fn indent_size_origin(props: &Properties) -> SettingOrigin {
 /// glob to — `[` + the exact bracket contents (whitespace kept, any trailing
 /// comment stripped) + `]` — rather than the raw source line. `explain`'s job
 /// is to say what governed the resolution: for a header like
-/// `[docs/**.md] # book docs` or the accidental `[ *.md ]`, the raw line
-/// mixes the glob with text that plays no part in matching (a comment), or
-/// hides which part of the line does (interior whitespace easy to miss at a
-/// glance). The line number `explain` already prints beside this is what
-/// sends the reader to the exact line to edit; this reconstruction is what
-/// tells them what it means.
+/// `[docs/**.md] # book docs`, the raw line mixes the glob with a trailing
+/// comment that plays no part in matching. For `[ *.md ]`, the reconstruction
+/// is byte-identical to the raw line — whitespace is kept exactly, so there
+/// is nothing to strip — and the choice only matters for the comment case.
+/// The line number `explain` already prints beside this is what sends the
+/// reader to the exact line to edit; this reconstruction is what tells them
+/// what it means.
 fn section_header_before(file: &Path, line_number: usize) -> Option<String> {
     let text = std::fs::read_to_string(file).ok()?;
     text.lines()

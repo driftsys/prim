@@ -116,6 +116,15 @@ fn is_comment(c: char) -> bool {
 /// prim mirrors that asymmetry deliberately. Treating a BOM'd first-line
 /// header as a section would put prim back in the position issue #117 is
 /// about: writing a key into a section the resolver does not see.
+///
+/// That is the answer for one line in isolation, not for a whole file: a
+/// BOM'd first-line header makes `ConfigParser` reject the file entirely (its
+/// preamble scan never finds a section to stop at), while this function only
+/// marks index 0 invalid and lets every later line parse normally. Both of
+/// prim's aggregate callers already bail out on a file `ConfigParser` cannot
+/// read at all, so this is not a live bug — but a future caller must not rely
+/// on this function's per-line answer alone to predict what the whole file
+/// resolves to.
 pub(crate) fn parse_at(line: &str, index: usize) -> Line<'_> {
     if index != 0 {
         return parse(line);
@@ -225,7 +234,7 @@ mod differential {
     use super::*;
     use std::path::Path;
 
-    /// Which of the two ways a line can be checked against real `ec4rs`
+    /// Which of the three ways a line can be checked against real `ec4rs`
     /// through its public API applies to it.
     #[derive(Clone, Copy)]
     enum Shape {
@@ -241,18 +250,28 @@ mod differential {
         /// `root`), so a pair can only be observed once it is inside a
         /// section.
         Body,
+        /// Feed the candidate as the file's whole first line and read
+        /// `ConfigParser::is_root` back, instead of iterating for a section.
+        /// This is the only shape that can observe a BOM'd first-line *pair*
+        /// at all: `Header` looks for a section (there is none to find), and
+        /// `Body` puts the candidate on line 2, where there is no BOM to
+        /// strip either way.
+        Root,
     }
 
-    /// Probes chosen to expose the two ways a glob can differ without
+    /// Probes chosen to expose three ways a glob can differ without
     /// changing its displayed brackets: interior whitespace (`" a.md "`
-    /// matches the glob from `[ *.md ]` but not from `[*.md]`) and a `#`/`;`
+    /// matches the glob from `[ *.md ]` but not from `[*.md]`), a `#`/`;`
     /// inside the brackets that is not a comment (`"foo#bar"` matches the
-    /// glob from `[foo#bar]` only when nothing was stripped from it).
+    /// glob from `[foo#bar]` only when nothing was stripped from it), and a
+    /// `]` inside the brackets (`"a]b.md"` matches the glob from `[a]b.md]`
+    /// only when the outer brackets are found from the correct ends — the
+    /// first `[` and the *last* `]`, not the first `]`).
     /// [`Section::applies_to`] is the only way the public API exposes a
     /// glob's identity at all, so these are the full extent of what a
     /// [`Line::Section`] payload can be checked against — see the note on
     /// [`Verdict::Section`].
-    const PROBES: [&str; 3] = ["a.md", " a.md ", "foo#bar"];
+    const PROBES: [&str; 4] = ["a.md", " a.md ", "foo#bar", "a]b.md"];
 
     /// What either parser concluded about one line, reduced to what is
     /// actually observable through `ec4rs`'s public API.
@@ -265,8 +284,15 @@ mod differential {
         /// matches, which is everything [`ec4rs::Section::applies_to`] can
         /// tell us.
         Section([bool; PROBES.len()]),
+        /// The key is lowercased before comparison, matching `ec4rs`'s own
+        /// `Section::insert` — a deliberate loss of discrimination here, the
+        /// same kind of trade-off [`Verdict::Section`] makes above, for a
+        /// different reason.
         Pair(String, String),
         Invalid,
+        /// See [`Shape::Root`]: whether the preamble read the candidate as
+        /// `root = true`.
+        Root(bool),
     }
 
     fn probe_results(section: &ec4rs::Section) -> [bool; PROBES.len()] {
@@ -274,18 +300,29 @@ mod differential {
     }
 
     fn prim_verdict(line: &str, shape: Shape) -> Verdict {
-        // A `Header`-shape case stands as the file's whole first line, so it
-        // is index 0; a `Body`-shape case sits under a wrapping `[*]`, so it
-        // is index 1. Only index 0 has any BOM handling to get wrong.
-        let index = match shape {
-            Shape::Header => 0,
-            Shape::Body => 1,
-        };
-        match parse_at(line, index) {
-            Line::Nothing => Verdict::Nothing,
-            Line::Invalid => Verdict::Invalid,
-            Line::Section(glob) => Verdict::Section(probe_results(&ec4rs::Section::new(glob))),
-            Line::Pair(key, value) => Verdict::Pair(key.to_ascii_lowercase(), value.to_string()),
+        match shape {
+            Shape::Root => Verdict::Root(matches!(
+                parse_at(line, 0),
+                Line::Pair(key, value)
+                    if key.eq_ignore_ascii_case("root") && value.eq_ignore_ascii_case("true")
+            )),
+            Shape::Header | Shape::Body => {
+                // A `Header`-shape case stands as the file's whole first
+                // line, so it is index 0; a `Body`-shape case sits under a
+                // wrapping `[*]`, so it is index 1. Only index 0 has any BOM
+                // handling to get wrong.
+                let index = if matches!(shape, Shape::Header) { 0 } else { 1 };
+                match parse_at(line, index) {
+                    Line::Nothing => Verdict::Nothing,
+                    Line::Invalid => Verdict::Invalid,
+                    Line::Section(glob) => {
+                        Verdict::Section(probe_results(&ec4rs::Section::new(glob)))
+                    }
+                    Line::Pair(key, value) => {
+                        Verdict::Pair(key.to_ascii_lowercase(), value.to_string())
+                    }
+                }
+            }
         }
     }
 
@@ -298,6 +335,13 @@ mod differential {
     /// preamble level of `ConfigParser` exposes).
     fn ec4rs_verdict(line: &str, shape: Shape) -> Verdict {
         match shape {
+            Shape::Root => {
+                let document = format!("{line}\n");
+                let is_root = ec4rs::ConfigParser::new_buffered(document.as_bytes())
+                    .expect("a single preamble pair line always parses")
+                    .is_root;
+                Verdict::Root(is_root)
+            }
             Shape::Header => {
                 let document = format!("{line}\n");
                 match ec4rs::ConfigParser::new_buffered(document.as_bytes()) {
@@ -349,11 +393,31 @@ mod differential {
         ("key=value", Shape::Body),
         ("key = value # c", Shape::Body),
         ("key = a]b # c", Shape::Body),
+        // `ec4rs`'s `allow-empty-values` feature (off in prim's dependency)
+        // would turn this into a valid pair instead of `Invalid`; this row is
+        // what would catch that feature being switched on by a future
+        // dependency bump or by unifying prim's own `parse` with it.
         ("key =", Shape::Body),
         ("= value", Shape::Body),
         ("", Shape::Body),
         ("   ", Shape::Body),
         ("\u{FEFF}[*.md]", Shape::Header),
+        // The other half of the BOM asymmetry `parse_at` documents: on a
+        // later physical line (line 2, under the wrapping `[*]` header), the
+        // literal U+FEFF is never stripped, so this is invalid on both sides
+        // instead of surviving as a pair.
+        ("\u{FEFF}[*.md]", Shape::Body),
+        // MAJOR 1: a BOM'd `root = true` is the one shape the old table never
+        // exercised — `sections.rs::has_top_level_root` depends on `ec4rs`
+        // seeing this as root, through the field the differential table did
+        // not read before.
+        ("\u{FEFF}root = true", Shape::Root),
+        ("root = true", Shape::Root),
+        // MAJOR 2: a `]` inside a trailing comment, and inside the glob
+        // itself — both pin `rfind(']')` against a mutant that would use the
+        // first `]` instead.
+        ("[*.md] # see [docs]", Shape::Header),
+        ("[a]b.md]", Shape::Header),
     ];
 
     #[test]

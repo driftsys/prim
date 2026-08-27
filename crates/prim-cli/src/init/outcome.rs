@@ -227,11 +227,20 @@ pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<St
             } else if resolved == value {
                 continue;
             } else {
-                // A section cannot come after itself: when the scan and
-                // EditorConfig's own matcher disagree about a header —
-                // `[ *.md ]` with spaces, say — the section prim found can be
-                // this very one, and naming it as the winner would be
-                // nonsense.
+                // `occurrence` and the section `deciding_section` names both
+                // now come from the same header parse and the same `ec4rs`
+                // matcher, so if `occurrence` were the one deciding `probe`,
+                // `resolved == value` above would already have taken this
+                // path — the two sides cannot disagree about which section
+                // that is, and this filter is expected to be unreachable.
+                // Verified: reintroducing the pre-#117 `.trim()` into
+                // `editorconfig::line::parse`'s header case — the exact
+                // divergence between prim's own scan and real `ec4rs` this
+                // commit removes — makes this filter fire again for
+                // `route_8`'s fixture. It stays as defence-in-depth against
+                // `line.rs` and `ec4rs` drifting apart again in the future,
+                // at the cost of one `.filter`; the fallback message below
+                // exists for the same reason.
                 let winner = deciding_section(&lines, &headers, probe)
                     .filter(|(line, _)| *line != occurrence.header_line)
                     .map(|(line, glob)| {

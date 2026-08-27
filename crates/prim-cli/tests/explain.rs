@@ -51,13 +51,23 @@ fn explain_names_a_section_with_a_trailing_comment_by_its_glob_not_the_raw_line(
     .unwrap();
     let file = dir.path().join("doc.md");
 
-    prim().arg("explain").arg(&file).assert().success().stdout(
-        predicate::str::contains("max_line_length")
-            .and(predicate::str::contains("100"))
-            .and(predicate::str::contains(config.display().to_string()))
-            .and(predicate::str::contains(":3"))
-            .and(predicate::str::contains("[*.md]"))
-            .and(predicate::str::contains("markdown files").not()),
+    let assert = prim().arg("explain").arg(&file).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let max_line_length_line = stdout
+        .lines()
+        .find(|line| line.contains("max_line_length"))
+        .expect("max_line_length line present in output");
+    assert!(
+        max_line_length_line.contains("= 100"),
+        "got: {max_line_length_line}"
+    );
+    assert!(
+        max_line_length_line.ends_with(&format!("{}:3 [*.md])", config.display())),
+        "got: {max_line_length_line}"
+    );
+    assert!(
+        !max_line_length_line.contains("markdown files"),
+        "the comment plays no part in matching and must not be shown: {max_line_length_line}"
     );
 }
 

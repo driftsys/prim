@@ -406,17 +406,19 @@ fn route_7_a_write_that_takes_a_path_off_an_explicit_section_says_so() {
 }
 
 #[test]
-fn route_8_a_section_is_never_named_as_the_thing_that_beat_it() {
+fn route_8_a_missing_canonical_section_is_added_when_an_existing_header_has_interior_whitespace() {
     // `[ docs/**.md ]` — with spaces — matches nothing, because EditorConfig
     // does not trim inside the brackets. prim's own scan used to trim, so it
-    // read that header as its canonical `docs/**.md`, appended the key to a
-    // section that decides nothing, and could then name that same section as
-    // the one that defeated the path it was scanning for — "it comes after
-    // itself", which cannot happen (issue #117).
+    // read that header as its canonical `docs/**.md` and appended the key to
+    // a section that decided nothing (issue #117).
     //
     // prim now reads the header the way `ec4rs` does, so the spaced section
     // is somebody else's, the canonical one is simply missing, and prim adds
-    // it in canonical order.
+    // it in canonical order. Mutation evidence: restoring
+    // `Line::Section(glob.trim())` in the header scan (the pre-fix trimming
+    // behaviour) makes this test fail, which is what pins it to the new
+    // parsing rather than to the retired self-reference guard it used to be
+    // named for.
     let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[ docs/**.md ]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let dir = fixture(content);
 
