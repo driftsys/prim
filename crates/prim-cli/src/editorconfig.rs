@@ -16,6 +16,8 @@ use prim_fmt::{Indent, LineEnding, Style};
 
 use crate::ui;
 
+pub(crate) mod line;
+
 /// One parsed `.editorconfig` in a cascade: the directory that contains it
 /// (globs match relative to it) and its sections, parsed once and reused.
 struct CachedConfig {

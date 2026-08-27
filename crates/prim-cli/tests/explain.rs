@@ -36,6 +36,42 @@ fn explain_reports_configured_settings_with_their_editorconfig_source() {
 }
 
 #[test]
+fn explain_names_a_section_with_a_trailing_comment_by_its_glob_not_the_raw_line() {
+    // Reproduction (issue #117, shape 2): prim's own scanner required a
+    // trimmed line to end in ']', so a header with a trailing comment was not
+    // recognized at all, and `explain` could not name the section that set
+    // the value. It must now recognize the header and show the glob alone,
+    // without the comment that played no part in matching.
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join(".editorconfig");
+    fs::write(
+        &config,
+        "root = true\n[*.md] # markdown files\nmax_line_length = 100\n",
+    )
+    .unwrap();
+    let file = dir.path().join("doc.md");
+
+    let assert = prim().arg("explain").arg(&file).assert().success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let max_line_length_line = stdout
+        .lines()
+        .find(|line| line.contains("max_line_length"))
+        .expect("max_line_length line present in output");
+    assert!(
+        max_line_length_line.contains("= 100"),
+        "got: {max_line_length_line}"
+    );
+    assert!(
+        max_line_length_line.ends_with(&format!("{}:3 [*.md])", config.display())),
+        "got: {max_line_length_line}"
+    );
+    assert!(
+        !max_line_length_line.contains("markdown files"),
+        "the comment plays no part in matching and must not be shown: {max_line_length_line}"
+    );
+}
+
+#[test]
 fn explain_reports_prims_default_when_no_editorconfig_sets_a_key() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("a.json");

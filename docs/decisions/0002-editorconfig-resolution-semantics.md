@@ -72,6 +72,31 @@ applies: profile first, cache only if NFR-4 (5,000 files < 2 s) shows pressure.
 This is the fail-safe posture: a bad config file should not silently corrupt
 output or block the tool.
 
+**Line-level parsing is reimplemented, not called, and is pinned to `ec4rs`'s
+`ConfigParser`, not its private `parse_line`.** `.editorconfig`-writing and
+`.editorconfig`-explaining code (`prim init`'s section scan, `prim explain`'s
+provenance lookup) each need to classify one raw line as a section header, a
+key/value pair, or neither — the same job `ec4rs`'s own line parser does. That
+parser lives in a private module `ec4rs` does not export, so prim carries its
+own copy (`crates/prim-cli/src/editorconfig/line.rs`) rather than depending on
+an unstable internal. Two independent hand-rolled copies of that job existed
+before and diverged from `ec4rs` and from each other on a section header's
+brackets and trailing comments, so `prim init` could write a key into a section
+the resolver did not actually see (issue #117). `ConfigParser` — public, and the
+thing that actually resolves prim's settings — is the authority prim's copy is
+checked against, not `parse_line` directly, because agreeing with the private
+function would not guarantee agreeing with what prim's own resolution depends
+on. `ConfigParser` also contradicts `parse_line` in one place: a UTF-8 BOM on a
+file's first line is stripped before classifying a key/value pair, but not
+before re-parsing a section header, so a BOM'd first-line header is invalid
+while a BOM'd first-line pair is not. prim's copy deliberately mirrors that
+asymmetry rather than resolving it, to stay agreeing with `ConfigParser`.
+Holding the copy to this is a differential test that drives real `ec4rs` through
+`ConfigParser` and checks prim's verdict against it line by line; it, not a
+compiler check, is what must be re-verified — reading `ec4rs`'s `linereader.rs`
+again and updating both if it changed — on every `ec4rs` version bump, including
+one that only changes the lockfile.
+
 ## Consequences
 
 `ec4rs` appears as a `prim-cli` dependency. It does not appear in `prim-fmt`.
