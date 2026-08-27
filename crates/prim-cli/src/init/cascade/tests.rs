@@ -60,7 +60,7 @@ fn the_walk_stops_where_editorconfig_stops() {
 }
 
 #[test]
-fn every_contributing_ancestor_is_named() {
+fn every_contributing_ancestor_is_named_in_the_order_editorconfig_applies_them() {
     let dir = tempfile::tempdir().unwrap();
     let middle = dir.path().join("middle");
     let sub = middle.join("sub");
@@ -69,9 +69,34 @@ fn every_contributing_ancestor_is_named() {
     fs::write(middle.join(".editorconfig"), "[*.md]\nindent_size = 4\n").unwrap();
 
     let inherited = from_ancestors(&sub).expect("both ancestors set a key");
-    assert_eq!(inherited.files.len(), 2);
+    assert_eq!(
+        inherited.files,
+        vec![
+            dir.path().join(".editorconfig"),
+            middle.join(".editorconfig")
+        ],
+        "farthest ancestor first, the order EditorConfig applies them in"
+    );
     assert!(inherited.keys.contains("max_line_length"));
     assert!(inherited.keys.contains("indent_size"));
+}
+
+#[test]
+fn a_key_written_before_any_section_is_left_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    // `ec4rs` applies nothing written above the first section header, so
+    // prim never resolved `indent_size` here and must not claim it is lost.
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "indent_size = 2\n[*.md]\nmax_line_length = 120\n",
+    )
+    .unwrap();
+
+    let inherited = from_ancestors(&sub).unwrap();
+    assert!(inherited.keys.contains("max_line_length"));
+    assert!(!inherited.keys.contains("indent_size"));
 }
 
 #[test]

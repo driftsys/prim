@@ -168,9 +168,11 @@ source-code formatter and has **no plugin system**.
   whatever a parent configured. Whenever `prim init` writes `root = true` —
   scaffolding a new file or prepending to an existing one — and the target
   directory currently reaches an `.editorconfig` above it that sets at least one
-  key, it shall warn, naming those files and the keys that stop applying. An
-  ancestor that sets nothing but `root` is left out: cutting the walk off from
-  it loses nothing. The write is still made; the prepend is mandated and
+  key in a section, it shall warn, naming those files and the keys that no
+  longer reach the directory. An ancestor that sets nothing but `root` is left
+  out: cutting the walk off from it loses nothing. Keys written before any
+  section header are left out too, because EditorConfig does not apply them and
+  prim never resolved them. The write is still made; the prepend is mandated and
   `prim init` cannot know whether the author wants the parent cascade, so this
   is a warning and never a refusal.
 

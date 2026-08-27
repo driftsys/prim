@@ -113,6 +113,54 @@ fn a_directory_with_no_parent_editorconfig_is_not_reported() {
 }
 
 #[test]
+fn a_relative_path_does_not_report_the_directorys_own_editorconfig() {
+    // `ec4rs` absolutizes a relative probe, so comparing its answers against
+    // a relative directory once made prim name the file it was writing as an
+    // ancestor it had cut itself off from. `prim init` with no PATH passes
+    // `.`, so this is the ordinary invocation, not an edge case.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "[*.md]\nmax_line_length = 120\n",
+    )
+    .unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("no longer inherit").not());
+}
+
+#[test]
+fn a_relative_subdirectory_reports_only_the_real_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::write(dir.path().join(".editorconfig"), PARENT).unwrap();
+    fs::write(sub.join(".editorconfig"), "[*.txt]\nindent_size = 3\n").unwrap();
+
+    let stderr = String::from_utf8(
+        prim()
+            .current_dir(dir.path())
+            .args(["init", "sub"])
+            .assert()
+            .success()
+            .get_output()
+            .stderr
+            .clone(),
+    )
+    .unwrap();
+
+    assert!(stderr.contains("max_line_length"), "{stderr}");
+    assert!(
+        !stderr.contains("indent_size"),
+        "the directory's own file is not an ancestor: {stderr}"
+    );
+}
+
+#[test]
 fn a_cascade_an_intervening_root_already_cut_is_not_reported() {
     let dir = tempfile::tempdir().unwrap();
     let middle = dir.path().join("middle");

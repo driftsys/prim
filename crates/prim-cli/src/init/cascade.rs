@@ -17,9 +17,13 @@ use super::EDITORCONFIG_NAME;
 
 /// What a directory currently inherits from `.editorconfig` files above it.
 pub(super) struct Inheritance {
-    /// The ancestor files that set at least one key, nearest first. A file
-    /// that sets nothing — one carrying only `root = true`, say — is left
-    /// out: cutting the walk off from it loses nothing to report.
+    /// The ancestor files that set at least one key in a section, in the
+    /// order EditorConfig applies them: farthest ancestor first. A file that
+    /// sets nothing in a section — one carrying only `root = true`, say — is
+    /// left out, because cutting the walk off from it loses nothing to
+    /// report. Keys written before any section header are left out too, for
+    /// the same reason: `ec4rs` does not apply them, so prim never resolved
+    /// them either.
     files: Vec<PathBuf>,
     /// Every key those files set, deduplicated and ordered so the message is
     /// stable between runs.
@@ -36,20 +40,34 @@ pub(super) fn from_ancestors(dir: &Path) -> Option<Inheritance> {
     // The probe need not exist; only its directory steers the walk. Matches
     // `editorconfig::build_cascade`.
     let probe = dir.join(EDITORCONFIG_NAME);
+    // `ec4rs` absolutizes a relative probe against the working directory, so
+    // the paths it reports back are absolute. Comparing them against a
+    // relative `dir` would never match, and `dir`'s own `.editorconfig` —
+    // the file prim is about to write — would be mistaken for an ancestor.
+    // `prim init` with no PATH argument passes `.`, so that is the common
+    // case, not an edge one.
+    let own_dir = if dir.is_relative() {
+        std::env::current_dir().ok()?.join(dir)
+    } else {
+        dir.to_path_buf()
+    };
     let mut files = Vec::new();
     let mut keys = BTreeSet::new();
 
     for mut file in ConfigFiles::open(&probe, Option::<&Path>::None).ok()? {
         let path = file.path.clone();
-        // `dir`'s own `.editorconfig` is the file prim is about to write, not
-        // something it inherits.
-        if path.parent() == Some(dir) {
+        if path.parent() == Some(own_dir.as_path()) {
             continue;
         }
         let mut sets_anything = false;
         for section in file.by_ref() {
-            // A malformed ancestor is nothing this warning can speak for, and
-            // `build_cascade` already reports it on the resolution path.
+            // A malformed ancestor is not something this warning can speak
+            // for. `editorconfig::build_cascade` reports it when prim next
+            // resolves a file, but `prim init` never builds a resolver, so
+            // during this command the reader hears nothing. That is
+            // tolerable only because prim drops the whole cascade to
+            // canonical style on a malformed config anyway, so nothing prim
+            // itself resolves is being severed.
             let Ok(section) = section else { return None };
             for (key, _) in section.props().iter() {
                 sets_anything = true;
@@ -71,7 +89,9 @@ pub(super) fn from_ancestors(dir: &Path) -> Option<Inheritance> {
 /// The keys listed are everything those files set, not everything that
 /// applied to any particular file in `dir` — a section whose glob matches
 /// nothing here is still listed. Narrowing it would need a representative
-/// path, and a directory has no single representative file.
+/// path, and a directory has no single representative file. The wording says
+/// the keys no longer reach the directory rather than that they stop
+/// applying, because the second would claim more than this can check.
 pub(super) fn severing_warning(dir: &Path, inherited: &Inheritance) -> String {
     let files = inherited
         .files
@@ -87,8 +107,8 @@ pub(super) fn severing_warning(dir: &Path, inherited: &Inheritance) -> String {
         .join(", ");
     format!(
         "{}: prim wrote root = true, which EditorConfig requires here, so files under this \
-         directory no longer inherit from {files} — the keys set there ({keys}) stop applying. \
-         Delete the root = true line to keep inheriting them.",
+         directory no longer inherit from {files} — the keys set there ({keys}) no longer reach \
+         this directory. Delete the root = true line to keep inheriting them.",
         dir.display()
     )
 }
