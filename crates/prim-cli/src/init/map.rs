@@ -17,6 +17,10 @@ use super::{DOCS_WIP_DIR, DOCS_WIP_GLOB, EVERYTHING_GLOB, MDLINT_STRICT_KEY};
 pub(super) struct MergeResult {
     pub(super) contents: String,
     pub(super) actions: Vec<String>,
+    /// Whether this merge prepends `root = true`. Carried out rather than
+    /// re-derived by the caller, so the cascade warning can never disagree
+    /// with the write it is about (see [`super::cascade`]).
+    pub(super) added_root: bool,
     /// Everything prim could not do to this file, each entry naming work the
     /// reader now has to do by hand — prim never reorders sections a person
     /// wrote. Three things land here: a change prim planned and dropped (a
@@ -202,6 +206,7 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
         return MergeResult {
             contents: existing.to_string(),
             actions: Vec::new(),
+            added_root: false,
             warnings: vec![
                 "this .editorconfig does not parse as EditorConfig, so prim cannot tell what a \
                  change to it would resolve to and made none"
@@ -357,6 +362,7 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
     MergeResult {
         contents,
         actions,
+        added_root,
         warnings,
     }
 }

@@ -254,6 +254,38 @@ ordinary `[*.md] max_line_length = 80` appended after a map that already sets
 the key — takes no part in prim's ordering, so it never makes `prim init` refuse
 to work.
 
+### Running `prim init` in a subdirectory
+
+EditorConfig requires `root = true` at the top of the file prim writes, and
+`root = true` stops EditorConfig's upward walk — for every key and every file
+type, not just prim's own. In a subdirectory of a repository that already has an
+`.editorconfig`, that means everything the parent configured stops reaching the
+files below:
+
+```console
+$ prim explain sub/a.md | grep max_line_length
+  max_line_length = 120  (.editorconfig:3 [*.md])
+$ prim init sub
+warning: sub: prim wrote root = true, which EditorConfig requires here, so files
+under this directory no longer inherit from .editorconfig — the keys set there
+(max_line_length) no longer reach this directory. Delete the root = true line to
+keep inheriting them.
+$ prim explain sub/a.md | grep max_line_length
+  max_line_length = unset  (prim's default)
+```
+
+prim still makes the write — the `root = true` line is mandated, and `prim init`
+cannot know whether you wanted the parent cascade. Delete that line if you did.
+
+The warning names every ancestor `.editorconfig` that becomes unreachable and
+every key those files set in a section. It lists what those files set, not what
+applied to any particular file below, so a section whose glob matches nothing
+here is still named. An ancestor that carries only `root = true` is left out,
+because cutting the walk off from it loses nothing, and so is a key written
+before the first section header, because EditorConfig never applied it. Running
+`prim init` at the top of a repository, where there is nothing above to inherit
+from, prints no warning.
+
 ## `prim explain`
 
 `prim explain <PATH>` prints every `.editorconfig` setting that applies to
