@@ -57,10 +57,6 @@ const RULE_FIXTURES: &[RuleFixture] = &[
         floor: true,
         src: "[link]( https://example.com )\n",
     },
-    // MD057 (existing relative links) is deliberately absent from this
-    // table — it cannot fire through prim's entry point at all. See issue
-    // #134 and `md057_cannot_fire_because_lint_never_passes_a_source_file`
-    // below.
     RuleFixture {
         rule: "MD034",
         floor: true,
@@ -222,9 +218,8 @@ fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
 }
 
 #[test]
-fn rule_fixtures_cover_every_active_rule_exactly_once_except_the_documented_md057_gap() {
+fn rule_fixtures_cover_every_active_rule_exactly_once() {
     let mut covered: Vec<&str> = RULE_FIXTURES.iter().map(|f| f.rule).collect();
-    covered.push("MD057");
     covered.sort_unstable();
 
     let mut active: Vec<&str> = ACTIVE_RULES.iter().map(|p| p.rule).collect();
@@ -232,26 +227,7 @@ fn rule_fixtures_cover_every_active_rule_exactly_once_except_the_documented_md05
 
     assert_eq!(
         covered, active,
-        "every ACTIVE_RULES entry needs exactly one fixture, or the documented MD057 exception"
-    );
-}
-
-#[test]
-fn md057_cannot_fire_because_lint_never_passes_a_source_file() {
-    // MD057 (existing relative links) resolves a link's target against the
-    // directory of the file being linted. rumdl derives that directory from
-    // `LintContext::source_file`, and `lint()` (see `mdlint.rs`) always calls
-    // `rumdl_lib::lint` with `source_file: None` to keep the engine pure (no
-    // path/I/O). Without a source file, rumdl's own check has no base
-    // directory to resolve against and returns before inspecting any link —
-    // so MD057 cannot fire through prim's lint entry point today, regardless
-    // of how broken the link is. This is a real gap in prim's coverage, not
-    // a fixture problem: filed as issue #134 rather than worked around here.
-    let src = "[broken](./does-not-exist.md)\n";
-    let diags = lint(src, true, &[]);
-    assert!(
-        diags.iter().all(|d| d.rule != "MD057"),
-        "MD057 is currently unreachable through lint(): {diags:?}"
+        "every ACTIVE_RULES entry needs exactly one fixture"
     );
 }
 

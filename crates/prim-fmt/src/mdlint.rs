@@ -81,7 +81,6 @@ const ACTIVE_RULES: &[RulePolicy] = &[
     defect("MD052"),
     defect("MD056"),
     defect("MD062"),
-    defect("MD057"),
     defect("MD034"),
     defect("MD051"),
     defect("MD045"),
