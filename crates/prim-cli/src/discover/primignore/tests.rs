@@ -321,3 +321,73 @@ fn one_cache_answers_for_a_sibling_after_an_excluded_directory() {
         "the sibling beside `a/b/` is untouched by that answer"
     );
 }
+
+/// A directory reachable two ways: its own resolved path, and a symlink to it.
+#[cfg(unix)]
+fn directory_reachable_two_ways() -> (PathBuf, PathBuf, tempfile::TempDir, tempfile::TempDir) {
+    let temp = tempfile::tempdir().unwrap();
+    let real = fs::canonicalize(temp.path()).unwrap();
+    write(&real.join("sub/file.md"), "#  File\n");
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    (real, link, temp, elsewhere)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_into_the_working_directory_keeps_every_rule_between() {
+    // The symlink may point anywhere under the working directory rather than
+    // at it, and the search must still read every `.primignore` between the
+    // path and that point. Comparing an ancestor for equality with the working
+    // directory finds no bound at all here, and the search stops at the
+    // pointed-at directory — short of the rule protecting the file (#113).
+    let temp = tempfile::tempdir().unwrap();
+    let working = fs::canonicalize(temp.path()).unwrap();
+    write(&working.join("inner/build/doc.md"), "#  Doc\n");
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(working.join("inner"), &link).unwrap();
+
+    assert_eq!(
+        bound_from(&link.join("build/doc.md"), Some(working)).as_deref(),
+        Some(link.as_path()),
+        "the bound is the outermost ancestor still inside the working \
+         directory, so `link/.primignore` is still read"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_working_directory_that_is_not_reported_resolved_still_bounds_the_search() {
+    // Both sides of the comparison are resolved, not just the path's. On Unix
+    // `std::env::current_dir` already reports a resolved path, so this stands
+    // in for the platform where it does not: on Windows it reports `C:\...`
+    // while resolving one yields the verbatim `\\?\C:\...` form, and comparing
+    // the two spellings would lose the bound exactly as #113 did. That target
+    // is built by CI but never tested on, so the seam is checked here instead.
+    let (real, link, _temp, _elsewhere) = directory_reachable_two_ways();
+
+    assert_eq!(
+        bound_from(&real.join("sub/file.md"), Some(link)).as_deref(),
+        Some(real.as_path()),
+        "the working directory bounds the search however it is reported"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_bound_is_named_the_way_the_path_under_it_is() {
+    // The answer has to be an ancestor of the path *as spelled*, because that
+    // is what `matchers_between` climbs. Handing back the resolved spelling
+    // would be the same defect from the other side.
+    let (real, link, _temp, _elsewhere) = directory_reachable_two_ways();
+
+    assert_eq!(
+        bound_from(&link.join("sub/file.md"), Some(real)).as_deref(),
+        Some(link.as_path()),
+        "the bound is spelled the way the search will walk"
+    );
+}

@@ -69,6 +69,15 @@ pub(crate) enum Verdict {
 /// search before it reaches the `.primignore` that names it, or the escape
 /// hatch stops protecting the files it was added for.
 pub(crate) fn bound_for(path: &Path) -> Option<PathBuf> {
+    bound_from(path, std::env::current_dir().ok())
+}
+
+/// [`bound_for`], with the working directory passed in.
+///
+/// A test suite running in parallel from one process cannot move the process
+/// working directory, so the rule that both sides of this comparison are
+/// resolved before comparing is checked through this seam instead.
+fn bound_from(path: &Path, working_directory: Option<PathBuf>) -> Option<PathBuf> {
     // A file cannot hold a `.git` entry, and its own directory is where the
     // search starts, so resolve the bound from a directory either way.
     let absolute = normalized(path)?;
@@ -86,10 +95,51 @@ pub(crate) fn bound_for(path: &Path) -> Option<PathBuf> {
     // somewhere beneath it, and otherwise at the pointed-at directory itself: a
     // bound the search can never reach is no bound at all, and would let it
     // climb out into an unrelated tree.
-    match std::env::current_dir() {
-        Ok(cwd) if start.starts_with(&cwd) => Some(cwd),
-        _ => Some(start),
+    working_directory
+        .and_then(|cwd| working_directory_bound(&start, &cwd))
+        .or(Some(start))
+}
+
+/// The outermost ancestor of `start` still inside `cwd`, named the way `start`
+/// is.
+///
+/// `std::path::absolute` leaves a symlink in place while
+/// `std::env::current_dir` reports a resolved path, so a path spelled through a
+/// symlink shares no prefix with the working directory even when it lies
+/// beneath it, and the search stopped at the pointed-at directory — short of
+/// the `.primignore` protecting the file (#113).
+///
+/// Ancestors are therefore compared with the working directory in resolved
+/// form, and the last one still inside it becomes the bound. What comes back is
+/// that ancestor's own spelling, because that is what the search walks; nothing
+/// is resolved for matching. AD-0009 records why, and what the rule does not
+/// reach.
+///
+/// The plain prefix test above answers the common case without a system call.
+/// The comparison below is reached at most once per path prim was pointed at —
+/// never for each file under one.
+fn working_directory_bound(start: &Path, cwd: &Path) -> Option<PathBuf> {
+    if start.starts_with(cwd) {
+        return Some(cwd.to_path_buf());
     }
+    let resolved_cwd = std::fs::canonicalize(cwd).ok()?;
+    let mut bound = None;
+    for ancestor in start.ancestors() {
+        match std::fs::canonicalize(ancestor) {
+            // A directory that does not exist yet says nothing about where the
+            // path sits, so the climb carries on to a directory that can
+            // answer. That keeps a named path that does not exist bounded the
+            // way the same path would be were it there (FR-4.6).
+            Err(_) if bound.is_none() => continue,
+            Ok(resolved) if resolved.starts_with(&resolved_cwd) => bound = Some(ancestor),
+            // The first directory outside the working directory ends the run,
+            // and so does one that cannot be resolved once the run has begun:
+            // every directory between the path and the bound has to be known
+            // to be inside, or the bound stops guaranteeing anything.
+            _ => break,
+        }
+    }
+    bound.map(Path::to_path_buf)
 }
 
 /// `path`, made absolute and then normalized lexically: `.` components dropped

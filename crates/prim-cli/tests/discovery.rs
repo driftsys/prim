@@ -1116,3 +1116,362 @@ fn a_gate_pointed_at_an_ignored_working_directory_exits_two() {
         .stdout(predicates::str::is_empty())
         .stderr(predicates::str::contains(".primignore"));
 }
+
+/// A tree outside any repository, reachable by two spellings: its own resolved
+/// path, and a symlink pointing at it. Returns both, plus the temp dirs that
+/// must outlive them.
+#[cfg(unix)]
+fn tree_reachable_two_ways() -> (
+    std::path::PathBuf,
+    std::path::PathBuf,
+    tempfile::TempDir,
+    tempfile::TempDir,
+) {
+    let temp = tempfile::tempdir().unwrap();
+    // No `.git` anywhere: this is the working-directory half of the bound.
+    let real = std::fs::canonicalize(temp.path()).unwrap();
+    std::fs::write(real.join(".primignore"), "build/\n").unwrap();
+    std::fs::create_dir_all(real.join("build/inner")).unwrap();
+    // Non-canonical on purpose: prim would rewrite it if it processed it.
+    std::fs::write(real.join("build/inner/doc.md"), "#  Doc\n").unwrap();
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    (real, link, temp, elsewhere)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_spelling_gets_the_same_answer_as_the_resolved_one() {
+    // #113: outside a repository the bound is the working directory, which
+    // `std::env::current_dir` reports with its symlinks resolved, while the
+    // path prim was given kept its own. The prefix test never matched, so the
+    // search stopped at the pointed-at directory, short of the rule protecting
+    // the file, and the same file got two answers.
+    let (real, link, _temp, _elsewhere) = tree_reachable_two_ways();
+
+    for spelling in [&real, &link] {
+        prim()
+            .current_dir(&real)
+            .args(["fmt", "--check"])
+            .arg(spelling.join("build/inner/doc.md"))
+            .assert()
+            .code(2)
+            .stdout(predicates::str::is_empty())
+            .stderr(predicates::str::contains("matched by .primignore"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_spelling_does_not_rewrite_a_protected_file() {
+    // The destructive form: the escape hatch has to hold however the path is
+    // spelled, which is AD-0009's promise.
+    let (real, link, _temp, _elsewhere) = tree_reachable_two_ways();
+
+    prim()
+        .current_dir(&real)
+        .arg("fmt")
+        .arg(link.join("build/inner/doc.md"))
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("matched by .primignore"));
+
+    assert_eq!(
+        std::fs::read_to_string(real.join("build/inner/doc.md")).unwrap(),
+        "#  Doc\n",
+        "a `.primignore`d file must survive being named through a symlink"
+    );
+}
+
+/// A repository holding a symlink to a tree outside it, nested one level down
+/// so a `.primignore` can be planted *above* the repository — where an
+/// unbounded lexical climb would actually reach. Returns the repository path,
+/// the directory above it, and the outside tree — the last two own the temp
+/// directories, which must outlive the first.
+#[cfg(unix)]
+fn repository_with_a_symlinked_directory()
+-> (std::path::PathBuf, tempfile::TempDir, tempfile::TempDir) {
+    let above = tempfile::tempdir().unwrap();
+    let repo = above.path().join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(outside.path().join("tree")).unwrap();
+    // Non-canonical on purpose: prim would rewrite it if it processed it.
+    std::fs::write(outside.path().join("tree/b.md"), "#  B\n").unwrap();
+    std::os::unix::fs::symlink(outside.path().join("tree"), repo.join("link")).unwrap();
+    (repo, above, outside)
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rule_naming_a_symlinked_directory_covers_what_is_written_through_it() {
+    // Matching is lexical, as git's is: a rule naming a symlinked directory
+    // covers the paths spelled through it. Resolving the symlink away would
+    // stop the rule matching and rewrite the file it protects — and `git`
+    // declines to match through such a path at all rather than resolving it.
+    let (repo, _above, outside) = repository_with_a_symlinked_directory();
+    std::fs::write(repo.join(".primignore"), "link/\n").unwrap();
+
+    prim()
+        .current_dir(&repo)
+        .args(["fmt", "link/b.md"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("matched by .primignore"));
+
+    assert_eq!(
+        std::fs::read_to_string(outside.path().join("tree/b.md")).unwrap(),
+        "#  B\n",
+        "a rule naming the symlink must still protect what is under it"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_directory_named_on_the_command_line_stays_bounded() {
+    // The bound has to be reachable from the entries walked beneath it. One
+    // spelled differently from those entries is never matched, and the search
+    // climbs past the repository into a `.primignore` that does not govern it —
+    // here the one planted above the repository.
+    let (repo, above, _outside) = repository_with_a_symlinked_directory();
+    // The trap sits above the repository, which is where an unbounded lexical
+    // climb goes. The repository root is the bound, so it must never be read.
+    std::fs::write(above.path().join(".primignore"), "b.md\n").unwrap();
+
+    prim()
+        .current_dir(&repo)
+        .args(["fmt", "--check", "link"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("b.md"))
+        .stderr(predicates::str::contains(".primignore").not());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_primignore_above_the_working_directory_does_not_reach_a_symlinked_spelling() {
+    // A guard against over-correcting: the bound must not be widened past the
+    // working directory, and must not be handed back resolved — either would
+    // make this search unbounded and skip the file. The symlinked sibling of
+    // `a_primignore_above_the_working_directory_does_not_cover_a_named_directory`.
+    // (It does not pin #113 itself: the pre-fix fallback bound gave the same
+    // answer here.)
+    let (real, link, _temp, _elsewhere) = tree_reachable_two_ways();
+
+    prim()
+        .current_dir(real.join("build/inner"))
+        .args(["fmt", "--check"])
+        .arg(link.join("build/inner/doc.md"))
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"))
+        .stderr(predicates::str::contains(".primignore").not());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_into_the_working_directory_does_not_rewrite_a_protected_file() {
+    // The symlink points at a *subdirectory* of the working directory, which
+    // is the shape a bound compared for equality never finds. The `.primignore`
+    // between the file and that point still has to be read.
+    let temp = tempfile::tempdir().unwrap();
+    let working = std::fs::canonicalize(temp.path()).unwrap();
+    std::fs::create_dir_all(working.join("inner/build")).unwrap();
+    std::fs::write(working.join("inner/.primignore"), "build/\n").unwrap();
+    std::fs::write(working.join("inner/build/doc.md"), "#  Doc\n").unwrap();
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(working.join("inner"), &link).unwrap();
+
+    prim()
+        .current_dir(&working)
+        .arg("fmt")
+        .arg(link.join("build/doc.md"))
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("matched by .primignore"));
+
+    assert_eq!(
+        std::fs::read_to_string(working.join("inner/build/doc.md")).unwrap(),
+        "#  Doc\n",
+        "the rule between the file and the working directory still protects it"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rule_naming_a_symlink_to_a_file_matches_it_under_its_own_name() {
+    // Matching is lexical for a file as much as for a directory: the rule
+    // names `link.md`, and that is the name prim judges — not `real.md`, the
+    // target it points at.
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+    std::fs::write(repo.path().join(".primignore"), "link.md\n").unwrap();
+    std::fs::write(repo.path().join("real.md"), "#  Real\n").unwrap();
+    std::os::unix::fs::symlink("real.md", repo.path().join("link.md")).unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "link.md"])
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("matched by .primignore"));
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("real.md")).unwrap(),
+        "#  Real\n",
+        "the rule names the link, so the file behind it is left alone"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_nonexistent_path_spelled_through_a_symlink_is_still_an_error() {
+    // `canonicalize` fails on a path that does not exist, which is the risk
+    // the issue named for this fix. The bound falls back rather than failing,
+    // so FR-4.6's existence error still comes out. (A missing path the
+    // `.primignore` does cover is skipped instead — the rule decides before
+    // existence does, as it does for any other spelling.)
+    let (real, link, _temp, _elsewhere) = tree_reachable_two_ways();
+
+    prim()
+        .current_dir(&real)
+        .args(["fmt", "--check"])
+        .arg(link.join("missing/doc.md"))
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("No such file"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_directory_spelled_through_a_symlink_is_bounded_and_not_escaped() {
+    // The walk route through the fixed code, which every other test here
+    // reaches only for a named file. Two things at once: the tree's own
+    // `.primignore` must be found (or `prim fmt` rewrites what it protects),
+    // and the one beside the symlink must not be, because it sits above the
+    // bound and governs nothing here.
+    let temp = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(temp.path()).unwrap();
+    std::fs::write(real.join(".primignore"), "build/\n").unwrap();
+    std::fs::create_dir_all(real.join("build/inner")).unwrap();
+    std::fs::write(real.join("build/inner/doc.md"), "#  Doc\n").unwrap();
+    std::fs::write(real.join("kept.md"), "#  Kept\n").unwrap();
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    // The trap: read only if the search climbs out past its bound.
+    std::fs::write(elsewhere.path().join(".primignore"), "kept.md\n").unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    // The symlink itself is the pointed-at path, so the bound lands on it
+    // rather than on the directory holding it — which is what keeps the trap
+    // out of the search.
+    prim()
+        .current_dir(&real)
+        .args(["fmt", "--check"])
+        .arg(&link)
+        .assert()
+        .code(1)
+        .stdout(
+            predicates::str::contains("kept.md").and(predicates::str::contains("doc.md").not()),
+        );
+
+    prim()
+        .current_dir(&real)
+        .arg("fmt")
+        .arg(&link)
+        .assert()
+        .success();
+
+    assert_eq!(
+        std::fs::read_to_string(real.join("build/inner/doc.md")).unwrap(),
+        "#  Doc\n",
+        "a directory named through a symlink is covered by the tree's own rule"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_directory_gets_the_same_answer_in_either_spelling() {
+    // A directory that does not exist yet says nothing about where the path
+    // sits, so the climb carries on rather than giving up — otherwise the two
+    // spellings disagree about a path neither can stat.
+    let temp = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(temp.path()).unwrap();
+    std::fs::write(real.join(".primignore"), "missing/\n").unwrap();
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    for spelling in [&real, &link] {
+        prim()
+            .current_dir(&real)
+            .arg("fmt")
+            .arg(spelling.join("missing/doc.md"))
+            .assert()
+            .success()
+            .stderr(predicates::str::contains("matched by .primignore"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_missing_path_under_the_working_directory_is_still_covered_by_its_rules() {
+    // The ordinary spelling of the case above: a rule covering a directory
+    // that does not exist yet still applies to a path named under it. The
+    // climb reaches the working directory whether the plain prefix test
+    // answers first or not.
+    let temp = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(temp.path()).unwrap();
+    std::fs::write(real.join(".primignore"), "missing/\n").unwrap();
+
+    prim()
+        .current_dir(&real)
+        .arg("fmt")
+        .arg(real.join("missing/doc.md"))
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("matched by .primignore"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_rule_above_the_symlinks_target_is_not_reached_through_that_spelling() {
+    // The limit AD-0009 records, pinned so it reads as decided rather than as a
+    // live defect. The rule sits above the directory the symlink points at, so
+    // the path as spelled never passes it and no bound can put it on the
+    // search. Reaching it would mean matching the resolved path against a rule
+    // the given path never passes — the option AD-0009 rejects, and the one
+    // `git` declines by refusing to answer for such a path at all.
+    let temp = tempfile::tempdir().unwrap();
+    let working = std::fs::canonicalize(temp.path()).unwrap();
+    std::fs::write(working.join(".primignore"), "build/\n").unwrap();
+    std::fs::create_dir_all(working.join("inner/build")).unwrap();
+    std::fs::write(working.join("inner/build/doc.md"), "#  Doc\n").unwrap();
+
+    let elsewhere = tempfile::tempdir().unwrap();
+    let link = elsewhere.path().join("link");
+    std::os::unix::fs::symlink(working.join("inner"), &link).unwrap();
+
+    // Named as it resolves, the rule at the tree root covers it.
+    prim()
+        .current_dir(&working)
+        .args(["fmt", "--check", "inner/build/doc.md"])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("matched by .primignore"));
+
+    // Named through the symlink, that rule is above the reachable bound.
+    prim()
+        .current_dir(&working)
+        .args(["fmt", "--check"])
+        .arg(link.join("build/doc.md"))
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("doc.md"));
+}

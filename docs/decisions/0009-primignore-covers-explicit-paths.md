@@ -9,6 +9,13 @@ the file.
 Amended for #112: point 5 adds the one case where a skip does raise the exit
 code. Breaking: `prim fmt --check <ignored-path>` now exits `2` rather than `0`.
 
+Amended for #113: where the working directory is the bound, the search climbs a
+symlinked spelling as far as the directories holding it resolve inside the
+working directory. Breaking: a `.primignore` at or below the outermost such
+directory now applies to that spelling, where it was silently missed before. A
+rule above it is still not reached — see the limit recorded in the Decision
+section.
+
 Amended for #114: a named path now obeys gitignore's re-inclusion rule, as a
 walked one always did. Breaking: a `!` rule under an excluded directory no
 longer re-includes the file it names. The two routes agree on the file, which is
@@ -179,12 +186,61 @@ search short of the `.primignore` that names it, and the byte-exact fixtures the
 escape hatch exists to protect would be rewritten.
 
 A bound must also be one the search can actually reach. Where prim is pointed
-outside the working directory with no repository above it, the working directory
-is not an ancestor of anything being considered, so the bound becomes the
-pointed-at directory itself; otherwise the search would pass every ancestor
+outside the working directory with no repository above it, and no directory
+holding the path resolves inside the working directory either, the bound becomes
+the pointed-at directory itself; otherwise the search would pass every ancestor
 without ever matching one and climb to the filesystem root. Paths are normalized
 lexically first, because `..` left in place would make the directory it points
 out of an ancestor of the result.
+
+That leaves the working-directory half of the bound, where the two sides were
+spelled differently and the prefix test never matched. `std::path::absolute`
+leaves a symlink in place while `std::env::current_dir` reports a resolved path,
+so a path spelled through a symlink shares no prefix with the working directory
+even when it lies beneath it. The bound was then never reached, the fallback
+treated it as one the search could not reach, and the search stopped at the
+pointed-at directory — short of the `.primignore` protecting the file. That is
+the destructive direction: `prim fmt` rewrote a file its own `.primignore`
+covers when that file was named through a symlinked path (#113).
+
+So where the plain prefix test fails, the directories holding the path are
+compared with the working directory in resolved form, climbing while each one
+still resolves inside it. The last that does becomes the bound: the symlink may
+point anywhere under the working directory rather than at it, and every
+`.primignore` between the path and that point still has to be read. What comes
+back is that directory's own spelling, because that spelling is what the search
+climbs. The comparison is reached at most once per path prim was pointed at —
+never once per file beneath one, and not at all where a repository bounds the
+search or the prefix test has already answered.
+
+Only the comparison resolves. Matching stays lexical, which is what gitignore
+semantics require: a rule naming a symlinked directory covers the paths written
+through it, and resolving the symlink away would silently stop that rule
+matching. `git` does not resolve either — it declines to match through such a
+path at all.
+
+That leaves a limit worth stating, because it is not a defect to be fixed later.
+A rule **above** the directory a symlink points at is not reached through that
+spelling: the path as spelled never passes it, so no bound can put it on the
+search. A `.primignore` naming `build/` at a tree root covers
+`<root>/inner/build/doc.md`, and does not cover the same file named as
+`<link>/build/doc.md` where `link` points at `<root>/inner`. Reaching it would
+mean matching the resolved path against a rule the given path never passes,
+which is the option rejected below. Prim answers with what the spelling
+supports: the fix closes the distance up to the symlink's target, not past it.
+
+## Alternatives considered for #113
+
+- **Resolve paths for matching.** Rejected: a `.primignore` naming a symlinked
+  directory then matches nothing, because the name the rule uses is resolved
+  away before matching — a rule written to protect a tree stops protecting it,
+  which is worse than the defect. It also disagrees with `git`, which never
+  resolves a path for ignore matching.
+- **Refuse a path that goes through a symlinked directory,** as `git` does
+  (`fatal: pathspec ... is beyond a symbolic link`). Rejected for now: prim is
+  handed paths by hooks and editors that do not choose their spelling, and
+  declining to format them is a larger change to the CLI contract than this
+  defect warrants. It is the only route that closes the limit above.
 
 This bound was added with AD-0011, after a stray `.primignore` in a parent
 directory was found to silently change how prim treated every repository beneath
@@ -251,9 +307,9 @@ For point 5 (#112):
 
 ---
 
-Satisfies: #98, #110, #112, and #114; reshapes FR-4.4 and adds FR-4.4a, FR-4.4b,
-and FR-4.4c. Related: AD-0007 (verb surface — the skip is per-verb-uniform,
-though point 5's exit code separates the gates from the writing modes),
-`crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/discover/primignore.rs`,
-`crates/prim-cli/src/cli.rs`, `crates/prim-cli/src/app/paths.rs`,
-`docs/recipes.md`.
+Satisfies: #98, #110, #112, #113, and #114; reshapes FR-4.4 and adds FR-4.4a,
+FR-4.4b, and FR-4.4c. Related: AD-0007 (verb surface — the skip is
+per-verb-uniform, though point 5's exit code separates the gates from the
+writing modes), `crates/prim-cli/src/discover.rs`,
+`crates/prim-cli/src/discover/primignore.rs`, `crates/prim-cli/src/cli.rs`,
+`crates/prim-cli/src/app/paths.rs`, `docs/recipes.md`.
