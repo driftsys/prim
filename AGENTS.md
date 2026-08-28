@@ -90,6 +90,11 @@ code.
 **Key dependencies:** `clap` (CLI), `clap_complete`/`clap_mangen` (completions +
 man pages), `yansi` (colour), `ignore` (recursive file discovery).
 
+When bumping a `dprint-*` dependency, re-check the `[profile.dev.package.*]`
+debug-assertion overrides in the workspace `Cargo.toml`: each comment names the
+regression tests to run before deciding whether the override is still needed
+(AD-0006).
+
 ## Workflow
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md) for the issue model, PR process, and

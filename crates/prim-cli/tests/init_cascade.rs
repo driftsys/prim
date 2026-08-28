@@ -176,3 +176,37 @@ fn a_cascade_an_intervening_root_already_cut_is_not_reported() {
         .success()
         .stderr(predicates::str::contains("no longer inherit").not());
 }
+
+#[test]
+fn a_parent_prim_cannot_parse_is_reported_and_the_write_still_happens() {
+    // Issue #133: `prim init` builds no resolver, so the report the
+    // resolution path makes for a malformed `.editorconfig` never reaches a
+    // reader of this command. prim cannot describe a cascade it could not
+    // read, so it names the file instead of claiming a specific loss.
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "[*.md]\nthis line has no equals sign\n",
+    )
+    .unwrap();
+
+    let parent_config = dir.path().join(".editorconfig").display().to_string();
+    prim()
+        .arg("init")
+        .arg(&sub)
+        .assert()
+        // A warning never raises the exit code.
+        .success()
+        .stderr(
+            predicates::str::contains("ignoring malformed .editorconfig")
+                .and(predicates::str::contains(parent_config)),
+        );
+
+    let contents = fs::read_to_string(sub.join(".editorconfig")).unwrap();
+    assert!(
+        contents.starts_with("root = true\n"),
+        "the write itself still happens: {contents}"
+    );
+}
