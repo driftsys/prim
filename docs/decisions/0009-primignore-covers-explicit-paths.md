@@ -9,6 +9,10 @@ the file.
 Amended for #112: point 5 adds the one case where a skip does raise the exit
 code. Breaking: `prim fmt --check <ignored-path>` now exits `2` rather than `0`.
 
+Amended for #114: a named path now obeys gitignore's re-inclusion rule, as a
+walked one always did. Breaking: a `!` rule under an excluded directory no
+longer re-includes the file it names.
+
 ## Context
 
 `.primignore` is prim's committed escape hatch (FR-4.4). The file prim ships in
@@ -137,11 +141,19 @@ own directory upward, nearest first. It does not register `.primignore` with the
 `ignore` crate's walker: that walker's ancestor stack has no bound and reads
 ignore files from every directory up to the filesystem root. Sharing one matcher
 between the two routes is what lets them give the same answer about the bound.
-It does not make every answer identical — a `!` rule in a nested `.primignore`
-still re-includes a file that walking would have pruned with its parent
-directory, which predates this decision and is tracked separately. Matchers are
-cached per directory and bound: a hook hands prim its whole staged list at once,
-and a walk yields a directory's entries together.
+Matchers are cached per directory and bound: a hook hands prim its whole staged
+list at once, and a walk yields a directory's entries together.
+
+Sharing the matcher is not by itself enough to make every answer identical. A
+walk applies gitignore's rule that a `!` rule cannot re-include a path under an
+excluded directory by pruning that directory and never descending; matching a
+named path stopped at the nearest `.primignore`, so a negation written there —
+or beside the exclusion itself — re-included a file the walk would never have
+offered (#114). prim therefore decides the directories holding a path first,
+each against the stack that governs it, and matches the rules naming the path
+only where every one of them survived. A negation still re-includes a file whose
+parents are not excluded, which is what the documented `!package-lock.json`
+recipe relies on (AD-0011).
 
 The search is bounded, so a `.primignore` belonging to another repository can
 never apply. The bound is the root of the repository containing whatever prim
@@ -198,6 +210,11 @@ a whole nested checkout.
   the fixtures entry protects the correctness harness's golden files.
 - prim's `.primignore` promise is now unconditional, which is what its own
   wording already claimed.
+- A `!` rule under an excluded directory stops re-including the file it names,
+  in the only invocation where it ever did. A repository that has one already
+  gets the excluded result from `prim fmt .`; the named form now agrees, rather
+  than the other way round. Where the negation is meant to hold, the directory
+  exclusion above it has to go.
 - A nested checkout that the enclosing `.primignore` names is processed when
   named directly and pruned when reached by walking the enclosing repository.
   That is a deliberate exception to "one answer per question": the two
@@ -232,8 +249,8 @@ For point 5 (#112):
 
 ---
 
-Satisfies: #98, #110, and #112; reshapes FR-4.4 and adds FR-4.4a, FR-4.4b, and
-FR-4.4c. Related: AD-0007 (verb surface — the skip is per-verb-uniform, though
-point 5's exit code separates the gates from the writing modes),
+Satisfies: #98, #110, #112, and #114; reshapes FR-4.4 and adds FR-4.4a, FR-4.4b,
+and FR-4.4c. Related: AD-0007 (verb surface — the skip is per-verb-uniform,
+though point 5's exit code separates the gates from the writing modes),
 `crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/cli.rs`,
 `crates/prim-cli/src/app/paths.rs`, `docs/recipes.md`.
