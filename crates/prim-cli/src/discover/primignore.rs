@@ -120,7 +120,8 @@ fn normalized(path: &Path) -> Option<PathBuf> {
 /// yields a directory's entries together. The cache is split by bound, since
 /// the same directory yields a different stack under a different one — and
 /// because a per-bound map is keyed by directory alone, which a `&Path` probes
-/// without allocating a key for every question.
+/// without allocating. Selecting the scope still allocates one key per
+/// question; the directory lookups inside it no longer do.
 #[derive(Default)]
 pub(crate) struct PrimignoreCache {
     scopes: BTreeMap<Option<PathBuf>, Scope>,

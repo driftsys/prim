@@ -11,7 +11,9 @@ code. Breaking: `prim fmt --check <ignored-path>` now exits `2` rather than `0`.
 
 Amended for #114: a named path now obeys gitignore's re-inclusion rule, as a
 walked one always did. Breaking: a `!` rule under an excluded directory no
-longer re-includes the file it names.
+longer re-includes the file it names. The two routes agree on the file, which is
+what #114 asked for; their exit codes still differ where the named form is a
+gate pointed only at that path, because point 5 then applies.
 
 ## Context
 

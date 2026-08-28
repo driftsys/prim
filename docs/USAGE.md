@@ -650,10 +650,11 @@ cases, the list behaves as the weakest `.primignore` layer (AD-0011): a
 committed `!name` line re-includes the file, and `--no-primignore` disables the
 built-in list along with the rest of the `.primignore` stack. The `!name` line
 works where nothing above the file is excluded, which is the documented recipe
-(`!package-lock.json` at the repository root). Where a `.primignore` also
-excludes a directory holding the file, the exclusion wins and the negation never
-reaches the built-in list — gitignore's rule that a `!` rule cannot re-include a
-path under an excluded directory.
+(`!package-lock.json` at the repository root). Where the `.primignore` stack
+leaves a directory holding the file excluded, that exclusion wins and the
+negation never reaches the built-in list — gitignore's rule that a `!` rule
+cannot re-include a path under an excluded directory. A directory a later `!`
+line puts back is not excluded, so an override under it still applies.
 
 `--stdin-filepath` and an editor's format-on-save request skip a listed file
 without a warning: stdin echoes the input back unchanged, and the LSP formatting

@@ -153,10 +153,10 @@ fn a_re_included_directory_does_not_stop_the_file_under_it() {
 #[test]
 fn a_nearer_negation_naming_a_parent_does_not_answer_for_the_file() {
     // `!c` re-includes the directory `c`, and says nothing about the file
-    // inside it. Folding the parents into the file's own match would let
-    // that nearer rule answer first and re-include `d.md`, which the outer
-    // rule names outright — the answer `git check-ignore` gives is
-    // "ignored, by `a/.primignore`".
+    // inside it. Folding the parents into the file's own match would let that
+    // nearer rule answer first and re-include `d.md`, which the rule at the
+    // repository root names outright — and `git check-ignore` reports that
+    // root file as the one that decides it.
     let repo = tempfile::tempdir().unwrap();
     fs::create_dir_all(repo.path().join(".git")).unwrap();
     write(&repo.path().join(".primignore"), "b/c/d.md\n");
@@ -233,5 +233,91 @@ fn the_enclosing_repository_still_prunes_a_nested_checkout_it_names() {
         PrimignoreCache::default().verdict(&worktree, true, bound_for(outer.path()).as_deref()),
         Verdict::Ignored,
         "under the outer repository's bound, its own rules still apply"
+    );
+}
+
+/// The shapes a directory exclusion can take, each paired with the verdict
+/// `git check-ignore` gives for `build/keep.md` under it. The negation is
+/// always `!build/keep.md`, so what varies is only how the directory is named —
+/// which is where gitignore semantics bite, and where a change to
+/// `Scope::is_covered` would show up first.
+const DIRECTORY_SHAPES: [(&str, Verdict); 6] = [
+    // A pattern that names the directory excludes it, and the negation under
+    // it cannot take the file back.
+    ("build/\n!build/keep.md\n", Verdict::Ignored),
+    ("build\n!build/keep.md\n", Verdict::Ignored),
+    // These name the directory's *contents*, so the directory itself is never
+    // excluded and the negation still works — including `build/*`, which is
+    // the migration path `docs/recipes.md` prescribes for a `.primignore` this
+    // rule breaks.
+    ("build/**\n!build/keep.md\n", Verdict::Whitelisted(true)),
+    ("**/build/**\n!build/keep.md\n", Verdict::Whitelisted(true)),
+    ("build/*\n!build/keep.md\n", Verdict::Whitelisted(true)),
+    // A directory `*` excluded and a later `!` line put back is not excluded.
+    ("*\n!build\n!build/keep.md\n", Verdict::Whitelisted(true)),
+];
+
+#[test]
+fn every_directory_shape_answers_the_way_git_does() {
+    for (rules, expected) in DIRECTORY_SHAPES {
+        let repo = tempfile::tempdir().unwrap();
+        fs::create_dir_all(repo.path().join(".git")).unwrap();
+        write(&repo.path().join(".primignore"), rules);
+        let keep = repo.path().join("build/keep.md");
+        write(&keep, "#  Keep\n");
+
+        assert_eq!(
+            PrimignoreCache::default().verdict(&keep, false, bound_for(&keep).as_deref()),
+            expected,
+            "`build/keep.md` under {rules:?}"
+        );
+    }
+}
+
+#[test]
+fn excluding_a_directorys_contents_still_covers_its_other_files() {
+    // The other half of the `build/*` migration path: the file the negation
+    // names comes back, and everything beside it stays covered.
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join(".git")).unwrap();
+    write(
+        &repo.path().join(".primignore"),
+        "build/*\n!build/keep.md\n",
+    );
+    let drop = repo.path().join("build/drop.md");
+    write(&drop, "#  Drop\n");
+
+    assert_eq!(
+        PrimignoreCache::default().verdict(&drop, false, bound_for(&drop).as_deref()),
+        Verdict::Ignored,
+        "only the file the negation names comes back"
+    );
+}
+
+#[test]
+fn one_cache_answers_for_a_sibling_after_an_excluded_directory() {
+    // The memo is keyed by the directory it describes. Keyed by anything else —
+    // its parent, say — the first question would poison the answer for every
+    // sibling of the excluded directory, which is what a hook handing prim a
+    // whole staged list would hit.
+    let repo = tempfile::tempdir().unwrap();
+    fs::create_dir_all(repo.path().join(".git")).unwrap();
+    write(&repo.path().join(".primignore"), "a/b/\n");
+    let inner = repo.path().join("a/b/inner.json");
+    write(&inner, "{\"a\" :1}\n");
+    let other = repo.path().join("a/other.json");
+    write(&other, "{\"a\" :1}\n");
+    let bound = bound_for(&inner);
+
+    let mut cache = PrimignoreCache::default();
+    assert_eq!(
+        cache.verdict(&inner, false, bound.as_deref()),
+        Verdict::Ignored,
+        "`a/b/` covers the file under it"
+    );
+    assert_eq!(
+        cache.verdict(&other, false, bound.as_deref()),
+        Verdict::Unmatched,
+        "the sibling beside `a/b/` is untouched by that answer"
     );
 }

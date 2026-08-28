@@ -100,7 +100,8 @@ pub(crate) enum Error {
 /// cannot make prim touch something walking to it would leave alone, so the
 /// "left byte-for-byte unchanged" promise holds however prim is invoked. A
 /// path matching the built-in generated-file list is dropped the same way
-/// (AD-0011), unless a `.primignore` whitelist entry re-includes it. The
+/// (AD-0011), unless a `.primignore` whitelist entry re-includes it — which it
+/// cannot do while a directory holding the file is excluded (#114). The
 /// dropped paths come back in [`Discovery::ignored`] for the caller to report.
 ///
 /// Fails when an `--exclude` glob is malformed (FR-4.5): a typo'd filter must
@@ -228,7 +229,8 @@ fn validate_excludes(excludes: &[String]) -> Result<(), Error> {
 /// Walk `root` recursively, adding every regular file with walked provenance.
 /// A path matching `.primignore` (FR-4.4) or the built-in generated-file list
 /// (AD-0011) is dropped from the walk silently; a `.primignore` whitelist
-/// entry re-includes a generated file that would otherwise be dropped.
+/// entry re-includes a generated file that would otherwise be dropped, unless a
+/// directory holding it is excluded (#114).
 ///
 /// `bound` is the walk's `.primignore` search bound, resolved once from `root`
 /// so every entry is judged against the same repository's rules.
