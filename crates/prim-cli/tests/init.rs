@@ -295,11 +295,11 @@ fn init_writes_lf_when_a_crlf_editorconfig_declares_no_end_of_line() {
     // FR-2.3: LF unless `.editorconfig` sets `end_of_line = crlf`. Leaving the
     // existing CRLF in place would hand `prim fmt --check` a file its own
     // `init` had just written and it would report as unformatted.
-    let bytes = fs::read(dir.path().join(".editorconfig")).unwrap();
+    let text = fs::read_to_string(dir.path().join(".editorconfig")).unwrap();
+    assert!(!text.contains('\r'), "expected uniform LF, got {text:?}");
     assert!(
-        !bytes.contains(&b'\r'),
-        "expected uniform LF, got {:?}",
-        String::from_utf8_lossy(&bytes)
+        text.contains("[docs/**.md]"),
+        "expected the map, got {text:?}"
     );
 }
 
@@ -314,11 +314,19 @@ fn init_writes_crlf_when_the_editorconfig_declares_end_of_line_crlf() {
 
     prim().arg("init").arg(dir.path()).assert().success();
 
+    // Every CR pairs with an LF and every LF with a CR. Asserting only "no bare
+    // LF" would accept `\r\r\n`, which is what dropping the CRLF collapse in
+    // `with_line_endings` produces.
     let text = fs::read_to_string(dir.path().join(".editorconfig")).unwrap();
-    let stray_lf = text
-        .match_indices('\n')
-        .any(|(at, _)| at == 0 || text.as_bytes()[at - 1] != b'\r');
-    assert!(!stray_lf, "expected uniform CRLF, got {text:?}");
+    assert_eq!(
+        text.matches('\r').count(),
+        text.matches('\n').count(),
+        "expected uniform CRLF, got {text:?}"
+    );
+    assert!(
+        text.split("\r\n").all(|line| !line.contains('\r')),
+        "expected uniform CRLF, got {text:?}"
+    );
 }
 
 #[test]
@@ -339,4 +347,95 @@ fn what_init_writes_survives_prims_own_format_gate() {
             .success()
             .stdout(predicates::str::is_empty());
     }
+}
+
+#[test]
+fn init_resolves_the_ending_for_editorconfig_not_for_some_other_file() {
+    let dir = tempfile::tempdir().unwrap();
+    // `end_of_line` is declared for Markdown only, so `.editorconfig` itself
+    // resolves to LF. A fixture using `[*]` cannot tell the two apart.
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nend_of_line = crlf\n",
+    )
+    .unwrap();
+
+    prim().arg("init").arg(dir.path()).assert().success();
+
+    let bytes = fs::read(dir.path().join(".editorconfig")).unwrap();
+    assert!(
+        !bytes.contains(&b'\r'),
+        "expected LF, got {:?}",
+        String::from_utf8_lossy(&bytes)
+    );
+}
+
+#[test]
+fn a_scaffold_under_a_crlf_ancestor_still_survives_the_format_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*]\nend_of_line = crlf\n",
+    )
+    .unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+
+    prim().arg("init").arg(&sub).assert().success();
+
+    // The scaffold's own `root = true` severs that ancestor, so the ending that
+    // applies to the new file is LF — resolving before the write would put CRLF
+    // here and `prim fmt --check` would report it.
+    prim()
+        .args(["fmt", "--check"])
+        .arg(sub.join(".editorconfig"))
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
+#[test]
+fn a_merge_that_adds_root_under_a_crlf_ancestor_survives_the_format_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*]\nend_of_line = crlf\n",
+    )
+    .unwrap();
+    let sub = dir.path().join("sub");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join(".editorconfig"), "[*.md]\r\nindent_size = 2\r\n").unwrap();
+
+    prim().arg("init").arg(&sub).assert().success();
+
+    prim()
+        .args(["fmt", "--check"])
+        .arg(sub.join(".editorconfig"))
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
+#[test]
+fn init_normalizes_a_bare_cr_editorconfig() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\r[*.md]\rindent_size = 2\r",
+    )
+    .unwrap();
+
+    prim().arg("init").arg(dir.path()).assert().success();
+
+    let bytes = fs::read(dir.path().join(".editorconfig")).unwrap();
+    assert!(
+        !bytes.contains(&b'\r'),
+        "expected LF, got {:?}",
+        String::from_utf8_lossy(&bytes)
+    );
+    prim()
+        .args(["fmt", "--check"])
+        .arg(dir.path().join(".editorconfig"))
+        .assert()
+        .success();
 }

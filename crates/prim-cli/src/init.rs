@@ -122,14 +122,11 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     })?;
     let editorconfig = target_dir.join(EDITORCONFIG_NAME);
     // Asked before any write: prim's own `root = true` stops the very walk
-    // this reads, so afterwards there is nothing left to find. The line ending
-    // is resolved here for that same reason.
+    // this reads, so afterwards there is nothing left to find.
     let ancestry = cascade::from_ancestors(target_dir);
-    let ending = editorconfig::resolve(&editorconfig).end_of_line;
 
     if !editorconfig.exists() {
-        let scaffold = with_line_endings(&scaffold, ending);
-        write::atomic(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
+        write_resolved(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
             path: editorconfig.clone(),
             source,
         })?;
@@ -182,8 +179,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         return Ok(Outcome { message });
     }
 
-    let contents = with_line_endings(&merged.contents, ending);
-    write::atomic(&editorconfig, &contents).map_err(|source| Error::WriteEditorConfig {
+    write_resolved(&editorconfig, &merged.contents).map_err(|source| Error::WriteEditorConfig {
         path: editorconfig.clone(),
         source,
     })?;
@@ -199,25 +195,42 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     })
 }
 
-/// Report the cascade `root = true` just cut off, if there is anything to
-/// report. Emitted after the write so it follows the write it describes, but
-/// read from `ancestry`, which was gathered before it. Never changes the exit
-/// code.
-/// `text` with every line ending rewritten to `ending`.
+/// Write `text` to `path` under the `end_of_line` that will apply to `path`
+/// once it is there.
 ///
-/// `prim init` builds its output from the existing file's lines plus its own
-/// additions, and those additions are written with LF. In a CRLF file that
-/// mixes the two. FR-2.3 settles which one wins: the `end_of_line` resolved
-/// for the file, the same one `prim fmt` would apply to it, so what `init`
-/// writes is what `prim fmt --check` accepts.
+/// `prim init` composes its output from the existing file's lines plus its own
+/// additions, which carry LF, so in a CRLF file the two mix. FR-2.3 says which
+/// one wins: the `end_of_line` resolved for the file.
+///
+/// That has to be resolved *after* the write, not before. The file prim writes
+/// opens with `root = true`, which stops EditorConfig's upward walk, so a
+/// `end_of_line` an ancestor declared before the write no longer applies to the
+/// file once it exists. Resolving first would write CRLF that the very next
+/// `prim fmt --check` reports. Writing LF first and correcting settles on what
+/// `prim fmt` will see, and costs a second write only where CRLF is asked for.
+fn write_resolved(path: &Path, text: &str) -> io::Result<()> {
+    write::atomic(path, &with_line_endings(text, LineEnding::Lf))?;
+    let ending = editorconfig::resolve(path).end_of_line;
+    if ending != LineEnding::Lf {
+        write::atomic(path, &with_line_endings(text, ending))?;
+    }
+    Ok(())
+}
+
+/// `text` with every line ending — CRLF, LF, or a bare CR — rewritten to
+/// `ending`.
 fn with_line_endings(text: &str, ending: LineEnding) -> String {
-    let lf = text.replace("\r\n", "\n");
+    let lf = text.replace("\r\n", "\n").replace('\r', "\n");
     match ending {
         LineEnding::Lf => lf,
         LineEnding::CrLf => lf.replace('\n', "\r\n"),
     }
 }
 
+/// Report the cascade `root = true` just cut off, if there is anything to
+/// report. Emitted after the write so it follows the write it describes, but
+/// read from `ancestry`, which was gathered before it. Never changes the exit
+/// code.
 fn warn_if_severed(target_dir: &Path, ancestry: &cascade::Ancestry) {
     if let Some(warning) = cascade::severing_warning(target_dir, ancestry) {
         ui::warning(&warning);

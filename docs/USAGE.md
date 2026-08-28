@@ -277,12 +277,20 @@ reads `.editorconfig left unchanged — see the warning(s) above` instead of
 `.editorconfig already contains the Markdown strict-glob map`, even on a run
 that writes nothing, because the two are different outcomes.
 
-`prim init` writes the whole file with the `end_of_line` resolved for
-`.editorconfig` itself, which is LF unless the resolved `.editorconfig` sets
-`end_of_line = crlf` (FR-2.3). It does not carry an existing file's line endings
-through: merging LF additions into a CRLF file would leave mixed endings, and a
-uniformly CRLF file with no `end_of_line` key is one `prim fmt --check` reports.
-What `prim init` writes is what `prim fmt` accepts.
+`prim init` writes the whole file under one line ending: the `end_of_line` that
+resolves for `.editorconfig` once the write has been made, which is LF unless
+the file prim writes itself sets `end_of_line = crlf` (FR-2.3). It does not
+carry an existing file's line endings through — merging LF additions into a CRLF
+file would leave mixed endings, and a uniformly CRLF file with no `end_of_line`
+key is a file that `prim fmt --check` reports.
+
+The ending is resolved after the write rather than before, because the
+`root = true` that `prim init` writes stops EditorConfig's upward walk: an
+`end_of_line` declared by an ancestor no longer reaches the file once prim has
+written it. So a scaffold placed under a CRLF-declaring parent is written LF,
+which is what `prim fmt` then resolves for it. A run that writes nothing — the
+map is already present — leaves the file exactly as it found it, line endings
+included.
 
 Running `prim init` twice is idempotent: once the map is present, the second run
 reports a no-op and leaves `.editorconfig` byte-identical. An occurrence of one
