@@ -55,6 +55,42 @@ fn route_5_a_narrower_section_that_defeats_the_map_is_reported() {
 }
 
 #[test]
+fn a_non_boolean_value_defeated_by_a_later_agreeing_section_is_reported_once() {
+    // `[*.md]` sets a value that is neither true nor false, which reads as
+    // the floor tier — and a later `[**.md]` sets the floor tier outright, so
+    // `[*.md]` also decides none of its own representatives. Both causes fire
+    // on the same occurrence; only the non-boolean one is true, so it must be
+    // the only one reported.
+    let content =
+        "root = true\n[*.md]\nprim_mdlint_strict = yes\n[**.md]\nprim_mdlint_strict = false\n";
+    let dir = fixture(content);
+    assert!(
+        !strict_for(dir.path(), "README.md"),
+        "precondition: README.md is at the floor tier either way"
+    );
+
+    run(dir.path()).unwrap();
+
+    let warnings = warnings_of(dir.path());
+    assert!(
+        warnings.contains(
+            "[*.md] (line 2) sets prim_mdlint_strict = yes, which is neither true nor false"
+        ),
+        "got: {warnings}"
+    );
+    assert_eq!(
+        warnings.matches("[*.md]").count(),
+        1,
+        "the non-boolean warning must be the only one naming [*.md]; got: {warnings}"
+    );
+    assert!(
+        !warnings.contains("no longer decides"),
+        "a value prim cannot read is not evidence the file resolved as intended, so it must not \
+         also be reported as inert; got: {warnings}"
+    );
+}
+
+#[test]
 fn route_6_a_value_that_is_neither_true_nor_false_is_reported() {
     // `prim_mdlint_strict = maybe` counts as the key being present, so prim
     // leaves the section alone — and every value but `true` resolves to
@@ -342,5 +378,34 @@ fn route_13_a_working_memory_exemption_swallowed_by_a_broader_override_is_report
         !strict_for(dir.path(), "docs/wip/plan.md"),
         "nothing resolves wrongly today: {}",
         editorconfig(dir.path())
+    );
+}
+
+#[test]
+fn a_book_src_a_section_s_own_glob_cannot_match_is_not_reported_as_inert() {
+    // `src = "docs[1]"` makes the strict glob `docs[1]/**.md`, where `[1]` is
+    // an EditorConfig character class, not a literal bracket — so the glob
+    // does not match the probe or witness paths built for it by concatenating
+    // `src` with a file name. Both representatives are therefore paths this
+    // section's own glob does not apply to, and prim cannot tell whether the
+    // section decides them or not; that must be left unreported, not read as
+    // "decides nothing". A trailing `[**.md]` resolves both paths to the same
+    // value the section itself declares, so the section is not defeated
+    // either — the only way an incorrect Inert warning could appear here is
+    // from counting the unmatchable representatives as "not owned" instead of
+    // leaving them out.
+    let dir = fixture(
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs[1]/**.md]\nprim_mdlint_strict = \
+         true\n[**.md]\nprim_mdlint_strict = true\n",
+    );
+    fs::write(dir.path().join("book.toml"), "[book]\nsrc = \"docs[1]\"\n").unwrap();
+
+    run(dir.path()).unwrap();
+
+    let warnings = warnings_of(dir.path());
+    assert!(
+        !warnings.contains("docs[1]/**.md"),
+        "a section prim could not build a matching probe for must not be reported at all; got: \
+         {warnings}"
     );
 }

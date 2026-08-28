@@ -262,12 +262,12 @@ pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<St
         // witness. A narrower, agreeing override still leaves the witness (a
         // path it cannot also reach) to this section; a section that reaches
         // every representative leaves it deciding nothing, worth a warning
-        // even though no value moved. Skipped once `Defeated` already fired
-        // for this spec, to avoid saying the same thing twice.
-        let already_defeated = failures
-            .iter()
-            .any(|(cause, _)| matches!(cause, Cause::Defeated { .. }));
-        if !already_defeated {
+        // even though no value moved. Skipped once any other failure already
+        // fired for this spec: `Defeated` already says a later section
+        // decides differently, and `NotBoolean` already says which tier the
+        // file actually gives, so `Inert` would either repeat that or
+        // contradict it.
+        if failures.is_empty() {
             let representatives = spec.probes.iter().chain(spec.witness.iter());
             let considered: Vec<bool> = representatives
                 .filter_map(|path| owns(&lines, &headers, occurrence.header_line, spec.glob, path))
@@ -300,15 +300,16 @@ pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<St
                     bool_word(resolved),
                 ),
                 Cause::Inert { winner } => format!(
-                    "[{}] (line {at}) sets {MDLINT_STRICT_KEY} = {}, but {winner} comes after it \
-                     and is what decides {paths}; the two agree today, so nothing resolves \
-                     wrongly, but [{}] decides nothing and will not hold the floor if it changes \
-                     — prim will not reorder sections a person wrote, so move [{}] after it \
-                     yourself if you want it to",
-                    spec.glob,
-                    bool_word(value),
-                    spec.glob,
-                    spec.glob,
+                    "[{glob}] (line {at}) sets {MDLINT_STRICT_KEY} = {word}, but {winner} comes \
+                     after it and decides {paths} instead — the path [{glob}] is there to place. \
+                     Both give {word} today, so nothing resolves wrongly, but [{glob}] will stop \
+                     applying to {paths} if that later value changes. To have [{glob}] decide \
+                     {paths}, move it after that section yourself; prim will not reorder sections \
+                     a person wrote. Leave the order alone if that section is a deliberate \
+                     narrower override — moving past it would take over every path it decides, \
+                     not only {paths}",
+                    glob = spec.glob,
+                    word = bool_word(value),
                 ),
             }
         }));

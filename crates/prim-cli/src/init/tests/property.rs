@@ -374,12 +374,20 @@ proptest! {
                 .filter_map(|probe| decider(&sections, probe))
                 .any(|winner| occurrences.contains(&winner));
 
+            // A warning is not enough on its own: it must name this spec, or
+            // it could be reporting a completely different section while
+            // this one goes unmentioned.
+            let named = result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains(&format!("[{}]", spec.glob)));
             prop_assert!(
-                decides || !result.warnings.is_empty(),
+                decides || named,
                 "glob [{}] carries {MDLINT_STRICT_KEY} in the file merge left behind, decides \
-                 none of its own representatives, and merge gave no warning\n--- before \
-                 ---\n{before}\n--- after ---\n{after}",
+                 none of its own representatives, and merge gave no warning naming it\n--- \
+                 before ---\n{before}\n--- after ---\n{after}\n--- warnings ---\n{:?}",
                 spec.glob,
+                result.warnings,
             );
         }
     }

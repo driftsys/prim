@@ -138,12 +138,10 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
             glob: "**/SUMMARY.md",
             value: false,
             probes: summary_probes,
-            // Already spans the strict glob's directory and both exempt
-            // directories, in three separate branches of the tree — no
-            // narrower override could swallow one without leaving the
-            // others standing, so a fourth representative would tell
-            // prim nothing a witness elsewhere already does.
-            witness: None,
+            // Outside the strict glob's directory and both exempt
+            // directories, so an ordinary broader override of any of
+            // those — `[docs/**]`, say — cannot also reach it.
+            witness: Some("prim-witness/SUMMARY.md".to_string()),
         },
         true,
     ));

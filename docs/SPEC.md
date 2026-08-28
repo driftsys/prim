@@ -193,22 +193,22 @@ source-code formatter and has **no plugin system**.
   canonical section present in it that carries `prim_mdlint_strict`, it shall
   warn when that section does not decide its own representative paths — either
   because a later section overrides it, or because its value is one prim does
-  not read as a tier (every value but `true` resolves to `false`). The section
-  is reported when it decides none of the paths it is meant to decide, not
-  merely when a later section happens to set a different value: a later section
-  that agrees on value but still decides the path leaves the earlier section
-  holding nothing, and that must be reported too. To tell that case apart from a
-  person's narrower override that still leaves the section deciding other paths,
-  `prim init` resolves one further representative per canonical section, never
-  named in any message. That covers a section prim planned no write for because
-  the key was already there, and equally one that prim's own write has just
-  taken a path away from. It is a warning, never a refusal: a person's narrower
-  override is legitimate, and `prim init` shall stay able to report on a file it
-  disagrees with. It shall never reorder sections a person wrote. An occurrence
-  of a canonical glob that neither sets `prim_mdlint_strict` nor receives it —
-  an ordinary `[*.md] max_line_length = 80` — shall take no part in that
-  ordering. Running `prim init` twice shall be a byte-identical no-op on the
-  second run.
+  not read as a tier (every value but `true` resolves to `false`). It shall warn
+  when the section decides none of its representative paths, not merely when a
+  later section happens to set a different value for one of them: a later
+  section that agrees on value but still decides the path leaves the earlier
+  section deciding none of its own representatives, and that must be reported
+  too. To tell that case apart from a person's narrower override that still
+  leaves the section deciding other paths, `prim init` resolves one further
+  representative per canonical section, never named in any message. That covers
+  a section prim planned no write for because the key was already there, and
+  equally one that prim's own write has just taken a path away from. It is a
+  warning, never a refusal: a person's narrower override is legitimate, and
+  `prim init` shall stay able to report on a file it disagrees with. It shall
+  never reorder sections a person wrote. An occurrence of a canonical glob that
+  neither sets `prim_mdlint_strict` nor receives it — an ordinary
+  `[*.md] max_line_length = 80` — shall take no part in that ordering. Running
+  `prim init` twice shall be a byte-identical no-op on the second run.
 
 ## FR-4 — File discovery
 

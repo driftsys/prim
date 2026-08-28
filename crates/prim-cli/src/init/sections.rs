@@ -24,8 +24,7 @@ pub(super) struct SectionSpec<'a> {
     /// this section decide everything else) apart from a later section that
     /// genuinely decides nothing this section is for (see
     /// [`super::outcome::defeated_sections`]). Never named in a message.
-    /// `None` when `probes` already spans directories a swallowing narrower
-    /// section could not also span, as `**/SUMMARY.md`'s do.
+    /// Every canonical section carries one.
     pub(super) witness: Option<String>,
 }
 

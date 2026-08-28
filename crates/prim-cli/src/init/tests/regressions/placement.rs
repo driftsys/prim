@@ -242,3 +242,41 @@ fn a_keyless_section_between_two_keyed_ones_does_not_hide_their_conflict() {
         outcome.message
     );
 }
+
+#[test]
+fn route_8_a_missing_canonical_section_is_added_when_an_existing_header_has_interior_whitespace() {
+    // `[ docs/**.md ]` — with spaces — matches nothing, because EditorConfig
+    // does not trim inside the brackets. prim's own scan used to trim, so it
+    // read that header as its canonical `docs/**.md` and appended the key to
+    // a section that decided nothing (issue #117).
+    //
+    // prim now reads the header the way `ec4rs` does, so the spaced section
+    // is somebody else's, the canonical one is simply missing, and prim adds
+    // it in canonical order. Mutation evidence: restoring
+    // `Line::Section(glob.trim())` in the header scan (the pre-fix trimming
+    // behaviour) makes this test fail, which is what pins it to the new
+    // parsing rather than to the retired self-reference guard it used to be
+    // named for.
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[ docs/**.md ]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let dir = fixture(content);
+
+    let outcome = run(dir.path()).unwrap();
+
+    assert!(
+        outcome.message.contains("added [docs/**.md]"),
+        "the spaced header is not prim's section, so prim's is missing and gets \
+         added; got: {}",
+        outcome.message
+    );
+    assert!(
+        strict_for(dir.path(), "docs/a.md"),
+        "and it takes effect: {}",
+        editorconfig(dir.path())
+    );
+
+    let warnings = warnings_of(dir.path());
+    assert!(
+        !warnings.contains("comes after it and wins"),
+        "nothing was defeated, so nothing is reported as defeating it; got: {warnings}"
+    );
+}
