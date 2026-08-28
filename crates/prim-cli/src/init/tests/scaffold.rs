@@ -16,18 +16,18 @@ fn scaffold(strict_glob: &str) -> String {
 fn scaffold_matches_the_default_contract() {
     assert_eq!(
         scaffold("docs/**.md"),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
 }
 
 #[test]
-fn scaffold_places_all_four_sections_in_order_for_a_custom_strict_glob() {
-    // The docs/wip exemption is a literal, not derived from the strict glob,
-    // so it must appear even when book.toml points the strict tier at a
+fn scaffold_places_every_section_in_order_for_a_custom_strict_glob() {
+    // The working memory exemptions are literals, not derived from the strict
+    // glob, so they must appear even when book.toml points the strict tier at a
     // non-default mdBook `src` directory such as `guide`.
     assert_eq!(
         scaffold("guide/**.md"),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[guide/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[guide/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
 }
 
@@ -43,7 +43,7 @@ fn scaffold_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
 
     assert_eq!(
         content,
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
     assert_eq!(
         content.matches("[docs/wip/**.md]").count(),
@@ -114,14 +114,14 @@ fn a_strict_glob_that_covers_every_directory_has_no_floor_section() {
     // whole repository to be.
     assert_eq!(
         scaffold("**.md"),
-        "root = true\n[**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
 
     let merged = merge("root = true\n[**.md]\n", "**.md");
 
     assert_eq!(merged.contents, scaffold("**.md"));
     assert!(merged.warnings.is_empty(), "{:?}", merged.warnings);
-    assert_eq!(merged.actions.len(), 3, "{:?}", merged.actions);
+    assert_eq!(merged.actions.len(), 4, "{:?}", merged.actions);
 }
 
 #[test]
@@ -131,30 +131,47 @@ fn the_scaffold_self_check_catches_a_map_that_does_not_resolve_the_way_it_reads(
     // the strict glob, so `docs/wip/plan.md` ends up strict. Intent comes
     // from each section's declared value, never from this text, which is what
     // lets the text be wrong.
-    let broken = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let broken = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
 
     let flaws = map::map_flaws(&map::canonical_specs("docs/**.md"), broken);
 
-    assert_eq!(flaws.len(), 1, "{flaws:?}");
+    assert_eq!(flaws.len(), 2, "{flaws:?}");
     assert!(
-        flaws[0].contains("docs/wip/plan.md") && flaws[0].contains("not false"),
-        "got: {}",
-        flaws[0]
+        flaws
+            .iter()
+            .any(|f| f.contains("docs/wip/plan.md") && f.contains("not false")),
+        "got: {flaws:?}"
+    );
+    assert!(
+        flaws
+            .iter()
+            .any(|f| f.contains("docs/archive/plan.md") && f.contains("not false")),
+        "got: {flaws:?}"
     );
     // And prim's real map passes its own check, for every strict glob it can
-    // derive — including the two the collapses exist for.
-    for glob in [
-        "docs/**.md",
-        "guide/**.md",
-        "**.md",
-        DOCS_WIP_GLOB,
-        "docs/wip/sub/**.md",
-    ] {
+    // derive — including the ones the collapses exist for: a book rooted at
+    // each exempt directory, and one rooted inside it.
+    let mut globs = vec!["docs/**.md", "guide/**.md", "**.md"];
+    let exemptions: Vec<String> = WORKING_MEMORY
+        .iter()
+        .flat_map(|memory| [memory.glob.to_string(), format!("{}/sub/**.md", memory.dir)])
+        .collect();
+    globs.extend(exemptions.iter().map(String::as_str));
+    for glob in globs {
         assert!(
             map::checked_scaffold(glob).is_ok(),
             "prim's own map for [{glob}] does not hold: {:?}",
             map::checked_scaffold(glob).unwrap_err()
         );
+    }
+}
+
+#[test]
+fn each_working_memory_glob_matches_its_directory() {
+    // The glob is spelled out beside the directory rather than derived, so
+    // that it can stay a `&'static str`. This is what holds the two together.
+    for memory in WORKING_MEMORY {
+        assert_eq!(memory.glob, format!("{}/**.md", memory.dir));
     }
 }
 
@@ -173,7 +190,12 @@ fn the_created_message_names_exactly_the_sections_that_were_written() {
         let message = run(dir.path()).unwrap().message;
         let written = fs::read_to_string(dir.path().join(".editorconfig")).unwrap();
 
-        for glob in ["*.md", "docs/wip/**.md", "**/SUMMARY.md"] {
+        for glob in [
+            "*.md",
+            "docs/wip/**.md",
+            "docs/archive/**.md",
+            "**/SUMMARY.md",
+        ] {
             assert_eq!(
                 message.contains(&format!("[{glob}]")),
                 written.contains(&format!("[{glob}]\n")),

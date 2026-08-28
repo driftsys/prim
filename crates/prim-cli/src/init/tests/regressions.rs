@@ -81,12 +81,12 @@ fn route_1_a_missing_section_is_left_out_when_its_anchor_is_out_of_order() {
 }
 
 #[test]
-fn route_2_all_four_sections_present_but_misordered_are_reported_not_rewritten() {
+fn route_2_every_section_present_but_misordered_are_reported_not_rewritten() {
     // Every canonical section already carries an explicit value, so each
     // per-spec check finds nothing to write — but `[docs/**.md]`, written
     // after `[docs/wip/**.md]`, wins under last-match-wins and defeats the
     // exemption. prim must not report plain success over that.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let dir = fixture(content);
     assert!(
         strict_for(dir.path(), "docs/wip/plan.md"),
@@ -117,7 +117,7 @@ fn route_3_a_keyless_section_in_a_losing_position_is_not_written_into() {
     // already has its key. Inserting `prim_mdlint_strict = false` into it
     // would report an update while the freshly-written value still loses to
     // `[docs/**.md]` under last-match-wins.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let dir = fixture(content);
 
     let outcome = run(dir.path()).unwrap();
@@ -232,7 +232,7 @@ fn a_keyless_occurrence_does_not_anchor_a_section_a_keyed_one_already_decides() 
 
     assert_eq!(
         editorconfig(dir.path()),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[*.md]\nmax_line_length = 80\n",
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[*.md]\nmax_line_length = 80\n",
         "the exemption belongs between the strict glob and [**/SUMMARY.md]"
     );
     assert!(
@@ -277,7 +277,7 @@ fn route_5_a_narrower_section_that_defeats_the_map_is_reported() {
     // after it that turns the exemption back off. prim plans no write — every
     // canonical section already carries its key — so nothing it writes can be
     // checked; the file still does not do what the map means.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/wip/*.md]\nprim_mdlint_strict = true\n";
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/wip/*.md]\nprim_mdlint_strict = true\n";
     let dir = fixture(content);
     assert!(
         strict_for(dir.path(), "docs/wip/plan.md"),
@@ -304,7 +304,7 @@ fn route_5_a_narrower_section_that_defeats_the_map_is_reported() {
     assert!(
         warnings.contains(
             "[docs/wip/**.md] (line 6) sets prim_mdlint_strict = false, but [docs/wip/*.md] \
-             (line 10) comes after it and wins, so prim_mdlint_strict = true applies to \
+             (line 12) comes after it and wins, so prim_mdlint_strict = true applies to \
              docs/wip/plan.md instead"
         ),
         "got: {warnings}"
@@ -316,7 +316,7 @@ fn route_6_a_value_that_is_neither_true_nor_false_is_reported() {
     // `prim_mdlint_strict = maybe` counts as the key being present, so prim
     // leaves the section alone — and every value but `true` resolves to
     // `false`, so the strict tier is silently dead.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = maybe\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = maybe\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let dir = fixture(content);
     assert!(
         !strict_for(dir.path(), "docs/guide.md"),
@@ -349,7 +349,7 @@ fn a_defeated_sections_line_numbers_are_lines_of_the_file_prim_leaves_behind() {
     // prim adds the missing `[*.md]` floor at the top in the same run, which
     // moves every section below it down two lines. A warning that quoted the
     // lines prim read would send the reader to the wrong ones.
-    let existing = "root = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/*.md]\nprim_mdlint_strict = true\n";
+    let existing = "root = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/*.md]\nprim_mdlint_strict = true\n";
     let merged = crate::init::merge(existing, "docs/**.md");
 
     assert!(
@@ -360,12 +360,12 @@ fn a_defeated_sections_line_numbers_are_lines_of_the_file_prim_leaves_behind() {
         "{:?}",
         merged.actions
     );
-    // [**/SUMMARY.md] is line 6 as prim read it and line 8 as prim leaves it;
-    // [docs/*.md] is line 8 read and line 10 left.
+    // [**/SUMMARY.md] is line 8 as prim read it and line 10 as prim leaves it;
+    // [docs/*.md] is line 10 read and line 12 left.
     assert_eq!(merged.warnings.len(), 1, "{:?}", merged.warnings);
     assert!(
         merged.warnings[0].contains(
-            "[**/SUMMARY.md] (line 8) sets prim_mdlint_strict = false, but [docs/*.md] (line 10) \
+            "[**/SUMMARY.md] (line 10) sets prim_mdlint_strict = false, but [docs/*.md] (line 12) \
              comes after it and wins, so prim_mdlint_strict = true applies to docs/SUMMARY.md"
         ),
         "got: {}",
@@ -419,7 +419,7 @@ fn route_8_a_missing_canonical_section_is_added_when_an_existing_header_has_inte
     // behaviour) makes this test fail, which is what pins it to the new
     // parsing rather than to the retired self-reference guard it used to be
     // named for.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[ docs/**.md ]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[ docs/**.md ]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let dir = fixture(content);
 
     let outcome = run(dir.path()).unwrap();
@@ -444,30 +444,37 @@ fn route_8_a_missing_canonical_section_is_added_when_an_existing_header_has_inte
 }
 
 #[test]
-fn route_9_a_summary_under_docs_wip_is_checked_too() {
+fn route_9_a_summary_under_each_working_memory_directory_is_checked_too() {
     // One representative per section is not enough for `[**/SUMMARY.md]`: a
-    // summary under `docs/wip/` is decided by a different set of sections
-    // from one under the strict glob, and it was the docs/wip one the retired
-    // section-order check used to catch.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = true\n";
-    let dir = fixture(content);
-    assert!(
-        strict_for(dir.path(), "docs/wip/SUMMARY.md"),
-        "precondition: the summary under docs/wip is strict as written"
-    );
+    // summary inside an exempt directory is decided by a different set of
+    // sections from one under the strict glob, and it was the docs/wip one the
+    // retired section-order check used to catch. Every exempt directory needs
+    // its own probe, or the section that overrides it goes unnoticed.
+    for dir_name in ["docs/wip", "docs/archive"] {
+        let content = format!(
+            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = \
+             true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[{dir_name}/**.md]\nprim_mdlint_strict = true\n"
+        );
+        let summary = format!("{dir_name}/SUMMARY.md");
+        let dir = fixture(&content);
+        assert!(
+            strict_for(dir.path(), &summary),
+            "precondition: the summary under {dir_name} is strict as written"
+        );
 
-    let outcome = run(dir.path()).unwrap();
+        let outcome = run(dir.path()).unwrap();
 
-    assert!(
-        !outcome.message.contains("already contains"),
-        "got: {}",
-        outcome.message
-    );
-    let warnings = warnings_of(dir.path());
-    assert!(
-        warnings.contains("applies to docs/wip/SUMMARY.md"),
-        "got: {warnings}"
-    );
+        assert!(
+            !outcome.message.contains("already contains"),
+            "got: {}",
+            outcome.message
+        );
+        let warnings = warnings_of(dir.path());
+        assert!(
+            warnings.contains(&format!("applies to {summary}")),
+            "got: {warnings}"
+        );
+    }
 }
 
 #[test]

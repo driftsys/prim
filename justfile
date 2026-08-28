@@ -10,7 +10,8 @@ test:
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo fmt -- --check
-    cargo run -q -p prim-cli -- --check .
+    cargo run -q -p prim-cli -- fmt --check .
+    cargo run -q -p prim-cli -- lint .
     npx markdownlint-cli '**/*.md' --ignore node_modules
 
 # Audit dependencies

@@ -228,10 +228,28 @@ opt-in agrees with dropping it here.
   `prim lint`'s exit code newly fail on any of these eleven where it did not
   before; this is the migration impact of adopting this decision on an existing
   strict-tier repository.
-- **`prim init`'s placement map** gained a fourth section,
-  `[docs/wip/**.md] prim_mdlint_strict = false`, so Superpowers specs and plans
-  committed under `docs/wip/` are never swept into the strict tier by a
-  `docs/**` glob (FR-3.5).
+- **`prim init`'s placement map** gained two working-memory exemptions,
+  `[docs/wip/**.md]` and `[docs/archive/**.md]`, both
+  `prim_mdlint_strict = false`, so Superpowers specs and plans are never swept
+  into the strict tier by a `docs/**` glob (FR-3.5). `docs/wip/` came first;
+  `docs/archive/` followed because gardening moves the raw originals there, and
+  a move is not an edit. Exempting only the transient half would mean a
+  document's tier changed the moment somebody filed it away without touching a
+  byte of it, and a repository's CI would start failing on work it had just
+  archived.
+
+  This buys a real cost, and it is worth naming. `docs/archive/` is a generic
+  directory name: plenty of repositories use it for published-but-superseded
+  documentation — retired guides, old release notes — which they do edit and
+  would want linted. Every repository that runs `prim init` now gets the strict
+  tier switched off there, and prim reports that once, at `prim init` time, in a
+  line the reader may not take as a loss. The escape hatch is to write
+  `prim_mdlint_strict = true` under the section; `prim init` leaves an explicit
+  choice alone on every later run. The failure mode is one-directional —
+  relaxing a tier never makes an existing repository's CI newly fail — which is
+  why this was judged acceptable rather than gated behind a key.
+
+  This list should not be extended a third time without a new decision record.
 - **`prim_fmt::lint_markdown` gained a third parameter**, the exclusion list
   (`disabled: &[String]`), to carry `prim_mdlint_disable`'s resolved ids into
   the engine. Any crate consuming `prim-fmt` directly must update its call site.

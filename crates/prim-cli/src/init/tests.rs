@@ -10,7 +10,7 @@ fn merge_prepends_root_and_appends_missing_sections_without_reordering_existing_
 
     assert_eq!(
         merged.contents,
-        "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n\n[*]\nindent_style = space\nindent_size = 2\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
     assert_eq!(
         merged.actions,
@@ -19,6 +19,7 @@ fn merge_prepends_root_and_appends_missing_sections_without_reordering_existing_
             "added [*.md] with prim_mdlint_strict = false",
             "added [docs/**.md] with prim_mdlint_strict = true",
             "added [docs/wip/**.md] with prim_mdlint_strict = false",
+            "added [docs/archive/**.md] with prim_mdlint_strict = false",
             "added [**/SUMMARY.md] with prim_mdlint_strict = false",
         ]
     );
@@ -31,7 +32,7 @@ fn merge_adds_the_missing_key_in_place_for_an_existing_section() {
 
     assert_eq!(
         merged.contents,
-        "root = true\n[*.md]\nmax_line_length = 100\nprim_mdlint_strict = false\n[*.txt]\nindent_style = space\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nmax_line_length = 100\nprim_mdlint_strict = false\n[*.txt]\nindent_style = space\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
 }
 
@@ -42,7 +43,7 @@ fn merge_inserts_a_missing_floor_before_an_existing_strict_section() {
 
     assert_eq!(
         merged.contents,
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
 }
 
@@ -54,7 +55,7 @@ fn merge_leaves_an_existing_explicit_choice_untouched() {
 
     assert_eq!(
         merged.contents,
-        "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
 }
 
@@ -69,11 +70,14 @@ fn merge_inserts_docs_wip_between_the_strict_glob_and_summary_for_a_canonically_
 
     assert_eq!(
         merged.contents,
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n"
     );
     assert_eq!(
         merged.actions,
-        vec!["added [docs/wip/**.md] with prim_mdlint_strict = false"]
+        vec![
+            "added [docs/wip/**.md] with prim_mdlint_strict = false",
+            "added [docs/archive/**.md] with prim_mdlint_strict = false",
+        ]
     );
     assert!(
         merged.warnings.is_empty(),
@@ -102,10 +106,14 @@ fn merge_refuses_to_insert_docs_wip_when_existing_sections_are_out_of_canonical_
         !merged.contents.contains("docs/wip"),
         "the exemption must not be inserted in a losing position"
     );
-    // Two distinct problems, two warnings: the section that is already there
-    // and no longer decides its own path, and the section prim therefore
-    // cannot add.
-    assert_eq!(merged.warnings.len(), 2, "{:?}", merged.warnings);
+    assert!(
+        !merged.contents.contains("docs/archive"),
+        "the exemption must not be inserted in a losing position"
+    );
+    // Three distinct problems, three warnings: the section that is already
+    // there and no longer decides its own path, and the two sections prim
+    // therefore cannot add.
+    assert_eq!(merged.warnings.len(), 3, "{:?}", merged.warnings);
     let refusal = merged
         .warnings
         .iter()
@@ -125,7 +133,7 @@ fn merge_refuses_to_insert_docs_wip_when_existing_sections_are_out_of_canonical_
 }
 
 #[test]
-fn merge_warns_when_all_four_sections_are_present_but_docs_wip_precedes_the_strict_glob() {
+fn merge_warns_when_every_section_is_present_but_docs_wip_precedes_the_strict_glob() {
     // Reproduction (whole-branch review, Important 1): every canonical
     // section already carries an explicit value, so each per-spec iteration
     // hits the already-has-the-key early-continue and, before this fix, took
@@ -134,7 +142,7 @@ fn merge_warns_when_all_four_sections_are_present_but_docs_wip_precedes_the_stri
     // `[docs/**.md]`, written after `[docs/wip/**.md]`, wins under
     // EditorConfig's last-match-wins resolution and defeats the docs/wip
     // exemption for every file under it.
-    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let merged = merge(existing, "docs/**.md");
 
     assert_eq!(
@@ -160,7 +168,7 @@ fn run_does_not_claim_the_map_is_present_when_a_conflict_blocks_an_update() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join(".editorconfig"),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
     )
     .unwrap();
 
@@ -186,7 +194,7 @@ fn merge_does_not_write_into_a_keyless_section_a_later_one_overrides() {
     // resolves to the wrong tier — the freshly-inserted `false` loses to
     // `[docs/**.md]`'s `true` under last-match-wins, so `docs/wip/**.md`
     // stays strict. The outcome check is what refuses the write now.
-    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let merged = merge(existing, "docs/**.md");
 
     assert_eq!(
@@ -211,7 +219,7 @@ fn run_reports_no_update_for_a_keyless_section_a_later_one_overrides() {
     // "updated" (which `merge`'s now-empty `actions` already rules out) and
     // the file on disk must be byte-identical to what was written.
     let dir = tempfile::tempdir().unwrap();
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let editorconfig = dir.path().join(".editorconfig");
     fs::write(&editorconfig, content).unwrap();
 
@@ -236,7 +244,10 @@ fn merge_skips_the_docs_wip_exemption_when_the_strict_glob_is_docs_wip() {
 
     assert_eq!(
         merged.actions,
-        vec!["added [docs/wip/**.md] with prim_mdlint_strict = true"],
+        vec![
+            "added [docs/wip/**.md] with prim_mdlint_strict = true",
+            "added [docs/archive/**.md] with prim_mdlint_strict = false",
+        ],
         "only the strict section is added; no separate false exemption for the same glob"
     );
     assert_eq!(
@@ -297,7 +308,7 @@ fn a_later_occurrence_of_the_same_glob_is_the_persons_override_and_is_not_report
     // map: the last one is what EditorConfig reads and what prim must judge
     // the map by. Reading the first would report a section as defeated when
     // the person deliberately replaced it.
-    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[*.md]\nprim_mdlint_strict = true\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let merged = merge(existing, "docs/**.md");
 
     assert!(
@@ -311,7 +322,7 @@ fn a_later_occurrence_of_the_same_glob_is_the_persons_override_and_is_not_report
 fn a_key_written_twice_in_one_section_is_read_the_way_editorconfig_reads_it() {
     // EditorConfig keeps the last value in a section; prim must report on the
     // same one, or it names a value the file does not actually use.
-    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\nprim_mdlint_strict = mabye\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
+    let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\nprim_mdlint_strict = mabye\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n";
     let merged = merge(existing, "docs/**.md");
 
     assert_eq!(merged.warnings.len(), 1, "{:?}", merged.warnings);
@@ -332,7 +343,10 @@ fn a_defeated_section_is_reported_while_the_writes_that_are_safe_still_happen() 
 
     assert_eq!(
         merged.actions,
-        vec!["added [docs/wip/**.md] with prim_mdlint_strict = false"],
+        vec![
+            "added [docs/wip/**.md] with prim_mdlint_strict = false",
+            "added [docs/archive/**.md] with prim_mdlint_strict = false",
+        ],
         "the safe write still happens alongside the warning"
     );
     assert_eq!(merged.warnings.len(), 1, "{:?}", merged.warnings);

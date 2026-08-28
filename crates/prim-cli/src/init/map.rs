@@ -12,7 +12,7 @@ use super::sections::{
     Bound, SectionSpec, bool_word, governing, has_top_level_root, header_lines, key_line,
     lower_bound, matching_sections, push_insert, section_block, split_lines, upper_bound,
 };
-use super::{DOCS_WIP_DIR, DOCS_WIP_GLOB, EVERYTHING_GLOB, MDLINT_STRICT_KEY};
+use super::{EVERYTHING_GLOB, MDLINT_STRICT_KEY, WORKING_MEMORY};
 
 pub(super) struct MergeResult {
     pub(super) contents: String,
@@ -47,7 +47,7 @@ struct PlannedWrite {
     creates_section: bool,
 }
 
-/// prim's four canonical sections, in the order they must appear, each with
+/// prim's canonical sections, in the order they must appear, each with
 /// one representative path the outcome check resolves to decide whether a
 /// write did what prim meant it to.
 pub(super) fn canonical_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
@@ -72,7 +72,7 @@ pub(super) fn reported_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
         .collect()
 }
 
-/// The four canonical sections in canonical order, each with whether prim
+/// Every canonical section in canonical order, each with whether prim
 /// writes it for this strict glob.
 ///
 /// A section the strict glob makes dead on arrival is not written — and drops
@@ -83,7 +83,7 @@ pub(super) fn reported_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
 /// Writing a section that is dead on arrival is how the docs/wip exemption
 /// went wrong twice.
 fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
-    vec![
+    let mut sections = vec![
         (
             SectionSpec {
                 glob: "*.md",
@@ -100,35 +100,46 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
             },
             true,
         ),
-        // Superpowers specs and plans under `docs/wip/` are transient working
-        // memory, so the strict tier must not apply to them even when the
-        // strict glob covers `docs/**` — unless the strict glob is `docs/wip`
-        // itself or a directory inside it, where the exemption is the broader
-        // glob and would turn the whole book back off.
+    ];
+
+    // Superpowers working memory is exempt from the strict tier: specs and
+    // plans under `docs/wip/` are transient, and gardening moves their raw
+    // originals to `docs/archive/`. That move must not change a document's
+    // tier, so the strict tier reaches neither, even when the strict glob
+    // covers `docs/**` — unless the strict glob is that directory itself or
+    // one inside it, where the exemption is the broader glob and would turn
+    // the whole book back off.
+    sections.extend(WORKING_MEMORY.iter().map(|memory| {
         (
             SectionSpec {
-                glob: DOCS_WIP_GLOB,
+                glob: memory.glob,
                 value: false,
-                probes: vec!["docs/wip/plan.md".to_string()],
+                probes: vec![format!("{}/plan.md", memory.dir)],
             },
-            !docs_wip_covers(strict_glob),
-        ),
-        // Two summaries, decided by different sections: one under the strict
-        // glob, and one under `docs/wip/`, which the exemption covers. A
-        // single representative would leave the other unchecked — and it was
-        // the second that the retired section-order check used to catch.
-        (
-            SectionSpec {
-                glob: "**/SUMMARY.md",
-                value: false,
-                probes: vec![
-                    strict_probe(strict_glob, "SUMMARY.md"),
-                    format!("{DOCS_WIP_DIR}/SUMMARY.md"),
-                ],
-            },
-            true,
-        ),
-    ]
+            !exemption_covers(strict_glob, memory.dir),
+        )
+    }));
+
+    // Summaries decided by different sections: one under the strict glob, and
+    // one inside each exempt directory. A single representative would leave
+    // the others unchecked — and it was the second that the retired
+    // section-order check used to catch.
+    let mut summary_probes = vec![strict_probe(strict_glob, "SUMMARY.md")];
+    summary_probes.extend(
+        WORKING_MEMORY
+            .iter()
+            .map(|memory| format!("{}/SUMMARY.md", memory.dir)),
+    );
+    sections.push((
+        SectionSpec {
+            glob: "**/SUMMARY.md",
+            value: false,
+            probes: summary_probes,
+        },
+        true,
+    ));
+
+    sections
 }
 
 /// A representative path named `file` inside the directory the strict glob
@@ -140,13 +151,13 @@ fn strict_probe(strict_glob: &str, file: &str) -> String {
     }
 }
 
-/// Whether the literal `docs/wip` exemption would cover everything the strict
-/// glob does — `docs/wip` itself, or any directory inside it.
-fn docs_wip_covers(strict_glob: &str) -> bool {
-    let Some(dir) = strict_glob.strip_suffix("/**.md") else {
+/// Whether an exemption for `dir` would cover everything the strict glob does
+/// — that directory itself, or any directory inside it.
+fn exemption_covers(strict_glob: &str, dir: &str) -> bool {
+    let Some(strict_dir) = strict_glob.strip_suffix("/**.md") else {
         return false;
     };
-    dir == DOCS_WIP_DIR || dir.starts_with(&format!("{DOCS_WIP_DIR}/"))
+    strict_dir == dir || strict_dir.starts_with(&format!("{dir}/"))
 }
 
 /// The map prim writes into a repository with no `.editorconfig`, or the
@@ -372,8 +383,9 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
 /// over `plan`; among equally large sets, the one that keeps the canonically
 /// earliest writes wins. Writing nothing is always a candidate, so this
 /// always has an answer — prim does as much good as it safely can, and no
-/// more. The search is exhaustive because `plan` holds at most one write per
-/// canonical section (four).
+/// more. The search is exhaustive over every subset of `plan`, which is
+/// affordable because `plan` holds at most one write per canonical section and
+/// `every_section` is a fixed short list.
 fn safe_writes(
     plan: &[PlannedWrite],
     specs: &[SectionSpec<'_>],

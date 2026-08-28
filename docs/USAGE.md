@@ -193,18 +193,24 @@ prim_mdlint_strict = false
 prim_mdlint_strict = true
 [docs/wip/**.md]
 prim_mdlint_strict = false
+[docs/archive/**.md]
+prim_mdlint_strict = false
 [**/SUMMARY.md]
 prim_mdlint_strict = false
 ```
 
 Section order is part of the contract: EditorConfig has no specificity ranking,
 so the broader `[*.md]` floor must appear before the stricter middle section,
-`[docs/wip/**.md]` must come after it to opt transient working memory back down,
-and `[**/SUMMARY.md]` must come last to opt mdBook summaries back down.
-`[docs/wip/**.md]` is a literal, not derived from the strict glob: Superpowers
-specs and plans committed under `docs/wip/` are transient working memory, so the
-strict tier must never apply to them even when the strict glob covers `docs/**`
-or a custom mdBook `src` directory.
+`[docs/wip/**.md]` and `[docs/archive/**.md]` must come after it to opt working
+memory back down, and `[**/SUMMARY.md]` must come last to opt mdBook summaries
+back down. `[docs/wip/**.md]` and `[docs/archive/**.md]` are literals, not
+derived from the strict glob: Superpowers specs and plans live under `docs/wip/`
+while a branch is open, and gardening moves the raw originals to
+`docs/archive/`. That move is not an edit, so it must not change a document's
+lint tier — otherwise filing work away is what makes a repository's own CI start
+failing on it. (A repository that does want its archive linted can write
+`prim_mdlint_strict = true` under that section; `prim init` leaves an explicit
+choice alone on every later run.)
 
 If `PATH/book.toml` exists, prim reads `[book].src` and uses that directory for
 the strict middle glob instead of `docs/`; for example, `src = "guide"` yields
@@ -216,15 +222,16 @@ unrelated content:
 
 - leaves an existing top-level `root = ...` untouched; otherwise prepends
   `root = true` and a blank line
-- for `[*.md]`, the detected strict glob, `[docs/wip/**.md]`, and
-  `[**/SUMMARY.md]`, leaves an existing explicit `prim_mdlint_strict = ...`
-  untouched
+- for `[*.md]`, the detected strict glob, `[docs/wip/**.md]`,
+  `[docs/archive/**.md]`, and `[**/SUMMARY.md]`, leaves an existing explicit
+  `prim_mdlint_strict = ...` untouched
 - if one of those sections exists but lacks the key, appends the key inside that
   section immediately before the next section (or end-of-file)
 - if one of those sections is missing entirely, inserts a new block without
   moving existing bytes so the final prim-managed order still reads `[*.md]` →
-  strict glob → `[docs/wip/**.md]` → `[**/SUMMARY.md]` (falling back to
-  end-of-file only when no later prim-managed section needs to stay after it)
+  strict glob → `[docs/wip/**.md]` → `[docs/archive/**.md]` → `[**/SUMMARY.md]`
+  (falling back to end-of-file only when no later prim-managed section needs to
+  stay after it)
 - if a section is missing and the file's own existing section order already
   contradicts that canonical order — for example an existing `[**/SUMMARY.md]`
   written before the strict glob — there is no position left for the missing
@@ -233,19 +240,19 @@ unrelated content:
 
 Before it writes anything, prim resolves the file it would produce. For one
 representative path per canonical section it places — a top-level file, a file
-under the strict glob, a file under `docs/wip/` where that section applies, and
-a `SUMMARY.md` — it applies EditorConfig's last-match-wins section order and
-compares the result with the value it intended and with the value that path
-resolved to before the run. prim makes a write only when the path that write is
-meant to place lands on the intended value and none of the other representative
-paths moves. (The check is over prim's own canonical globs: a glob you wrote
-that none of those paths stands for is not covered.) A write that would fail
-that check is not made: prim warns, naming the path and the value it would take,
-and still makes whatever other writes are safe. prim never reorders sections a
-person wrote, so a file whose own order contradicts the canonical one is
-reported and left for you to fix. An existing `.editorconfig` prim cannot parse
-at all is reported and left untouched — with no resolution there is nothing to
-check a change against.
+under the strict glob, a file under `docs/wip/` where that section applies, a
+file under `docs/archive/` where that section applies, and a `SUMMARY.md` — it
+applies EditorConfig's last-match-wins section order and compares the result
+with the value it intended and with the value that path resolved to before the
+run. prim makes a write only when the path that write is meant to place lands on
+the intended value and none of the other representative paths moves. (The check
+is over prim's own canonical globs: a glob you wrote that none of those paths
+stands for is not covered.) A write that would fail that check is not made: prim
+warns, naming the path and the value it would take, and still makes whatever
+other writes are safe. prim never reorders sections a person wrote, so a file
+whose own order contradicts the canonical one is reported and left for you to
+fix. An existing `.editorconfig` prim cannot parse at all is reported and left
+untouched — with no resolution there is nothing to check a change against.
 
 Running `prim init` twice is idempotent: once the map is present, the second run
 reports a no-op and leaves `.editorconfig` byte-identical. An occurrence of one
