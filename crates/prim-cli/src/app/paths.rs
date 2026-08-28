@@ -2,10 +2,10 @@
 //! and `lint`: load and format every discovered file, then differ only in
 //! what each verb does with the (original, formatted) pair.
 
-use super::load::load_and_format;
+use super::load::{Loaded, load_and_format};
 use super::{
-    EXIT_ACTIONABLE, EXIT_ERROR, EXIT_OK, FORMAT_CHECK_FINDING, FORMAT_DRIFT_CODE,
-    FORMAT_DRIFT_FINDING, emit_report,
+    EXAMINED_NOTHING, EXIT_ACTIONABLE, EXIT_ERROR, EXIT_OK, FORMAT_CHECK_FINDING,
+    FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING, emit_report,
 };
 use crate::changed_files::ChangedFilesScope;
 use crate::cli::{LintArgs, OutputFormat, WriteArgs};
@@ -24,14 +24,17 @@ pub(super) fn run_fmt_paths(
     ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, mut had_error) =
-        match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                ui::error(&err.to_string());
-                return EXIT_ERROR;
-            }
-        };
+    let Loaded {
+        files: results,
+        mut had_error,
+        examined_nothing,
+    } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&err.to_string());
+            return EXIT_ERROR;
+        }
+    };
 
     let mut any_would_change = false;
     let mut findings = Vec::new();
@@ -70,6 +73,12 @@ pub(super) fn run_fmt_paths(
 
     if had_error {
         EXIT_ERROR
+    } else if gates_on_pending_findings && examined_nothing {
+        // Reported after the (empty) findings report, so `--format` still
+        // changes stdout alone (FR-5.8): the document a pipeline uploads is
+        // emitted either way, and the exit code carries the failure.
+        ui::error(EXAMINED_NOTHING);
+        EXIT_ERROR
     } else if gates_on_pending_findings && any_would_change {
         EXIT_ACTIONABLE
     } else {
@@ -83,14 +92,17 @@ pub(super) fn run_check_idempotence_paths(
     ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, mut had_error) =
-        match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                ui::error(&err.to_string());
-                return EXIT_ERROR;
-            }
-        };
+    let Loaded {
+        files: results,
+        mut had_error,
+        examined_nothing,
+    } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&err.to_string());
+            return EXIT_ERROR;
+        }
+    };
 
     let mut any_non_idempotent = false;
     for (path, kind, style, _markdown_policy, _original, formatted) in results {
@@ -113,6 +125,9 @@ pub(super) fn run_check_idempotence_paths(
     }
 
     if had_error {
+        EXIT_ERROR
+    } else if examined_nothing {
+        ui::error(EXAMINED_NOTHING);
         EXIT_ERROR
     } else if any_non_idempotent {
         EXIT_ACTIONABLE
@@ -140,14 +155,17 @@ pub(super) fn run_lint_paths(
     ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
-    let (results, had_error) =
-        match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
-            Ok(outcome) => outcome,
-            Err(err) => {
-                ui::error(&err.to_string());
-                return EXIT_ERROR;
-            }
-        };
+    let Loaded {
+        files: results,
+        had_error,
+        examined_nothing,
+    } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            ui::error(&err.to_string());
+            return EXIT_ERROR;
+        }
+    };
 
     let mut any_error_finding = false;
     let mut findings = Vec::new();
@@ -201,6 +219,12 @@ pub(super) fn run_lint_paths(
     }
 
     if had_error {
+        EXIT_ERROR
+    } else if examined_nothing {
+        // `lint` is report-only, so its exit code is its whole answer:
+        // reporting nothing after examining nothing is the fail-open #112
+        // closed. The report is emitted first, as under `fmt --check`.
+        ui::error(EXAMINED_NOTHING);
         EXIT_ERROR
     } else if any_error_finding {
         EXIT_ACTIONABLE

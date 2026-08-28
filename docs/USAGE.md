@@ -59,7 +59,8 @@ for removal in v2.0 — the bare `fmt` alias itself is not deprecated.
 | `1`  | Actionable: format drift (`fmt`/`fix --check`) or a `lint` finding. |
 | `2`  | prim could not do its job (parse, I/O, or usage error).             |
 
-Warnings never raise the exit code; only errors do.
+Warnings never raise the exit code; only errors do. A gate that was pointed only
+at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 
 ## Operating modes
 
@@ -76,7 +77,10 @@ Warnings never raise the exit code; only errors do.
   line (AD-0009). This same flag also disables the built-in generated-file list
   (AD-0011), which behaves as the outermost `.primignore` layer. Naming an
   ignored path without this flag prints a warning and changes nothing; warnings
-  never raise the exit code.
+  never raise the exit code. The one case that does is a gate — `fmt --check`,
+  `fix --check`, `fix --diff`, `fmt --check-idempotence`, or `lint` — where
+  _every_ path prim was pointed at is skipped: prim then examined nothing, so it
+  reports an error and exits `2` instead of reporting a clean run (FR-4.4c).
 - **`--since <REF>`** — limit discovery to the paths
   `git diff --name-only <REF>` reports: files that differ between `<REF>` and
   the current working tree, including both staged and unstaged changes. prim

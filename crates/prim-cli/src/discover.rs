@@ -47,7 +47,7 @@ impl Default for IgnoreSettings {
     }
 }
 
-/// Why a path named on the command line was dropped.
+/// Why a path prim was pointed at was dropped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IgnoreReason {
     /// A committed `.primignore` covers it (AD-0009).
@@ -56,20 +56,27 @@ pub enum IgnoreReason {
     Generated(&'static str),
 }
 
-/// A path prim was given and chose not to process, with the reason to report.
+/// A path prim was pointed at and chose not to process, with the reason to
+/// report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ignored {
     pub path: PathBuf,
     pub reason: IgnoreReason,
 }
 
-/// The outcome of discovery: the files to process, plus the paths that were
-/// named on the command line and dropped. Those are reported (FR-4.4a) so an
-/// ignored path never fails silently.
+/// The outcome of discovery: the files to process, plus the paths prim was
+/// pointed at and dropped — those named on the command line, or the working
+/// directory when none was named. They are reported (FR-4.4a) so an ignored
+/// path never fails silently.
 #[derive(Debug, Default)]
 pub struct Discovery {
     pub files: Vec<Discovered>,
     pub ignored: Vec<Ignored>,
+    /// Every path prim was pointed at — each one named on the command line, or
+    /// the working directory when none was — was skipped, so prim examined
+    /// nothing. The gate modes turn this into exit `2` (FR-4.4c); the writing
+    /// modes treat it as the ordinary no-op it is.
+    pub examined_nothing: bool,
 }
 
 #[derive(Debug)]
@@ -80,10 +87,12 @@ pub(crate) enum Error {
 
 /// Collect the set of files to process.
 ///
-/// With no `paths`, walks the current directory recursively. Explicit file
-/// arguments are taken directly; explicit directories (and the cwd) are walked,
-/// honoring `.ignore`, `.primignore`, `--exclude` globs, and (unless disabled)
-/// git-family ignore files like `.gitignore` and `.git/info/exclude`.
+/// With no `paths`, the current directory is the path prim was pointed at, and
+/// is judged as a named `.` would be before anything is walked. Explicit file
+/// arguments are taken directly; directories that survive that judgement (the
+/// cwd included) are walked, honoring `.ignore`, `.primignore`, `--exclude`
+/// globs, and (unless disabled) git-family ignore files like `.gitignore` and
+/// `.git/info/exclude`.
 /// Results are sorted and de-duplicated; a path reached both explicitly and via
 /// a walk is marked explicit.
 ///
@@ -108,81 +117,88 @@ pub fn collect(
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
     let mut ignored = Vec::new();
+    // Counted here rather than read back off `ignored`, so the rule cannot
+    // drift if that list ever carries an entry from somewhere else.
+    let mut skipped = 0usize;
     // Shared because the walk consults it from a `filter_entry` closure, which
     // the `ignore` crate requires to be `Send + Sync + 'static`.
     let primignore = Arc::new(Mutex::new(PrimignoreCache::default()));
 
-    if paths.is_empty() {
-        let root = Path::new(".");
-        walk_into(
-            root,
-            bound_for(root).as_deref(),
-            excludes,
-            ignores,
-            &changed_files,
-            &primignore,
-            &mut selected,
-        );
+    // With no path given, prim is pointed at the working directory. It is
+    // judged exactly as a named `.` would be, so the two spellings of the same
+    // invocation cannot give different answers (FR-4.4c).
+    let working_directory = [PathBuf::from(".")];
+    let pointed_at: &[PathBuf] = if paths.is_empty() {
+        &working_directory
     } else {
-        for path in paths {
-            let is_dir = path.is_dir();
-            // Each named path carries its own bound: the repository that holds
-            // it. Pointing prim at a nested checkout hands it that checkout's
-            // rules, not the enclosing repository's (#110).
-            let bound = if ignores.primignore {
-                bound_for(path)
-            } else {
-                None
-            };
-            let verdict = if ignores.primignore {
-                cached(&primignore).verdict(path, is_dir, bound.as_deref())
-            } else {
-                Verdict::Unmatched
-            };
+        paths
+    };
 
-            if verdict == Verdict::Ignored {
-                ignored.push(Ignored {
-                    path: path.clone(),
-                    reason: IgnoreReason::Primignore,
-                });
-                continue;
-            }
-            // The built-in list is the weakest layer: a committed `!name` overrides it,
-            // and `--no-primignore` disables it along with everything else.
-            // `path.is_file()` keeps this from firing for a nonexistent path
-            // (FR-4.6: it must still reach the existence-error path below) or
-            // for a directory that merely shares a generated name (AD-0009:
-            // naming a path must never make prim skip what walking to it
-            // would process).
-            if !matches!(verdict, Verdict::Whitelisted(true))
-                && ignores.primignore
-                && path.is_file()
-                && let Some(tool) = prim_fmt::generated_by(path)
-            {
-                ignored.push(Ignored {
-                    path: path.clone(),
-                    reason: IgnoreReason::Generated(tool),
-                });
-                continue;
-            }
+    for path in pointed_at {
+        let is_dir = path.is_dir();
+        // Each pointed-at path carries its own bound: the repository that
+        // holds it. Pointing prim at a nested checkout hands it that
+        // checkout's rules, not the enclosing repository's (#110).
+        let bound = if ignores.primignore {
+            bound_for(path)
+        } else {
+            None
+        };
+        let verdict = if ignores.primignore {
+            cached(&primignore).verdict(path, is_dir, bound.as_deref())
+        } else {
+            Verdict::Unmatched
+        };
 
-            if is_dir {
-                walk_into(
-                    path,
-                    bound.as_deref(),
-                    excludes,
-                    ignores,
-                    &changed_files,
-                    &primignore,
-                    &mut selected,
-                );
-            } else {
-                // A file, or a non-existent path: include it as explicit and
-                // let the caller surface any read error (FR-6 fail-safe).
-                mark_if_changed(&mut selected, path.clone(), true, &changed_files);
-            }
+        if verdict == Verdict::Ignored {
+            ignored.push(Ignored {
+                path: path.clone(),
+                reason: IgnoreReason::Primignore,
+            });
+            skipped += 1;
+            continue;
+        }
+        // The built-in list is the weakest layer: a committed `!name` overrides it,
+        // and `--no-primignore` disables it along with everything else.
+        // `path.is_file()` keeps this from firing for a nonexistent path
+        // (FR-4.6: it must still reach the existence-error path below) or
+        // for a directory that merely shares a generated name (AD-0009:
+        // naming a path must never make prim skip what walking to it
+        // would process).
+        if !matches!(verdict, Verdict::Whitelisted(true))
+            && ignores.primignore
+            && path.is_file()
+            && let Some(tool) = prim_fmt::generated_by(path)
+        {
+            ignored.push(Ignored {
+                path: path.clone(),
+                reason: IgnoreReason::Generated(tool),
+            });
+            skipped += 1;
+            continue;
+        }
+
+        if is_dir {
+            walk_into(
+                path,
+                bound.as_deref(),
+                excludes,
+                ignores,
+                &changed_files,
+                &primignore,
+                &mut selected,
+            );
+        } else {
+            // A file, or a non-existent path: include it as explicit and
+            // let the caller surface any read error (FR-6 fail-safe).
+            mark_if_changed(&mut selected, path.clone(), true, &changed_files);
         }
     }
+
+    // Every pointed-at path was skipped. An empty directory is not this case:
+    // prim was pointed at something it looked into and found nothing in, and a
+    // path prim does not own is reported under FR-4.6 instead (AD-0009).
+    let examined_nothing = skipped == pointed_at.len();
 
     Ok(Discovery {
         files: selected
@@ -190,6 +206,7 @@ pub fn collect(
             .map(|(path, explicit)| Discovered { path, explicit })
             .collect(),
         ignored,
+        examined_nothing,
     })
 }
 

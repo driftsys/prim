@@ -139,7 +139,10 @@ Chosen.
    ```
 
    Warnings never raise the exit code, so a hook that passes a staged-file list,
-   lockfile included, still passes.
+   lockfile included, still passes. The one exception is AD-0009 point 5: a gate
+   handed nothing but skipped paths — a lockfile alone among them — examined
+   nothing and exits `2`. The hooks prim ships run `prim fmt`, which is not a
+   gate, so they still pass.
 
 6. No whitespace hygiene applies to a generated file. It is skipped before it is
    ever read, so the bytes — including a missing final newline — are left

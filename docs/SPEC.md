@@ -239,7 +239,9 @@ source-code formatter and has **no plugin system**.
 - **FR-4.4a** prim shall report on stderr each path that was named on the
   command line and skipped, whether because `.primignore` covers it or because
   it matches the built-in generated-file list (FR-2.7, AD-0011). Skipping a path
-  reached by a directory walk shall be silent for either reason.
+  reached by a directory walk shall be silent for either reason. Where no path
+  is named, the working directory is the path prim was pointed at, and skipping
+  it shall be reported the same way.
 - **FR-4.4b** The `.primignore` files that apply to a path shall be those from
   its own directory up to a bound, and none above that bound. The bound shall be
   the root of the repository containing whatever prim was pointed at — a path
@@ -251,6 +253,16 @@ source-code formatter and has **no plugin system**.
   is governed by the enclosing repository's `.primignore` when prim is pointed
   at the enclosing repository, and by its own when prim is pointed at the
   checkout.
+- **FR-4.4c** In a gate mode — one whose exit code gates on pending findings:
+  `fmt --check`, `fix --check`, `fix --diff`, `fmt --check-idempotence`, `lint`
+  — prim shall exit `2` when every path it was pointed at was skipped (FR-4.4a):
+  each path named on the command line, or the working directory when none was
+  named. A `0` there would report a clean run over files prim never looked at,
+  which is the assurance a CI gate reads. The modes that write (`fmt`, `fix`)
+  and the preview mode (`fmt --diff`) shall exit `0` in the same case, so a
+  pre-commit hook handed a staged list of ignored paths still passes (AD-0009).
+  Skipping only some of the paths given shall not raise the exit code in any
+  mode.
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
   error (exit `2`).
 - **FR-4.6** prim shall handle an explicitly named path strictly: a path that
@@ -269,28 +281,32 @@ default, format-in-place action.
   files in place.
 - **FR-5.2** `prim fmt --check` (also `fix --check`) shall write nothing, exit
   `0` when all files are already formatted, exit non-zero when any file would
-  change, and list the files that would change.
+  change, and list the files that would change. A run that examined nothing
+  exits `2` instead of `0` (FR-4.4c).
 - **FR-5.3** `prim fmt --diff` shall print a unified diff of pending changes and
   write nothing; it shall exit `0` whether or not changes are pending (`--check`
   is the CI gate). `prim fix --diff` shares `fix --check`'s gated contract
   instead (FR-5.2): it also prints the diff and writes nothing, but exits
   non-zero when a fixable finding is pending, since `fix`'s `--check` and
   `--diff` are both format-drift gates, unlike `fmt --diff`'s preview-only
-  behaviour (AD-0007 §4).
+  behaviour (AD-0007 §4). Being gates, both also exit `2` when the run examined
+  nothing (FR-4.4c); `fmt --diff` does not.
 - **FR-5.3a** `prim fmt --check-idempotence` (also reachable as bare
   `prim --check-idempotence` through the permanent `fmt` alias) shall write
   nothing and verify FR-6.1 across the matched corpus: for each discovered file
   prim owns, it formats the current bytes in memory, formats that output a
   second time with the same resolved `.editorconfig` style, and exits `1` if any
   second pass still changes bytes. It lists each failing file on stdout, exits
-  `0` when every second pass is stable, and uses the normal discovery/classify
-  rules (structured formats plus the orphan hygiene allowlist only).
+  `0` when every second pass is stable (`2` when it examined nothing, FR-4.4c),
+  and uses the normal discovery/classify rules (structured formats plus the
+  orphan hygiene allowlist only).
 - **FR-5.4** With `--stdin-filepath <path>` (valid on `fmt`, `lint`, and `fix`),
   prim shall read stdin and, for `fmt`/`fix`, write the formatted result to
   stdout. The flag is mutually exclusive with `--check` and `--diff`.
 - **FR-5.5** `prim lint` shall report hygiene and content violations without
   ever rewriting a file; it has neither `--check` nor `--diff` (report-only is
-  its only mode).
+  its only mode). Being report-only makes it a gate throughout: a `lint` run
+  that examined nothing exits `2` (FR-4.4c).
   - **FR-5.5a** _(hygiene diagnostics, story B1)_ For the un-owned-text
     allowlist (the orphan set, shell excluded — same scope as FR-2.4/2.5),
     `prim lint` shall report each whitespace-hygiene violation individually: a
@@ -363,8 +379,8 @@ default, format-in-place action.
     per-rule matrix.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
-  could not do its job (parse/IO/usage error). Warnings never raise the exit
-  code; only errors do.
+  could not do its job (parse/IO/usage error, or a gate that examined nothing —
+  FR-4.4c). Warnings never raise the exit code; only errors do.
 - **FR-5.7** _(deprecated top-level flags)_ The top-level `--check`, `--diff`,
   and `--stdin-filepath` flags remain accepted directly on bare `prim` as
   deprecated sugar for the `fmt` forms; the first use in a run emits a one-line

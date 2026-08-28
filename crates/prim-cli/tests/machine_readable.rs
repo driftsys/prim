@@ -258,3 +258,31 @@ fn format_is_rejected_outside_fmt_check_and_lint() {
         .assert()
         .code(2);
 }
+
+#[test]
+fn a_gate_that_examined_nothing_still_emits_its_report() {
+    // FR-5.8: `--format` changes stdout alone. A gate pointed only at skipped
+    // paths exits 2 (FR-4.4c), and the machine-readable document is still the
+    // one a pipeline uploads — an empty findings list, not an empty file.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join(".primignore"), "CHANGELOG.md\n").unwrap();
+    fs::write(dir.path().join("CHANGELOG.md"), "#  Changelog\n").unwrap();
+
+    for (verb, mode) in [("fmt", "fmt-check"), ("lint", "lint")] {
+        let mut command = prim();
+        command.current_dir(dir.path()).arg(verb);
+        if verb == "fmt" {
+            command.arg("--check");
+        }
+        let output = command
+            .args(["--format", "json", "CHANGELOG.md"])
+            .assert()
+            .code(2);
+
+        assert_eq!(
+            stdout_json(&output),
+            json!({ "version": 1, "mode": mode, "findings": [] }),
+            "{verb} must still emit its report"
+        );
+    }
+}
