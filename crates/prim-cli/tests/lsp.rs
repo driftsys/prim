@@ -289,3 +289,50 @@ fn an_unknown_disabled_rule_id_is_reported_once_per_server_run() {
         session.stderr
     );
 }
+
+#[test]
+fn formats_markdown_holding_whitespace_inside_a_word() {
+    // Issue #126: `prim lsp` calls `prim_fmt::format` itself, so it is a
+    // fourth dispatch path beside file `fmt`, the directory walk and stdin.
+    // AD-0006 disables `dprint-plugin-markdown`'s `is_list_word` assertion for
+    // the dev profile; without that override a debug build panics here and the
+    // server dies with exit 101. U+2009 stands in for the whole triggering
+    // character set, which `crates/prim-fmt/src/markdown.rs` covers character
+    // by character — what this test pins is the dispatch path.
+    let dir = tempfile::tempdir().unwrap();
+    // Bound the cascade so the test does not read an .editorconfig above the
+    // temporary directory.
+    std::fs::write(dir.path().join(".editorconfig"), "root = true\n").unwrap();
+    let uri = format!("file://{}", dir.path().join("doc.md").display());
+
+    let (responses, code) = run_session(&[
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "markdown", "version": 1,
+                "text": "#  Title\n\nalpha bra\u{2009}vo charlie\n"
+            }}
+        }),
+        json!({
+            "jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting",
+            "params": {"textDocument": {"uri": uri}}
+        }),
+        json!({"jsonrpc": "2.0", "id": 3, "method": "shutdown"}),
+        json!({"jsonrpc": "2.0", "method": "exit"}),
+    ]);
+
+    assert_eq!(code, 0, "a panicking formatter would exit 101");
+
+    let edits = find_response(&responses, 2)["result"]
+        .as_array()
+        .expect("edits array");
+    // The heading's doubled space is the only thing to fix, so an edit coming
+    // back proves the document reached the formatter instead of being skipped,
+    // and its text proves the tricky word survived intact.
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(
+        edits[0]["newText"],
+        "# Title\n\nalpha bra\u{2009}vo charlie\n"
+    );
+}
