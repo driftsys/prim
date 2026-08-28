@@ -34,6 +34,7 @@
 //!   spike #42).
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
@@ -191,7 +192,8 @@ pub enum RuleReach {
     Selectable,
     /// rumdl has this rule and prim will not run it — formatter territory, a
     /// rule that cannot fire under the flavor and context prim pins, one that
-    /// needs an option prim has no surface to supply, or one a decision record
+    /// needs an option prim has no surface to supply, one that would break
+    /// prim's semantics-preserving guarantee, or one a decision record
     /// excludes.
     Withheld,
     /// No rumdl rule has this id. A typo.
@@ -202,10 +204,12 @@ pub enum RuleReach {
 /// be reported differently from a typo.
 ///
 /// `Withheld` is derived from rumdl's own registry rather than a
-/// hand-maintained list, so it stays correct when rumdl adds rules. Building
-/// that registry is not free, but this runs only while parsing a
-/// `prim_mdlint_*` value — once per `.editorconfig` section that sets one,
-/// not once per file.
+/// hand-maintained list, so it stays correct when rumdl adds rules. This
+/// function runs once per Markdown file whose resolved `.editorconfig` list
+/// carries an id outside `SELECTABLE_RULES`: the `Selectable` check returns
+/// before the registry is ever consulted, so the common case — every
+/// configured id is one prim already runs — never touches it. Consulting the
+/// registry does not rebuild it: see [`withheld_rule_names`].
 pub fn rule_reach(rule: &str) -> RuleReach {
     if SELECTABLE_RULES
         .iter()
@@ -213,13 +217,34 @@ pub fn rule_reach(rule: &str) -> RuleReach {
     {
         return RuleReach::Selectable;
     }
-    if all_rules(&prim_config(&Style::default()))
+    if withheld_rule_names()
         .iter()
-        .any(|known| known.name().eq_ignore_ascii_case(rule))
+        .any(|known| known.eq_ignore_ascii_case(rule))
     {
         return RuleReach::Withheld;
     }
     RuleReach::Unknown
+}
+
+/// The full set of rule ids rumdl exposes, built once per process and cached.
+///
+/// The id set does not depend on the [`Style`] passed to [`prim_config`] —
+/// only the registered rules' own names — and rumdl's rule set is a fixed
+/// property of the pinned `rumdl = "=0.2.35"` dependency, so it cannot change
+/// between calls within a run. A single build is correct for the whole
+/// process, which matters because [`rule_reach`] is called once per Markdown
+/// file for every non-selectable `.editorconfig` id, and a later
+/// `prim_mdlint_enable` key doubles that call site.
+fn withheld_rule_names() -> &'static [&'static str] {
+    static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            all_rules(&prim_config(&Style::default()))
+                .iter()
+                .map(|rule| rule.name())
+                .collect()
+        })
+        .as_slice()
 }
 
 /// prim's canonical rumdl configuration for one file's resolved [`Style`].
