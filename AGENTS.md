@@ -76,10 +76,12 @@ never raise the exit code.
 **Key design decisions:**
 
 - One canonical style; honor `.editorconfig` only. No `prim.toml`, no per-rule
-  flags to configure a rule's options or run a rule prim did not select. The one
-  subtract-only exception is `.editorconfig` `prim_mdlint_disable`, which can
-  only remove a rule from the Markdown lint tier prim already selected for a
-  path (AD-0012).
+  flags to configure a rule's options. Two `.editorconfig` keys select which
+  Markdown lint rules run, and neither configures a rule's options (AD-0012):
+  `prim_mdlint_disable` removes a rule from the set prim already selected for a
+  path, and `prim_mdlint_enable` adds one, reaching the 26 rules in prim's own
+  two tiers plus MD013, MD014 and MD069 and refusing everything else. A disable
+  is applied after an enable, so it wins a conflict.
 - Semantics-preserving: never reorder keys, table entries, or array elements.
 - Fail-safe: unparseable or non-UTF-8 files are left byte-for-byte unchanged and
   reported (exit `2`). Writes are atomic (temp file + rename).

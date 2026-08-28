@@ -278,11 +278,14 @@ fn withheld_rule_names() -> &'static [&'static str] {
 /// sites (issue #123, task 7) found this in practice: every one of 113
 /// non-heading findings traced to an atomic run — an inline code span, an
 /// HTML tag's attributes, a `$$...$$` LaTeX line, or prose inside a raw HTML
-/// block — never an ordinary sentence with an available break point. A
-/// heading is the one over-width case that is both real and fixable by the
-/// author, and prim does not wrap headings, so headings stay checked. This is
-/// the same reasoning already applied to code blocks above, extended to the
-/// case the measurement showed also exists in prose. rumdl skips blockquote
+/// block — never an ordinary sentence with an available break point. rumdl's
+/// own `code-spans = false` was considered as the narrower fix and rejected:
+/// it exempts only the inline-code-span cause, leaving HTML attributes,
+/// LaTeX lines and raw HTML blocks still reporting. A heading is the one
+/// over-width case that is both real and fixable by the author, and prim does
+/// not wrap headings, so headings stay checked. This is the same reasoning
+/// already applied to code blocks above, extended to the case the measurement
+/// showed also exists in prose. rumdl skips blockquote
 /// content under `paragraphs = false` too (confirmed in the vendored
 /// `md013_line_length.rs` and `md013_config.rs` sources for `rumdl = "=0.2.35"`:
 /// blockquote content is paragraph text, so it falls out of the check the

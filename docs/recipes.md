@@ -164,10 +164,58 @@ prim_mdlint_strict = true
 prim_mdlint_disable = MD033, MD041
 ```
 
-`prim_mdlint_disable` only removes rules from the tier prim already selected for
-that path — it is subtract-only, so it can never turn on a rule prim decided not
-to run. See [USAGE.md](USAGE.md#configuration) for the full resolution
-semantics.
+`prim_mdlint_disable` only removes rules; adding one is the separate
+`prim_mdlint_enable` key below. prim applies the disable list after the enable
+list, so an id named by both keys does not run. See
+[USAGE.md](USAGE.md#configuration) for the full resolution semantics.
+
+## Adding one Markdown lint rule without the strict tier
+
+The strict tier is all thirteen convention rules or none. To adopt a single one
+— say MD040, which asks every fenced code block for a language tag — name it
+with `prim_mdlint_enable` and leave the tier alone:
+
+```ini
+[docs/**.md]
+prim_mdlint_strict = false
+prim_mdlint_enable = MD040
+```
+
+The rule runs regardless of tier, so this works from a floor-tier path and
+survives a file-level `<!-- prim-mdlint-strict: false -->`. The key reaches the
+26 rules in prim's own floor and strict tiers, plus MD013, MD014 and MD069; any
+other id is refused with a warning on stderr that names the `.editorconfig`
+line, and the exit code is unaffected.
+
+## Enforcing a line length on Markdown
+
+MD013 is off in both tiers. Enable it, and set the width with the standard
+EditorConfig key rather than a rule option:
+
+```ini
+[docs/**.md]
+max_line_length = 100
+prim_mdlint_enable = MD013
+```
+
+prim feeds MD013 the same width the formatter wrapped to, so the linter and the
+formatter can never disagree about the threshold.
+
+**Read this before you enable it: prim's MD013 checks headings only.** It does
+not report over-width paragraphs, code-block lines, or table rows. That is
+deliberate. `prim fmt` already wraps every ordinary paragraph to
+`max_line_length`, so a paragraph line still over the limit afterwards is one
+prim could not break without changing what it means — a long inline code span,
+an HTML tag's attributes, a display-math line, or prose inside a raw HTML block
+— and reporting it would hand the author a finding with no correct fix. Measured
+across 774 files from six public documentation sites, every single non-heading
+finding was of that kind. A long heading is the opposite case: prim never wraps
+headings, and a heading can be rewritten shorter, so headings stay checked.
+
+prim has no per-rule option surface, so there is no way to widen MD013 back to
+whole lines. A repository that needs whole-line enforcement needs a different
+tool. See [AD-0012](decisions/0012-markdown-lint-bands-and-rule-exclusion.md)
+for the measurement.
 
 ## Editor format-on-save
 

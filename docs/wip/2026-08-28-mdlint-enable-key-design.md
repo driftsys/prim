@@ -9,6 +9,28 @@
   `docs/USAGE.md`, `docs/recipes.md` and `AGENTS.md`, then archive verbatim to
   `docs/archive/`.
 
+## Outcome (recorded 2026-08-28, after implementation)
+
+The corpus run this design asked for in [Verification](#verification) **refuted
+Decision 3's central claim**. On 774 Markdown files from six documentation
+sites, an enabled MD013 reported 60 prose findings at width 80, 34 at 100 and 19
+at 120 — not the zero this design predicted. Every one traced to an atomic run
+the formatter must not break (an inline code span, an HTML tag's attributes, a
+`$$...$$` LaTeX line, or prose inside a raw HTML block). Table and code-block
+findings were zero at every width, so the two protections this design did
+specify both held.
+
+MD013 was therefore narrowed to **headings only** by adding `paragraphs = false`
+to Decision 3's option list. Re-measured on the same corpus, the prose class
+fell to zero at every width.
+
+The rest of this document is left as written, because it is the honest record of
+what was designed before the measurement. Two parts of it no longer describe
+what prim does: Decision 3's option list, which is missing `paragraphs = false`,
+and the "Corpus" criterion under Verification, whose refutation condition was
+met. Read [AD-0012](../decisions/0012-markdown-lint-bands-and-rule-exclusion.md)
+for the decision as amended and as shipped.
+
 ## Problem
 
 `.editorconfig` `prim_mdlint_disable` removes rules from the tier prim selected
