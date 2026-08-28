@@ -37,57 +37,17 @@ editor is automatically excluded from the gate. That is the whole of issue #102.
 
 ### Corpus
 
-800 Markdown files from two internal workspaces, human and AI authored, copied
-into a flat directory with `prim_mdlint_strict = true` and linted with
-`prim 0.3.1` (debug build). Counts are findings and distinct files affected.
-
-Sources: two private repository roots, 400 files each, excluding `node_modules`,
-`target` and `.git`. The sample is the first 400 files `find` returned per root,
-not a random draw, and both roots reached that cap. The workspaces are not named
-here because this record is archived into a public repository.
-
-Composition: 327 under a `docs/` directory, 217 other authored documents, 191
-READMEs, 29 changelogs, 29 `.superpowers` AI working files, 4 `.github`
-templates, 3 `.claude` agent definitions.
-
-| Rule  | What it catches                  | Findings | Files |
-| ----- | -------------------------------- | -------: | ----: |
-| MD082 | heading with no body before next |     1880 |   451 |
-| MD080 | heading anchor collision         |      979 |    74 |
-| MD040 | fence without a language         |      404 |   126 |
-| MD024 | duplicate heading                |      212 |    29 |
-| MD034 | bare URL                         |      134 |    13 |
-| MD041 | first line is not a top heading  |       81 |    81 |
-| MD025 | multiple top-level headings      |       71 |    17 |
-| MD036 | emphasis used as a heading       |       58 |    18 |
-| MD033 | inline HTML                      |       18 |     1 |
-| MD026 | trailing punctuation in heading  |       18 |     8 |
-| MD001 | heading level skipped            |       15 |    15 |
-| MD045 | image without alt text           |        8 |     3 |
-| MD053 | unused reference definition      |        4 |     4 |
-| MD051 | link fragment does not resolve   |        2 |     2 |
-| MD059 | non-descriptive link text        |        1 |     1 |
-
-Twelve active rules produced zero findings: MD042, MD011, MD052, MD056, MD062,
-MD057, MD066, MD068, MD070, MD073, MD067, MD075.
-
-Caveat: prim calls `rumdl_lib::lint` with `source_file = None`
-(`mdlint.rs:161`), so MD057 cannot resolve relative link targets. Its true rate
-is unmeasured, not zero. Tracked as an open question below.
-
-### MD082 is wrong by construction
-
-Each MD082 finding was classified by the level of the next heading:
-
-| Case                                               | Findings | Files |
-| -------------------------------------------------- | -------: | ----: |
-| Parent heading, next heading deeper (`##` → `###`) |     1456 |   426 |
-| Next heading same level or shallower               |      412 |    66 |
-
-78 % of findings flag the ordinary outline shape rather than an empty section.
-The rule's `level` knob filters on the flagged heading's own level, not on its
-relation to the next heading, so it cannot separate the cases: `level = 2`
-removes 200 of 1880 findings, `level = 3` leaves 553.
+**[Scrubbed before archiving — see Disposition above.]** This section measured
+800 Markdown files from two private workspaces and ranked every rumdl rule by
+findings and affected files on that corpus. Those figures, and the per-rule
+breakdown of why MD082 over-fires that originally followed this section, are
+removed rather than carried into a public repository. The reasoning they
+produced — which rules are defects, which are conventions, and why MD082 earns
+removal rather than placement — survives; it is re-derived from the two public
+corpora below without leaning on the private numbers. The public
+"Documentation-site validation" section re-derives MD082's over-firing rate
+directly (569 of 573 findings), so nothing about that conclusion depends on the
+redacted figures.
 
 ### Open-source validation
 
@@ -143,11 +103,10 @@ Excluding MD033 and MD041, the whole of Band B costs 25 of 225 documentation
 files — roughly one file in nine — spread over MD001 (10), MD040 (8), MD053 (5),
 MD025 (2), MD036 (2), MD080 (2), MD026 (2) and MD024 (1).
 
-One honest counter-note on MD082: on these open-source documentation trees it
-fires on only 7 of 225 files, far below the 451 of 800 measured on the internal
-corpus. Its structural defect is unchanged — 78 % of its findings flag a parent
-heading followed by a deeper one — but its noise level is a property of writing
-style, not a universal.
+MD082 fires on only 7 of 225 files on this open-source documentation-tree
+corpus. Its structural defect rate is re-derived on the larger public corpus
+below rather than restated here (569 of 573 findings there), so its noise level
+is measured on public documents throughout, not carried over from a private one.
 
 ### Documentation-site validation
 
@@ -209,7 +168,8 @@ and keeps all 16.
   the user opts it down to `"warning"`.
 - prim enables MD073 and MD082 although rumdl holds both back, and promotes
   MD080 to `error` under strict although rumdl does not enable it at all. MD080
-  and MD082 together produce 74 % of prim's strict findings on the corpus.
+  and MD082 together produced most of prim's strict-tier findings on the private
+  corpus this design started from.
 
 ## Decision
 
@@ -222,64 +182,71 @@ That yields two gating bands and no warn-only band.
 
 ### Band A — defect: error at floor and strict
 
-| Rule  | Files | Today         | Change         |
-| ----- | ----: | ------------- | -------------- |
-| MD042 |     0 | error / error | none           |
-| MD011 |     0 | error / error | none           |
-| MD052 |     0 | error / error | none           |
-| MD056 |     0 | error / error | none           |
-| MD062 |     0 | error / error | none           |
-| MD057 |    0* | error / error | none           |
-| MD034 |    13 | error / error | none           |
-| MD051 |     2 | warn / error  | error at floor |
-| MD045 |     3 | warn / error  | error at floor |
-| MD075 |     0 | warn / error  | error at floor |
-| MD066 |     0 | off / error   | error at floor |
-| MD068 |     0 | off / error   | error at floor |
-| MD070 |     0 | off / error   | error at floor |
+| Rule  | Today         | Change         |
+| ----- | ------------- | -------------- |
+| MD042 | error / error | none           |
+| MD011 | error / error | none           |
+| MD052 | error / error | none           |
+| MD056 | error / error | none           |
+| MD062 | error / error | none           |
+| MD057 | error / error | none           |
+| MD034 | error / error | none           |
+| MD051 | warn / error  | error at floor |
+| MD045 | warn / error  | error at floor |
+| MD075 | warn / error  | error at floor |
+| MD066 | off / error   | error at floor |
+| MD068 | off / error   | error at floor |
+| MD070 | off / error   | error at floor |
 
-Six rules get stricter at the floor tier, together firing on 5 of 800 files.
+**[Per-rule file and finding counts scrubbed before archiving — see Disposition
+above.]** Six rules get stricter at the floor tier: MD051, MD045 and MD075 move
+from warn to error, and MD066, MD068 and MD070 move from off to error. All six
+fired rarely on the private corpus this design started from; the public
+validation below (Documentation trees and READMEs) confirms the promotion costs
+almost nothing in practice.
 
 ### Band B — convention: off at floor, error at strict
 
-"Files" counts the whole corpus; "docs" counts only the 327 files under a
-`docs/` directory, which is the population the strict tier actually covers under
-the placement map.
+**[Per-rule file counts scrubbed before archiving — see Disposition above.]**
+The table below records only the severity change each rule gets; the private
+corpus's per-rule file counts that originally justified each row are removed.
 
-| Rule  | Files | docs | Today        | Change          |
-| ----- | ----: | ---: | ------------ | --------------- |
-| MD040 |   126 |   40 | off / warn   | error at strict |
-| MD041 |    81 |    1 | off / warn   | error at strict |
-| MD080 |    74 |   14 | warn / error | off at floor    |
-| MD024 |    29 |    1 | warn / error | off at floor    |
-| MD036 |    18 |    6 | off / warn   | error at strict |
-| MD025 |    17 |    4 | off / warn   | error at strict |
-| MD001 |    15 |    0 | off / warn   | error at strict |
-| MD026 |     8 |    0 | off / warn   | error at strict |
-| MD053 |     4 |    0 | off / warn   | error at strict |
-| MD033 |     1 |    1 | off / warn   | error at strict |
-| MD059 |     1 |    0 | off / warn   | error at strict |
-| MD073 |     0 |    0 | off / warn   | error at strict |
-| MD067 |     0 |    0 | off / warn   | error at strict |
+| Rule  | Today        | Change          |
+| ----- | ------------ | --------------- |
+| MD040 | off / warn   | error at strict |
+| MD041 | off / warn   | error at strict |
+| MD080 | warn / error | off at floor    |
+| MD024 | warn / error | off at floor    |
+| MD036 | off / warn   | error at strict |
+| MD025 | off / warn   | error at strict |
+| MD001 | off / warn   | error at strict |
+| MD026 | off / warn   | error at strict |
+| MD053 | off / warn   | error at strict |
+| MD033 | off / warn   | error at strict |
+| MD059 | off / warn   | error at strict |
+| MD073 | off / warn   | error at strict |
+| MD067 | off / warn   | error at strict |
 
 MD025 is listed here as an error at strict on the understanding that prim
 configures `front-matter-title` away (see "Rule configuration prim owns" below);
 without that it fires on 61 % of Redux and 28 % of React Native pages.
 
-MD024 and MD080 leave the floor tier. 24 of MD024's 29 affected files are
-changelogs, which sit at the floor tier under the placement map.
+MD024 and MD080 leave the floor tier. Most of MD024's affected files on the
+private corpus were changelogs, which sit at the floor tier under the placement
+map.
 
-Turning strict on for a `docs/` tree costs about 60 of 327 files, and MD040 is
-40 of those. Every other convention rule is close to free there, because their
-findings concentrate in files the floor tier already covers: tooling files,
-READMEs, changelogs and AI working notes.
+Turning strict on for a `docs/` tree cost relatively little on the private
+corpus this design started from, and MD040 accounted for most of that cost.
+Every other convention rule was close to free there, because their findings
+concentrate in files the floor tier already covers: tooling files, READMEs,
+changelogs and AI working notes.
 
-MD041 is the clearest case. Of its 82 affected files, 47 open with YAML front
-matter carrying `name:` and `description:` rather than `title:` — agent, skill
-and rule definitions, which are configuration rather than documents — and three
-more are READMEs whose first line is an HTML license header. A floor-tier
-warning would therefore be wrong more often than right, which is why the rule
-stays off there rather than warning.
+MD041 is the clearest case. Most of its affected files on the private corpus
+opened with YAML front matter carrying `name:` and `description:` rather than
+`title:` — agent, skill and rule definitions, which are configuration rather
+than documents — and a further few were READMEs whose first line is an HTML
+license header. A floor-tier warning would therefore be wrong more often than
+right, which is why the rule stays off there rather than warning.
 
 MD033 stays in Band B despite the open-source validation, which found it firing
 in 4 of 4 projects on 97 of 225 documentation files. That retention is
@@ -291,8 +258,9 @@ strict altogether instead — losing MD040, MD041 and MD025 enforcement with it.
 ### Band C — removed
 
 MD082 is dropped from `ACTIVE_RULES`. It is absent from markdownlint, opt-in in
-rumdl, has no fix by design, and 78 % of its findings describe a normal document
-outline.
+rumdl, has no fix by design, and the large majority of its findings describe a
+normal document outline rather than an empty section — confirmed on the public
+corpus in "Documentation-site validation" above (569 of 573 findings).
 
 ### Rule configuration prim owns
 
@@ -440,16 +408,16 @@ AGENTS.md it is `feat!`, not `fix` or `refactor`.
 
 1. **Add `--deny-warnings` or `--max-warnings` (issue #102 as filed).** Rejected
    as the primary fix: it makes the twelve reachable but leaves MD082 gating at
-   a 56 % file hit rate, so the flag is unusable on real repositories without
-   also re-tiering. Retained as a possible future addition for non-Markdown
-   content rules.
+   a majority-of-files hit rate on the private corpus this design started from,
+   so the flag is unusable on real repositories without also re-tiering.
+   Retained as a possible future addition for non-Markdown content rules.
 2. **Expose rumdl's `--fail-on any|warning|error|never` verbatim.** Rejected for
    now: it inherits the two-axis model without deciding what each rule means, so
    the noisy rules still have to be re-placed first. Cheap to add later on top
    of this design.
 3. **Strict escalates every current warn rule to error, MD082 included.**
-   Rejected: 451 of 800 corpus files would fail a strict gate on MD082 alone,
-   and the remediation is filler prose.
+   Rejected: over half the private corpus's files would fail a strict gate on
+   MD082 alone, and the remediation is filler prose.
 4. **Upstream parity — mirror rumdl's per-rule severity.** Rejected as the
    criterion: rumdl's severities drive editor display, not gating, so importing
    them decides prim's policy by an unrelated measure. Used as corroboration
@@ -479,9 +447,10 @@ AGENTS.md it is `feat!`, not `fix` or `refactor`.
 2. **MD057 blind spot** — prim passes `source_file = None`, so relative link
    existence is never checked. Own issue; not in this change.
 3. **MD082 upstream** — a leaf-only mode (flag a heading only when the next
-   heading is at the same level or shallower) would make the rule usable: 412
-   findings across 66 files rather than 1880 across 451. Worth raising with
-   rumdl; revisit prim's placement if it lands.
+   heading is at the same level or shallower) would make the rule usable: on the
+   private corpus, a small minority of its findings and affected files were the
+   genuine leaf case. Worth raising with rumdl; revisit prim's placement if it
+   lands.
 
 ## Verification
 
@@ -491,7 +460,7 @@ AGENTS.md it is `feat!`, not `fix` or `refactor`.
    new placement implies → verify: `just test`.
 3. Re-run the corpus measurement after the change and confirm the floor tier
    reports only Band A rules and the strict tier reports no MD082 → verify: lint
-   the 800-file corpus at both tiers.
+   the private corpus at both tiers.
 4. Cover the exclusion key: a glob with `prim_mdlint_disable` silences only the
    named rules for matching files, leaves other globs untouched, matches rule
    ids case-insensitively, and warns on an unknown id without changing the exit
