@@ -66,6 +66,9 @@ pub(super) fn from_ancestors(dir: &Path) -> Ancestry {
     } else {
         dir.to_path_buf()
     };
+    // Not an unreadable ancestor: `ec4rs` skips a file it cannot open and
+    // carries on, so one never reaches here. This is the walk failing to
+    // start, which leaves prim with nothing to say about what it inherits.
     let Ok(config_files) = ConfigFiles::open(&probe, Option::<&Path>::None) else {
         return Ancestry::Nothing;
     };
