@@ -623,25 +623,153 @@ fn a_walk_and_a_named_path_keep_their_own_bounds_in_one_invocation() {
     }
 }
 
-#[test]
-fn a_negation_does_not_re_include_a_file_under_an_ignored_directory() {
-    // gitignore's rule, which prim now applies itself rather than delegating to
-    // the walker: a `!` rule cannot re-include a file whose parent directory is
-    // excluded. It holds only because the walk tells the matcher whether each
-    // entry is a directory, so `build/` covers the directory itself.
+/// A repository that excludes a directory and then tries to re-include one
+/// file inside it — `nested` decides whether the `!` rule sits in the same
+/// `.primignore` or in one beneath the excluded directory.
+fn repository_negating_inside_an_ignored_directory(nested: bool) -> tempfile::TempDir {
     let repo = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(repo.path().join(".git")).unwrap();
-    std::fs::write(repo.path().join(".primignore"), "build/\n!build/keep.md\n").unwrap();
     std::fs::create_dir_all(repo.path().join("build")).unwrap();
+    if nested {
+        std::fs::write(repo.path().join(".primignore"), "build/\n").unwrap();
+        std::fs::write(repo.path().join("build/.primignore"), "!keep.md\n").unwrap();
+    } else {
+        std::fs::write(repo.path().join(".primignore"), "build/\n!build/keep.md\n").unwrap();
+    }
+    // Non-canonical on purpose: prim would rewrite all three if it processed
+    // them. `outside.md` sits beyond the exclusion, so a walk that reports
+    // nothing at all is distinguishable from one that pruned `build/`.
     std::fs::write(repo.path().join("build/keep.md"), "#  Keep\n").unwrap();
     std::fs::write(repo.path().join("build/other.md"), "#  Other\n").unwrap();
+    std::fs::write(repo.path().join("outside.md"), "#  Outside\n").unwrap();
+    repo
+}
+
+#[test]
+fn a_negation_does_not_re_include_a_file_under_an_ignored_directory() {
+    // gitignore's rule, which prim applies itself rather than delegating to the
+    // walker: a `!` rule cannot re-include a file whose parent directory is
+    // excluded. It holds only because the walk tells the matcher whether each
+    // entry is a directory, so `build/` covers the directory itself.
+    for nested in [false, true] {
+        let repo = repository_negating_inside_an_ignored_directory(nested);
+
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--check", "."])
+            .assert()
+            .code(1)
+            .stdout(
+                predicates::str::contains("outside.md")
+                    .and(predicates::str::contains("keep.md").not()),
+            );
+    }
+}
+
+#[test]
+fn naming_the_negated_file_gets_the_same_answer_as_the_walk() {
+    // #114: the two routes, over one tree, in one test — which is the claim
+    // AD-0009 makes and the shape that broke it. Matching a named path used to
+    // stop at the nearest `.primignore`, so a negation written there — or
+    // beside the exclusion — re-included a file the walk would never offer, and
+    // `prim fmt build/keep.md` rewrote what `prim fmt .` left alone.
+    for nested in [false, true] {
+        let repo = repository_negating_inside_an_ignored_directory(nested);
+
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--check", "."])
+            .assert()
+            .code(1)
+            .stdout(
+                predicates::str::contains("outside.md")
+                    .and(predicates::str::contains("keep.md").not()),
+            );
+
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "build/keep.md"])
+            .assert()
+            .success()
+            .stderr(predicates::str::contains("matched by .primignore"));
+
+        // The gate form of the same question, which is how #114 reproduces.
+        // Both routes report the file the same way — neither lists it — while
+        // the exit code separates them: this run was pointed only at a skipped
+        // path, so FR-4.4c applies.
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--check", "build/keep.md"])
+            .assert()
+            .code(2)
+            .stdout(predicates::str::is_empty());
+
+        assert_eq!(
+            std::fs::read_to_string(repo.path().join("build/keep.md")).unwrap(),
+            "#  Keep\n",
+            "a file under an excluded directory must stay byte-for-byte \
+             unchanged however prim is pointed at it (nested = {nested})"
+        );
+    }
+}
+
+#[test]
+fn a_path_beside_an_excluded_directory_is_still_reported() {
+    // One invocation, two paths sharing the directory above the excluded one:
+    // the answer about `a/b/` must not carry over to `a/`. This is the shape a
+    // hook produces when it hands prim a whole staged list.
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+    std::fs::write(repo.path().join(".primignore"), "a/b/\n").unwrap();
+    std::fs::create_dir_all(repo.path().join("a/b")).unwrap();
+    std::fs::write(repo.path().join("a/b/inner.json"), "{\"a\" :1}\n").unwrap();
+    std::fs::write(repo.path().join("a/other.json"), "{\"a\" :1}\n").unwrap();
 
     prim()
         .current_dir(repo.path())
-        .args(["fmt", "--check", "."])
+        .args(["fmt", "--check", "a/b/inner.json", "a/other.json"])
+        .assert()
+        .code(1)
+        .stdout(
+            predicates::str::contains("a/other.json")
+                .and(predicates::str::contains("inner.json").not()),
+        )
+        .stderr(predicates::str::contains("matched by .primignore"));
+}
+
+#[test]
+fn a_generated_file_negated_under_an_ignored_directory_is_still_skipped() {
+    // AD-0011 item 4's override rides on the `.primignore` stack rather than
+    // sitting beside it, so the directory exclusion above the negation decides
+    // the path before the built-in list is consulted.
+    let repo = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(repo.path().join(".git")).unwrap();
+    std::fs::create_dir_all(repo.path().join("vendor")).unwrap();
+    std::fs::write(
+        repo.path().join(".primignore"),
+        "vendor/\n!vendor/package-lock.json\n",
+    )
+    .unwrap();
+    let lock = repo.path().join("vendor/package-lock.json");
+    std::fs::write(&lock, "{\"a\" :1}\n").unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "vendor/package-lock.json"])
         .assert()
         .success()
-        .stdout(predicates::str::is_empty());
+        // The directory exclusion decides it, so this is not the "generated by
+        // npm" skip — the two reasons must stay distinguishable.
+        .stderr(
+            predicates::str::contains("matched by .primignore")
+                .and(predicates::str::contains("generated by").not()),
+        );
+
+    assert_eq!(
+        std::fs::read_to_string(&lock).unwrap(),
+        "{\"a\" :1}\n",
+        "the exclusion above the negation keeps the file unformatted"
+    );
 }
 
 #[test]

@@ -214,9 +214,22 @@ crates/prim-fmt/tests/correctness/fixtures/
 
 Note: `.primignore` applies however prim is invoked — a file it covers is left
 alone whether prim walked to it or you named it on the command line (AD-0009).
+Excluding a directory covers everything under it, and a later `!` line cannot
+take one file back out: under gitignore's rules `fixtures/` followed by
+`!fixtures/keep.md` leaves `keep.md` covered, wherever the `!` line is written.
 That is what makes the entry worth having in a pre-commit hook, which passes
 prim an explicit list of staged files. Naming an ignored path prints a warning
 so the no-op is visible; pass `--no-primignore` to process it anyway.
+
+To keep one file formatted, exclude the directory's contents rather than the
+directory itself. `fixtures/*` covers what is in the directory without covering
+the directory, so the negation beneath it still works:
+
+```gitignore
+# .primignore
+fixtures/*
+!fixtures/keep.md
+```
 
 Skipping some of the paths given never changes the exit code, so a commit that
 stages one ignored file alongside others still passes the hook — and so does one

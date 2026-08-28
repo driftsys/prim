@@ -7,6 +7,13 @@ Accepted. New behavior: prim no longer treats `package-lock.json`,
 JSON/YAML input. `fmt`, `lint`, `fix`, `--stdin-filepath`, and the LSP
 formatting request all leave a listed file byte-for-byte unchanged by default.
 
+Amended for #112: point 5's reporting rule now has one exception, where a gate
+handed nothing but skipped paths exits `2` (AD-0009 point 5).
+
+Amended for #114: Decision item 4's `!name` override is not unconditional. A
+directory holding the file that the `.primignore` stack leaves excluded decides
+the path before the built-in list is consulted.
+
 ## Context
 
 prim formats **authored** files. A generated file belongs to the tool that
@@ -117,16 +124,23 @@ Chosen.
    `Match::Whitelist`). This mirrors AD-0009's rule that a path must be _named_,
    not merely matched, to take precedence, and applies only to the
    generated-list override — ordinary `.primignore` whitelisting of a
-   non-generated file is unaffected. `--no-primignore` disables the built-in
-   list along with the rest of the `.primignore` stack. There is no separate
-   flag. `--stdin-filepath` and the LSP formatting request never consult
-   `.primignore` at all, so neither escape applies to them: on those two paths,
-   `generated_by` is unconditional, and there is no way to make prim format a
-   listed file over stdin or through the LSP. The `.primignore` files consulted
-   for a path are bounded by the repository containing whatever prim was pointed
-   at, as FR-4.4b specifies and AD-0009 explains, so a `.primignore` outside the
-   repository (for example one left in `$HOME`) cannot silently disable the
-   built-in list for every repository beneath it.
+   non-generated file is unaffected. The override rides on the `.primignore`
+   stack, so it holds where nothing above the file is excluded — the documented
+   recipe, `!package-lock.json` at the repository root. Where the `.primignore`
+   stack leaves a directory holding the file excluded — by a rule beside the
+   negation, or in a file above it, and not put back by a later `!` line — the
+   override does not apply: gitignore's rule that a `!` rule cannot re-include a
+   path under an excluded directory decides the path before the built-in list is
+   consulted (#114, FR-4.4). `--no-primignore` disables the built-in list along
+   with the rest of the `.primignore` stack. There is no separate flag.
+   `--stdin-filepath` and the LSP formatting request never consult `.primignore`
+   at all, so neither escape applies to them: on those two paths, `generated_by`
+   is unconditional, and there is no way to make prim format a listed file over
+   stdin or through the LSP. The `.primignore` files consulted for a path are
+   bounded by the repository containing whatever prim was pointed at, as FR-4.4b
+   specifies and AD-0009 explains, so a `.primignore` outside the repository
+   (for example one left in `$HOME`) cannot silently disable the built-in list
+   for every repository beneath it.
 
 5. Reporting follows AD-0009's rule exactly, because the surprise is the same
    shape: reached by a directory walk, a generated file is skipped silently —
@@ -188,10 +202,11 @@ Chosen.
   does not extend the built-in list to it, on purpose.
 - For a path reached by directory discovery or named explicitly, anyone who
   wants prim to format a listed file anyway has two ways to say so without a
-  code change: a `!name` line in a committed `.primignore`, or `--no-primignore`
-  for a one-off run. Neither works over `--stdin-filepath` or the LSP: those two
-  paths never consult `.primignore`, so the decline there is unconditional
-  (Decision item 4).
+  code change: a `!name` line in a committed `.primignore`, so long as the stack
+  leaves no directory holding the file excluded, or `--no-primignore` for a
+  one-off run. Neither works over `--stdin-filepath` or the LSP: those two paths
+  never consult `.primignore`, so the decline there is unconditional (Decision
+  item 4).
 - Matching is case-sensitive, the same rule `classify()` uses (Decision item 1,
   FR-2.5). On a case-insensitive filesystem (for example, the default macOS APFS
   configuration), a differently cased name on disk does not match `GENERATED`:

@@ -74,13 +74,16 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 - **`--no-primignore`** — the opposite switch: keep VCS ignore files but drop
   `.primignore`. Needed only to process a path `.primignore` covers, since that
   file is honoured however prim is invoked — walked to or named on the command
-  line (AD-0009). This same flag also disables the built-in generated-file list
-  (AD-0011), which behaves as the outermost `.primignore` layer. Naming an
-  ignored path without this flag prints a warning and changes nothing; warnings
-  never raise the exit code. The one case that does is a gate — `fmt --check`,
-  `fix --check`, `fix --diff`, `fmt --check-idempotence`, or `lint` — where
-  _every_ path prim was pointed at is skipped: prim then examined nothing, so it
-  reports an error and exits `2` instead of reporting a clean run (FR-4.4c).
+  line (AD-0009), and under gitignore's own rules: a `!` line cannot re-include
+  a file when a directory holding it is excluded, so `fixtures/` followed by
+  `!fixtures/keep.md` leaves `keep.md` covered. This same flag also disables the
+  built-in generated-file list (AD-0011), which behaves as the outermost
+  `.primignore` layer. Naming an ignored path without this flag prints a warning
+  and changes nothing; warnings never raise the exit code. The one case that
+  does is a gate — `fmt --check`, `fix --check`, `fix --diff`,
+  `fmt --check-idempotence`, or `lint` — where _every_ path prim was pointed at
+  is skipped: prim then examined nothing, so it reports an error and exits `2`
+  instead of reporting a clean run (FR-4.4c).
 - **`--since <REF>`** — limit discovery to the paths
   `git diff --name-only <REF>` reports: files that differ between `<REF>` and
   the current working tree, including both staged and unstaged changes. prim
@@ -645,7 +648,13 @@ A directory walk skips a listed file silently. Naming one explicitly on the
 command line skips it too, with a warning on stderr. For those two path-based
 cases, the list behaves as the weakest `.primignore` layer (AD-0011): a
 committed `!name` line re-includes the file, and `--no-primignore` disables the
-built-in list along with the rest of the `.primignore` stack.
+built-in list along with the rest of the `.primignore` stack. The `!name` line
+works where nothing above the file is excluded, which is the documented recipe
+(`!package-lock.json` at the repository root). Where the `.primignore` stack
+leaves a directory holding the file excluded, that exclusion wins and the
+negation never reaches the built-in list — gitignore's rule that a `!` rule
+cannot re-include a path under an excluded directory. A directory a later `!`
+line puts back is not excluded, so an override under it still applies.
 
 `--stdin-filepath` and an editor's format-on-save request skip a listed file
 without a warning: stdin echoes the input back unchanged, and the LSP formatting

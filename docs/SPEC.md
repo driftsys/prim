@@ -77,11 +77,12 @@ source-code formatter and has **no plugin system**.
   re-includes such a file only when its final path segment is a literal file
   name equal to the generated file's name (for example `!package-lock.json`,
   `!**/package-lock.json`, or `!vendor/package-lock.json`) — a broader negation
-  such as `!*.json` or `!*` does not. The `.primignore` files consulted for a
-  path are bounded as FR-4.4b specifies, so a `.primignore` outside the
-  repository cannot disable the built-in list for every repository beneath it.
-  `--no-primignore` disables the built-in list along with the rest of the
-  `.primignore` stack.
+  such as `!*.json` or `!*` does not, and no negation re-includes a file that a
+  directory exclusion above it already covers (FR-4.4). The `.primignore` files
+  consulted for a path are bounded as FR-4.4b specifies, so a `.primignore`
+  outside the repository cannot disable the built-in list for every repository
+  beneath it. `--no-primignore` disables the built-in list along with the rest
+  of the `.primignore` stack.
 
 ## FR-3 — Style resolution
 
@@ -236,6 +237,10 @@ source-code formatter and has **no plugin system**.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax) for
   every path it is given, whether reached by a directory walk or named on the
   command line (AD-0009). `--no-primignore` shall process ignored paths anyway.
+  gitignore's re-inclusion rule shall hold on both routes: a `!` rule shall not
+  re-include a path when a directory holding it is excluded, however near that
+  path the rule is written, including in a `.primignore` beneath the excluded
+  directory (#114).
 - **FR-4.4a** prim shall report on stderr each path that was named on the
   command line and skipped, whether because `.primignore` covers it or because
   it matches the built-in generated-file list (FR-2.7, AD-0011). Skipping a path
