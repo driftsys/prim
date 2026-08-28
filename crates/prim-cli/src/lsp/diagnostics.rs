@@ -45,7 +45,7 @@ pub fn compute(
         prim_fmt::FileKind::Markdown => {
             let policy = resolver.resolve_mdlint_policy(path);
             let style = resolver.resolve(path);
-            // FR-3.2c has no editor carve-out: a typo'd or a withheld rule id
+            // FR-3.2d has no editor carve-out: a typo'd or a withheld rule id
             // is silently ignored, so the only sign of it is this line on
             // stderr.
             rejected_rules.report(&policy);

@@ -233,7 +233,7 @@ pub fn rule_reach(rule: &str) -> RuleReach {
 /// property of the pinned `rumdl = "=0.2.35"` dependency, so it cannot change
 /// between calls within a run. A single build is correct for the whole
 /// process, which matters because [`rule_reach`] is called once per Markdown
-/// file for every non-selectable `.editorconfig` id, and a later
+/// file for every non-selectable `.editorconfig` id, and a
 /// `prim_mdlint_enable` key doubles that call site.
 fn withheld_rule_names() -> &'static [&'static str] {
     static NAMES: OnceLock<Vec<&'static str>> = OnceLock::new();

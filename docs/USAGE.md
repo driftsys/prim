@@ -727,7 +727,7 @@ Scope notes:
   **after** `prim_mdlint_enable`, so an id named by both keys does not run — a
   disable always wins, including a narrower section's disable against a wider
   section's enable.
-- An id prim will not act on changes nothing, whichever key listed it. prim
+- An id prim will not act on has no effect, whichever key listed it. prim
   reports it on stderr, naming the `.editorconfig` file, line and section it was
   written in, once per run for each section that carries it, and the exit code
   is unaffected. The two refusals read differently on purpose: a **withheld** id

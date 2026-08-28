@@ -111,7 +111,7 @@ source-code formatter and has **no plugin system**.
   selected for that path and shall never add a rule to it. A value of `unset`
   (EditorConfig's own reserved word) or `none` shall clear the list rather than
   name a rule, and shall not be reported as unrecognised. An id prim will not
-  act on disables nothing; prim shall report it on stderr, naming the
+  act on has no effect; prim shall report it on stderr, naming the
   `.editorconfig` file, line and section that set it, once per run for each
   section that carries it, without changing the exit code, and shall distinguish
   a withheld id from an unknown one as FR-3.2d specifies.
@@ -138,7 +138,8 @@ source-code formatter and has **no plugin system**.
   changes a rule's behaviour or its options: both only select which rules run.
   `prim_mdlint_disable` only ever narrows the rule set prim already selected;
   `prim_mdlint_enable` is the one key that widens it, and it widens it by at
-  most the three rules FR-3.2d names (AD-0012 Decision 6).
+  most the three rules outside prim's own tiers that FR-3.2d names, and never
+  beyond the enableable set FR-3.2d defines (AD-0012 Decision 6).
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
 - **FR-3.5** prim shall provide `prim init [PATH]` as a one-time `.editorconfig`
   scaffolder for Markdown lint-tier placement. With no existing `.editorconfig`,
@@ -364,15 +365,15 @@ default, format-in-place action.
     - **Withheld (never run, and `prim_mdlint_enable` refuses them):** MD043,
       MD044, MD054, MD061 and MD081 each need a repository-supplied list or
       threshold that prim has no surface to accept, and cannot fire without one;
-      MD074, MD078 and MD079 cannot fire under the `Standard` flavor and
-      `source_file: None` prim pins; MD063 is a sentence-case-versus-title-case
-      house-style choice prim will not impose; MD072 (frontmatter key sorting)
-      would violate prim's semantics-preserving guardrail; and MD082 is dropped
-      from prim's rule table entirely (absent from markdownlint, opt-in in
-      rumdl, no fix by design, and — measured across six public documentation
-      sites — 569 of 573 findings flag a parent heading immediately followed by
-      a deeper one, an ordinary outline shape rather than an empty section). See
-      AD-0012 for the evidence behind each refusal.
+      MD074, MD078 and MD079 cannot fire under the `Standard` flavor prim pins;
+      MD063 is a sentence-case-versus-title-case house-style choice prim will
+      not impose; MD072 (frontmatter key sorting) would violate prim's
+      semantics-preserving guardrail; and MD082 is dropped from prim's rule
+      table entirely (absent from markdownlint, opt-in in rumdl, no fix by
+      design, and — measured across six public documentation sites — 569 of 573
+      findings flag a parent heading immediately followed by a deeper one, an
+      ordinary outline shape rather than an empty section). See AD-0012 for the
+      evidence behind each refusal.
     - **Exit-code implication:** floor-tier findings and strict-tier findings
       alike raise `prim lint`'s exit code to `1`; no Markdown rule emits a
       warning.

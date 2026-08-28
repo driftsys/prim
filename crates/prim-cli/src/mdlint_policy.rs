@@ -1,5 +1,5 @@
 //! Resolve prim's Markdown lint policy for one file: which tier applies, and
-//! which rules that path excludes.
+//! which rules that path adds and excludes.
 //!
 //! Lives in the CLI crate because it reads `.editorconfig`; `prim-fmt` takes
 //! the resolved policy as data and stays pure.
@@ -24,7 +24,7 @@ pub(crate) fn strict_from(props: &Properties) -> bool {
 }
 
 /// The Markdown lint policy for one file: the tier that applies, and the rules
-/// that path excludes from it.
+/// that path adds to and excludes from it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MdLintPolicy {
     /// The rules prim runs for this path, ready to hand to the engine.
@@ -179,9 +179,8 @@ impl RejectedRuleReporter {
             };
             let reason = match reject.reach {
                 prim_fmt::RuleReach::Withheld => "which prim does not run at any tier",
-                prim_fmt::RuleReach::Unknown => "which is not a rule prim knows",
-                prim_fmt::RuleReach::Selectable => {
-                    unreachable!("a RejectedRuleId's reach is never Selectable")
+                prim_fmt::RuleReach::Unknown | prim_fmt::RuleReach::Selectable => {
+                    "which is not a rule prim knows"
                 }
             };
             ui::warning(&format!(

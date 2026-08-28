@@ -341,19 +341,27 @@ fn md013_line_length_reads_the_resolved_style_not_rumdls_default() {
     };
     let selection = enabling("MD013");
 
-    let under_120 = "# This line keeps going and going with ordinary padding words to reach \
+    let heading_under_120 = "# This line keeps going and going with ordinary padding words to reach \
                       the target length for the test This line keeps\n";
-    assert_eq!(under_120.trim_end().len(), 117, "fixture length drifted");
-    let diags = lint(under_120, &style, &selection);
+    assert_eq!(
+        heading_under_120.trim_end().len(),
+        117,
+        "fixture length drifted"
+    );
+    let diags = lint(heading_under_120, &style, &selection);
     assert!(
         diags.iter().all(|d| d.rule != "MD013"),
         "a heading under the widened max_line_length must not fire: {diags:?}"
     );
 
-    let over_120 = "# This line keeps going and going with ordinary padding words to reach \
+    let heading_over_120 = "# This line keeps going and going with ordinary padding words to reach \
                      the target length for the test This line keeps going and going with\n";
-    assert_eq!(over_120.trim_end().len(), 138, "fixture length drifted");
-    let diags = lint(over_120, &style, &selection);
+    assert_eq!(
+        heading_over_120.trim_end().len(),
+        138,
+        "fixture length drifted"
+    );
+    let diags = lint(heading_over_120, &style, &selection);
     assert!(
         diags.iter().any(|d| d.rule == "MD013"),
         "a heading past the widened max_line_length must fire: {diags:?}"
@@ -369,12 +377,32 @@ fn md013_line_length_reads_the_resolved_style_not_rumdls_default() {
 /// never an ordinary sentence with an available break point. This test is
 /// the guard against someone quietly restoring `paragraphs = true`: it fails
 /// the moment an over-width paragraph line starts firing again.
+///
+/// It also pins the two other exemptions `prim_config` relies on for the same
+/// reason: `code-block-line-length = 0` for an over-width code-block line
+/// (rumdl's own "no limit" — prim never reflows a code block, and rewrapping
+/// a shell command changes what it says), and the fact that rumdl already
+/// treats blockquote content as paragraph text under `paragraphs = false`, so
+/// an over-width blockquote line is exempt with no separate
+/// `blockquotes = false` needed (confirmed in the vendored
+/// `md013_line_length.rs` source for `rumdl = "=0.2.35"`). Without
+/// `code-block-line-length = 0`, an over-width code sample would report a
+/// finding with no correct fix, and the `paragraphs = false` narrowing above
+/// is what removed the prose findings that would otherwise have made such a
+/// break obvious in a real run — this is the only test left standing guard
+/// over that option.
 #[test]
 fn md013_checks_headings_only_never_paragraphs() {
     let selection = enabling("MD013");
     let src = "# This heading keeps going and going with ordinary padding words to reach the target length\n\
                \n\
-               This paragraph keeps going and going with ordinary padding words to reach the target length too.\n";
+               This paragraph keeps going and going with ordinary padding words to reach the target length too.\n\
+               \n\
+               ```text\n\
+               this code line keeps going and going with ordinary padding words to reach the target length too\n\
+               ```\n\
+               \n\
+               > This blockquote line keeps going and going with ordinary padding words to reach the target length too.\n";
 
     let diags = lint(src, &Style::default(), &selection);
 
@@ -385,5 +413,13 @@ fn md013_checks_headings_only_never_paragraphs() {
     assert!(
         diags.iter().all(|d| d.rule != "MD013" || d.line != 3),
         "an over-width paragraph must never fire: {diags:?}"
+    );
+    assert!(
+        diags.iter().all(|d| d.rule != "MD013" || d.line != 6),
+        "an over-width code-block line must never fire: {diags:?}"
+    );
+    assert!(
+        diags.iter().all(|d| d.rule != "MD013" || d.line != 9),
+        "an over-width blockquote line must never fire: {diags:?}"
     );
 }
