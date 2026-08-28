@@ -719,16 +719,21 @@ Scope notes:
   a closed allowlist, not a generic extension hook or a second config file.
 - Standard EditorConfig keys and documented `prim_*` keys resolve together for
   the same file; custom keys do not interfere with `Style` resolution.
-- prim reports a broken `.editorconfig` only when the file has a valid first
+- prim reports a broken `.editorconfig` when the file has a valid first
   `[section]` header and its first invalid line comes after that header. It then
   warns, and the built-in canonical style applies for the whole cascade —
   including any `.editorconfig` that was read successfully before it.
-- Anything that goes wrong earlier in the file is silent. An `.editorconfig`
-  prim cannot open, and one whose first invalid line is at or before its first
-  `[section]` header — an unclosed `[*.md`, for instance — are both skipped
-  without a warning, and the walk continues past them. A broken section header
-  at the top of a file is the common typo, so being malformed is not on its own
-  enough to get a file reported; where the broken line sits is what decides.
+- Anything that goes wrong earlier in the file is normally silent. An
+  `.editorconfig` prim cannot open, and one whose first invalid line is at or
+  before its first `[section]` header — an unclosed `[*.md`, for instance — are
+  skipped without a warning, and the walk continues past them. A broken section
+  header at the top of a file is the common typo, so being malformed is not on
+  its own enough to get a file reported; where the broken line sits is what
+  decides.
+- The exception is a byte-order mark immediately before a first-line `[section]`
+  header, which is reported rather than skipped. `ec4rs` strips the mark when it
+  first classifies that line but not when it re-reads it, so the file is
+  accepted and then rejected on line 1.
 - Skipping a file silently can change resolution in both directions. The
   settings that file would have contributed go missing, and if it carried
   `root = true`, prim never sees that boundary and keeps reading `.editorconfig`

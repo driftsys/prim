@@ -81,10 +81,17 @@ including that header; an invalid line anywhere in that span fails there,
 `ConfigFile::open` propagates it, and `ConfigFiles::open` discards the error and
 carries on with the walk. So a file whose first invalid line is the section
 header itself — an unclosed `[*.md`, the common `.editorconfig` typo — is
-skipped in silence, as is a file that cannot be opened at all. The real split is
-whether there is a valid first section header with the broken line after it, and
-an unreadable file is indistinguishable from one broken at or above its first
-header.
+skipped in silence, as is a file that cannot be opened at all. An unreadable
+file is indistinguishable from one broken at or above its first header.
+
+The split is therefore not "broken line after the first header" but "parsed far
+enough to be constructed, then errored during section iteration". One line can
+satisfy both: a byte-order mark immediately before a first-line section header
+is stripped when `LineReader` classifies that line but not when `read_section`
+re-parses it, so the file is constructed and then reports on line 1. That
+asymmetry is the one described under "Line-level parsing is reimplemented"
+below, and it is the only case where an invalid first header is reported rather
+than passed over.
 
 (The other warning `build_cascade` can emit, `cannot search for .editorconfig`,
 is not about a file in the cascade: it reports the walk failing to start, which
