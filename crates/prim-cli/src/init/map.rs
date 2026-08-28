@@ -89,6 +89,7 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
                 glob: "*.md",
                 value: false,
                 probes: vec!["README.md".to_string()],
+                witness: Some("prim-witness.md".to_string()),
             },
             strict_glob != EVERYTHING_GLOB,
         ),
@@ -97,6 +98,7 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
                 glob: strict_glob,
                 value: true,
                 probes: vec![strict_probe(strict_glob, "guide.md")],
+                witness: Some(strict_probe(strict_glob, "prim-witness/prim-witness.md")),
             },
             true,
         ),
@@ -115,6 +117,7 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
                 glob: memory.glob,
                 value: false,
                 probes: vec![format!("{}/plan.md", memory.dir)],
+                witness: Some(format!("{}/prim-witness/prim-witness.md", memory.dir)),
             },
             !exemption_covers(strict_glob, memory.dir),
         )
@@ -135,6 +138,10 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
             glob: "**/SUMMARY.md",
             value: false,
             probes: summary_probes,
+            // Outside the strict glob's directory and both exempt
+            // directories, so an ordinary broader override of any of
+            // those — `[docs/**]`, say — cannot also reach it.
+            witness: Some("prim-witness/SUMMARY.md".to_string()),
         },
         true,
     ));

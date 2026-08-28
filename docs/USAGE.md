@@ -254,6 +254,21 @@ whose own order contradicts the canonical one is reported and left for you to
 fix. An existing `.editorconfig` prim cannot parse at all is reported and left
 untouched — with no resolution there is nothing to check a change against.
 
+prim also resolves every canonical section the file already carries
+`prim_mdlint_strict` for, not only the ones it plans to write, checking each
+against the same representative paths. A section fails that check three ways: a
+later section sets a different value and wins, so the wrong tier applies to the
+section's own paths; a later section sets the same value and wins anyway, so the
+earlier section decides none of those paths even though nothing resolves
+incorrectly today; or the value itself is not `true` or `false`, which
+EditorConfig reads as `false` silently. Each is a warning naming the section,
+the line it starts at, and the section that decides instead — never a refusal,
+since a person's own narrower override is legitimate and prim will not reorder
+sections a person wrote. When any of these warnings fires, the summary line
+reads `.editorconfig left unchanged — see the warning(s) above` instead of
+`.editorconfig already contains the Markdown strict-glob map`, even on a run
+that writes nothing, because the two are different outcomes.
+
 Running `prim init` twice is idempotent: once the map is present, the second run
 reports a no-op and leaves `.editorconfig` byte-identical. An occurrence of one
 of those globs that neither sets `prim_mdlint_strict` nor receives it — an

@@ -339,6 +339,13 @@ fn a_defeated_section_is_reported_while_the_writes_that_are_safe_still_happen() 
     // A warning about a section prim cannot fix must not turn into a refusal
     // to make the changes it can: `[docs/*.md]`, appended last, defeats the
     // SUMMARY exemption, and the docs/wip exemption is still missing.
+    //
+    // This is also the narrow-override guard: `[docs/*.md]` agrees with
+    // `[docs/**.md]` for docs/guide.md, so `[docs/**.md]` must stay silent —
+    // its witness in a subdirectory is still decided by `[docs/**.md]` itself,
+    // since `[docs/*.md]` cannot reach it. `warnings.len() == 1` below is
+    // load-bearing for that, not only for the SUMMARY defeat it already
+    // pinned.
     let existing = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/*.md]\nprim_mdlint_strict = true\n";
     let merged = merge(existing, "docs/**.md");
 

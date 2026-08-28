@@ -19,6 +19,13 @@ pub(super) struct SectionSpec<'a> {
     /// `docs/wip/` is decided by a different set of sections from one under
     /// the strict glob.
     pub(super) probes: Vec<String>,
+    /// A second representative, in a place a narrower override of `probes`
+    /// would not reach, used only to tell such an override (which still lets
+    /// this section decide everything else) apart from a later section that
+    /// genuinely decides nothing this section is for (see
+    /// [`super::outcome::defeated_sections`]). Never named in a message.
+    /// Every canonical section carries one.
+    pub(super) witness: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -192,6 +199,25 @@ pub(super) fn deciding_section<'a>(
         })
         .map(|(_, header)| header)
         .next_back()
+}
+
+/// Whether the section whose occurrence sits at `occurrence_line` is the one
+/// that decides `path`, or `None` when `glob` — that section's own — does not
+/// even apply to `path`. The `None` case guards a probe prim itself failed to
+/// construct, such as a `book.toml` `src` containing glob syntax (`docs[1]`):
+/// a path a section's own glob does not match is not evidence about that
+/// section, and must be left out rather than counted against it.
+pub(super) fn owns(
+    lines: &[&str],
+    headers: &[(usize, String)],
+    occurrence_line: usize,
+    glob: &str,
+    path: &str,
+) -> Option<bool> {
+    if !ec4rs::Section::new(glob).applies_to(Path::new(path)) {
+        return None;
+    }
+    Some(deciding_section(lines, headers, path).is_some_and(|(line, _)| *line == occurrence_line))
 }
 
 /// The text written after `prim_mdlint_strict =` in a section's body, taking
