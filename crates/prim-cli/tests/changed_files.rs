@@ -232,40 +232,79 @@ fn deleted_paths_reported_by_git_are_dropped_silently() {
 #[test]
 fn untracked_paths_are_invisible_until_they_reach_the_index() {
     let repo = init_repo();
-    write(&repo.path().join("tracked.txt"), "tracked\n");
+    write(&repo.path().join("modified.txt"), "modified\n");
     commit_all(repo.path(), "baseline");
 
-    write(&repo.path().join("tracked.txt"), "tracked  \n");
-    write(&repo.path().join("untracked.txt"), "untracked  \n");
+    write(&repo.path().join("modified.txt"), "modified  \n");
+    git(repo.path(), &["add", "modified.txt"]);
+    write(&repo.path().join("newcomer.txt"), "newcomer  \n");
 
-    // `git diff` never reports an untracked path, so `--since` cannot select
+    // `git diff` never reports an untracked path, so neither scope can select
     // one. docs/recipes.md warns readers that a changed-file gate therefore
-    // passes on a brand-new file an unfiltered run would fail.
+    // misses a brand-new file an unfiltered run would report.
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--check"])
+            .args(scope)
+            .assert()
+            .code(1)
+            .stdout(
+                predicates::str::contains("modified.txt")
+                    .and(predicates::str::contains("newcomer.txt").not()),
+            )
+            .stderr(predicates::str::is_empty());
+    }
+
+    // Control: without a scope prim does report it, so the assertions above
+    // pin the filter rather than the file being undiscoverable to begin with.
     prim()
         .current_dir(repo.path())
-        .args(["fmt", "--check", "--since", "HEAD"])
+        .args(["fmt", "--check"])
         .assert()
         .code(1)
-        .stdout(
-            predicates::str::contains("tracked.txt")
-                .and(predicates::str::contains("untracked.txt").not()),
-        );
+        .stdout(predicates::str::contains("newcomer.txt"));
+
+    git(repo.path(), &["add", "newcomer.txt"]);
+
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--check"])
+            .args(scope)
+            .assert()
+            .code(1)
+            .stdout(predicates::str::contains("newcomer.txt"));
+    }
+}
+
+#[test]
+fn a_changed_file_gate_passes_when_only_an_untracked_path_drifts() {
+    let repo = init_repo();
+    write(&repo.path().join("clean.txt"), "clean\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("newcomer.txt"), "newcomer  \n");
+
+    // The outcome docs/recipes.md promises: the gate is clean even though the
+    // tree is not, which is why the recipe warns about the gap at all.
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--check"])
+            .args(scope)
+            .assert()
+            .success()
+            .stdout(predicates::str::is_empty())
+            .stderr(predicates::str::is_empty());
+    }
 
     prim()
         .current_dir(repo.path())
         .args(["fmt", "--check"])
         .assert()
         .code(1)
-        .stdout(predicates::str::contains("untracked.txt"));
-
-    git(repo.path(), &["add", "untracked.txt"]);
-
-    prim()
-        .current_dir(repo.path())
-        .args(["fmt", "--check", "--since", "HEAD"])
-        .assert()
-        .code(1)
-        .stdout(predicates::str::contains("untracked.txt"));
+        .stdout(predicates::str::contains("newcomer.txt"));
 }
 
 #[test]
