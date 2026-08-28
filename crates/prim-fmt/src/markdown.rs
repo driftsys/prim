@@ -18,7 +18,7 @@ use crate::{FormatError, Style};
 /// `Ok(None)`, so dprint never reformats embedded code.
 pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
     let config = ConfigurationBuilder::new()
-        .line_width(style.max_line_length.unwrap_or(80) as u32)
+        .line_width(style.effective_line_width() as u32)
         .text_wrap(TextWrap::Always)
         .build();
 

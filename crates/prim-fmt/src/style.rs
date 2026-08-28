@@ -49,6 +49,20 @@ pub struct Style {
     pub max_line_length: Option<usize>,
 }
 
+impl Style {
+    /// The hard-wrap width prim actually uses: `max_line_length` when set,
+    /// else prim's canonical 80.
+    ///
+    /// The Markdown formatter and the Markdown linter must agree on this
+    /// number. A linter measuring a different width than the formatter
+    /// wrapped to would report prim's own output as a violation, at a
+    /// threshold nobody chose. Both read it here, so the agreement is
+    /// structural rather than a convention two call sites have to remember.
+    pub fn effective_line_width(&self) -> usize {
+        self.max_line_length.unwrap_or(80)
+    }
+}
+
 impl Default for Style {
     /// prim's built-in canonical style (FR-3.1): LF endings, trailing
     /// whitespace stripped, exactly one final newline, two-space indent.
@@ -81,5 +95,22 @@ mod tests {
     fn line_ending_bytes() {
         assert_eq!(LineEnding::Lf.as_str(), "\n");
         assert_eq!(LineEnding::CrLf.as_str(), "\r\n");
+    }
+
+    #[test]
+    fn effective_line_width_is_the_width_the_formatter_wraps_to() {
+        assert_eq!(
+            Style::default().effective_line_width(),
+            80,
+            "an unset max_line_length means prim's canonical 80"
+        );
+        assert_eq!(
+            Style {
+                max_line_length: Some(120),
+                ..Style::default()
+            }
+            .effective_line_width(),
+            120
+        );
     }
 }
