@@ -151,7 +151,7 @@ pub(super) fn run_lint_paths(
 
     let mut any_error_finding = false;
     let mut findings = Vec::new();
-    let mut unknown_rule_reporter = crate::mdlint_policy::UnknownRuleReporter::new();
+    let mut rejected_rule_reporter = crate::mdlint_policy::RejectedRuleReporter::new();
     for (path, kind, style, markdown_policy, original, formatted) in results {
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
@@ -168,7 +168,7 @@ pub(super) fn run_lint_paths(
                 }
             }
         } else if kind == FileKind::Markdown {
-            unknown_rule_reporter.report(&markdown_policy);
+            rejected_rule_reporter.report(&markdown_policy);
             let diagnostics =
                 prim_fmt::lint_markdown(&original, &style, &markdown_policy.selection);
             if !diagnostics.is_empty() {

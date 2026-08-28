@@ -14,6 +14,7 @@ use crate::provenance::{self, SettingOrigin};
 use crate::ui;
 
 pub(crate) const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
+pub(crate) const MDLINT_ENABLE_KEY: &str = "prim_mdlint_enable";
 pub(crate) const MDLINT_DISABLE_KEY: &str = "prim_mdlint_disable";
 
 /// Read `prim_mdlint_strict` out of already-resolved properties. Unset or
@@ -28,62 +29,85 @@ pub(crate) fn strict_from(props: &Properties) -> bool {
 pub struct MdLintPolicy {
     /// The rules prim runs for this path, ready to hand to the engine.
     pub selection: prim_fmt::MdLintSelection,
-    /// Ids `prim_mdlint_disable` listed that name no rule prim runs in any
-    /// tier, uppercased, in the order written. Resolving a policy never
-    /// reports these itself — see [`UnknownRuleReporter`] for where and how
+    /// Ids `prim_mdlint_enable` or `prim_mdlint_disable` listed that prim
+    /// will not act on, in the order written. Resolving a policy never
+    /// reports these itself — see [`RejectedRuleReporter`] for where and how
     /// often that happens.
-    pub unknown: Vec<String>,
-    /// Where `prim_mdlint_disable` was set, so a typo in it can be reported
-    /// against the `.editorconfig` line that has to be edited rather than
-    /// against a Markdown file that merely inherits it.
-    ///
-    /// Resolved only when `unknown` is non-empty: recovering the section
-    /// header re-reads the `.editorconfig`, and reporting a typo is the only
-    /// thing this field is for. It is [`SettingOrigin::Default`] otherwise —
-    /// `prim explain`, which needs the origin of a value that resolved fine,
-    /// asks [`crate::provenance::origin_of`] for it directly.
-    pub unknown_origin: SettingOrigin,
+    pub rejected: Vec<RejectedRuleId>,
 }
 
-/// Parse `prim_mdlint_disable` out of already-resolved properties.
+/// An id a `prim_mdlint_*` key listed that prim will not act on, with the key
+/// that listed it, why it was refused, and where it was written.
 ///
-/// The value is a comma-separated list of rule ids. Entries are trimmed and
-/// uppercased, then split into ids prim runs (kept, to exclude from the
-/// tier) and ids it does not recognise (returned separately, dropped from
-/// the exclusion set either way). This stays pure — reporting an
-/// unrecognised id is a caller's job, not resolution's, so a warning fires
-/// once per run per section rather than once per file (see
-/// [`UnknownRuleReporter`]).
+/// The origin is carried per id because two keys can each carry rejects, and a
+/// message that names the wrong line sends the reader to a line with nothing
+/// to fix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RejectedRuleId {
+    /// The id as written, uppercased.
+    pub id: String,
+    /// The `.editorconfig` key that listed it.
+    pub key: &'static str,
+    /// Why prim refused it. Never [`prim_fmt::RuleReach::Selectable`].
+    pub reach: prim_fmt::RuleReach,
+    /// The `.editorconfig` file, line and section that set `key`.
+    pub origin: SettingOrigin,
+}
+
+/// Parse one comma-separated rule-id list out of already-resolved properties.
 ///
-/// Returns `(disabled, unknown)`.
-fn disabled_from(props: &Properties) -> (Vec<String>, Vec<String>) {
-    let Some(raw) = props.get_raw_for_key(MDLINT_DISABLE_KEY).into_option() else {
+/// Entries are trimmed and uppercased, then split into ids prim can select
+/// (kept) and ids it refuses (returned separately, dropped from the list
+/// either way). This stays pure — reporting a refusal is a caller's job, so a
+/// warning fires once per run per section rather than once per file (see
+/// [`RejectedRuleReporter`]).
+///
+/// Returns `(accepted, rejected)`. The rejects carry a placeholder origin;
+/// [`attribute`] fills it in only when there is something to report, because
+/// recovering the section header re-reads the `.editorconfig`.
+fn rule_ids_from(props: &Properties, key: &'static str) -> (Vec<String>, Vec<RejectedRuleId>) {
+    let Some(raw) = props.get_raw_for_key(key).into_option() else {
         return (Vec::new(), Vec::new());
     };
 
-    let mut disabled = Vec::new();
-    let mut unknown = Vec::new();
+    let mut accepted = Vec::new();
+    let mut rejected = Vec::new();
     for entry in raw
         .split(',')
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
     {
-        // `unset` is EditorConfig's own reserved word for "clear the
-        // inherited value"; `none` is prim's own accepted spelling of the
-        // same intent. Neither names a rule, so neither belongs in
-        // `unknown` — that list feeds a warning that the id "is not a rule
-        // prim runs", which would be a misleading way to describe a
-        // deliberate clear.
+        // `unset` is EditorConfig's own reserved word for "clear the inherited
+        // value"; `none` is prim's own spelling of the same intent. Neither
+        // names a rule, so neither is a refusal to report.
         if entry.eq_ignore_ascii_case("unset") || entry.eq_ignore_ascii_case("none") {
             continue;
         }
-        if prim_fmt::rule_reach(entry) == prim_fmt::RuleReach::Selectable {
-            disabled.push(entry.to_ascii_uppercase());
+        let reach = prim_fmt::rule_reach(entry);
+        if reach == prim_fmt::RuleReach::Selectable {
+            accepted.push(entry.to_ascii_uppercase());
         } else {
-            unknown.push(entry.to_ascii_uppercase());
+            rejected.push(RejectedRuleId {
+                id: entry.to_ascii_uppercase(),
+                key,
+                reach,
+                origin: SettingOrigin::Default,
+            });
         }
     }
-    (disabled, unknown)
+    (accepted, rejected)
+}
+
+/// Resolve `key`'s `.editorconfig` origin once and stamp it on every id that
+/// key rejected.
+fn attribute(rejected: &mut [RejectedRuleId], props: &Properties, key: &str) {
+    if rejected.is_empty() {
+        return;
+    }
+    let origin = provenance::origin_of(props, key);
+    for reject in rejected {
+        reject.origin = origin.clone();
+    }
 }
 
 /// One-shot resolution without caching — used by `lint --stdin-filepath` and
@@ -94,54 +118,57 @@ pub fn resolve(path: &Path) -> MdLintPolicy {
 
 /// Assemble the whole Markdown lint policy from one file's resolved
 /// `.editorconfig` properties. Pure — emits no warnings; see
-/// [`UnknownRuleReporter`] for reporting `unknown` at the point of use.
+/// [`RejectedRuleReporter`] for reporting `rejected` at the point of use.
 pub(crate) fn policy_from(props: &Properties) -> MdLintPolicy {
-    let (disabled, unknown) = disabled_from(props);
-    let unknown_origin = if unknown.is_empty() {
-        SettingOrigin::Default
-    } else {
-        provenance::origin_of(props, MDLINT_DISABLE_KEY)
-    };
+    let (enabled, mut rejected) = rule_ids_from(props, MDLINT_ENABLE_KEY);
+    attribute(&mut rejected, props, MDLINT_ENABLE_KEY);
+    let (disabled, mut disable_rejects) = rule_ids_from(props, MDLINT_DISABLE_KEY);
+    attribute(&mut disable_rejects, props, MDLINT_DISABLE_KEY);
+    rejected.append(&mut disable_rejects);
+
     MdLintPolicy {
         selection: prim_fmt::MdLintSelection {
             strict: strict_from(props),
-            enabled: Vec::new(),
+            enabled,
             disabled,
         },
-        unknown,
-        unknown_origin,
+        rejected,
     }
 }
 
-/// Warns about each unrecognised `prim_mdlint_disable` id once per run for
-/// each `.editorconfig` section that carries it, rather than once per file a
-/// matching glob happens to cover. A typo'd rule id is a mistake in one
-/// `.editorconfig` line; it deserves one line of stderr output, not a repeat
-/// for every file that inherits it — and two sections carrying the same typo
-/// are two mistakes to fix, not one.
+/// Warns about each refused `prim_mdlint_enable` or `prim_mdlint_disable` id
+/// once per run for each `.editorconfig` section that carries it, rather than
+/// once per file a matching glob happens to cover. A refused rule id is a
+/// mistake in one `.editorconfig` line; it deserves one line of stderr
+/// output, not a repeat for every file that inherits it — and two sections
+/// carrying the same refused id are two mistakes to fix, not one.
 #[derive(Default)]
-pub struct UnknownRuleReporter {
-    /// Already-warned `(location, id)` pairs. The location is part of the key
-    /// because the same typo in two different sections is two mistakes to
-    /// fix, and reporting only the first would name a line the second one is
+pub struct RejectedRuleReporter {
+    /// Already-warned `(key, location, id)` triples. The key and location are
+    /// part of the identity because the same id can be refused by both keys,
+    /// and the same id refused in two different sections is two mistakes to
+    /// fix — reporting only the first would name a line the second one is
     /// not on.
-    reported: HashSet<(String, String)>,
+    reported: HashSet<(&'static str, String, String)>,
 }
 
-impl UnknownRuleReporter {
+impl RejectedRuleReporter {
     /// A reporter that has not yet warned about anything.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Warn about each unrecognised id in `policy`, attributed to the
+    /// Warn about each refused id in `policy`, attributed to the
     /// `.editorconfig` file, line and section that set the key — that is
-    /// where the typo has to be fixed. Ids this reporter already warned about
-    /// for the same location are skipped.
+    /// where it has to be fixed. Ids this reporter already warned about for
+    /// the same key and location are skipped.
     pub fn report(&mut self, policy: &MdLintPolicy) {
-        let location = provenance::location_of(&policy.unknown_origin);
-        for id in &policy.unknown {
-            if !self.reported.insert((location.clone(), id.clone())) {
+        for reject in &policy.rejected {
+            let location = provenance::location_of(&reject.origin);
+            if !self
+                .reported
+                .insert((reject.key, location.clone(), reject.id.clone()))
+            {
                 continue;
             }
             let attribution = if location.is_empty() {
@@ -149,9 +176,13 @@ impl UnknownRuleReporter {
             } else {
                 format!("{location}: ")
             };
+            let reason = match reject.reach {
+                prim_fmt::RuleReach::Withheld => "which prim does not run at any tier",
+                _ => "which is not a rule prim knows",
+            };
             ui::warning(&format!(
-                "{attribution}{MDLINT_DISABLE_KEY} lists '{id}', which is not a rule prim runs \
-                 — ignoring it"
+                "{attribution}{} lists '{}', {reason} — ignoring it",
+                reject.key, reject.id
             ));
         }
     }

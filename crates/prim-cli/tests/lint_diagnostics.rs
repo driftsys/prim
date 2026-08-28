@@ -384,3 +384,162 @@ fn the_same_unknown_id_in_two_sections_warns_about_each_one() {
         "one warning per section that carries the typo:\n{stderr}"
     );
 }
+
+#[test]
+fn enabling_an_opt_in_rule_makes_it_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nmax_line_length = 40\nprim_mdlint_enable = MD013\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.md");
+    // A heading is the one over-width thing prim's formatter will not wrap,
+    // so this finding survives `prim fmt`.
+    std::fs::write(
+        &file,
+        "# A heading far longer than the forty columns this repository asked for\n\nText.\n",
+    )
+    .unwrap();
+
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD013]"));
+}
+
+#[test]
+fn an_enabled_md013_uses_the_width_the_formatter_wrapped_to() {
+    // rumdl's own MD013 default is 80. A repository asking for 120 and
+    // enabling the rule must not have its own formatted prose reported.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nmax_line_length = 120\nprim_mdlint_enable = MD013\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.md");
+    let prose = "word ".repeat(40);
+    std::fs::write(&file, format!("# Title\n\n{prose}\n")).unwrap();
+
+    prim().arg("fmt").arg(&file).assert().code(0);
+    prim().arg("lint").arg(&file).assert().code(0);
+}
+
+#[test]
+fn an_enabled_convention_rule_gates_without_the_strict_tier() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD033\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.md");
+    // Opening with prose rather than a heading is an MD041 violation, so the
+    // negative assertion below has something to catch: if enabling MD033 pulled
+    // in its whole band, MD041 would report here.
+    std::fs::write(
+        &file,
+        "Intro\n\n# Title\n\nText with <span>inline HTML</span>.\n",
+    )
+    .unwrap();
+
+    let assert = prim().arg("lint").arg(&file).assert().code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(stdout.contains("[MD033]"), "{stdout}");
+    assert!(
+        !stdout.contains("[MD041]"),
+        "enabling one convention rule must not pull in the rest of its band:\n{stdout}"
+    );
+}
+
+#[test]
+fn disabling_beats_enabling_for_the_same_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD033\nprim_mdlint_disable = MD033\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.md");
+    std::fs::write(&file, "# Title\n\nText with <span>inline HTML</span>.\n").unwrap();
+
+    prim().arg("lint").arg(&file).assert().code(0);
+}
+
+#[test]
+fn an_enabled_rule_survives_a_file_level_strict_opt_out() {
+    // The directive moves the tier; it does not cancel an enable.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_strict = true\nprim_mdlint_enable = MD013\nmax_line_length = 40\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.md");
+    std::fs::write(
+        &file,
+        "<!-- prim-mdlint-strict: false -->\n\n# A heading far longer than the forty columns asked for\n",
+    )
+    .unwrap();
+
+    let assert = prim().arg("lint").arg(&file).assert().code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(stdout.contains("[MD013]"), "{stdout}");
+}
+
+#[test]
+fn a_withheld_enabled_rule_warns_that_prim_does_not_run_it() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD072\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n\nText.\n").unwrap();
+
+    let assert = prim().arg("lint").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(stderr.contains("prim_mdlint_enable"), "{stderr}");
+    assert!(stderr.contains("MD072"), "{stderr}");
+    assert!(
+        stderr.contains("does not run"),
+        "a withheld rule is a deliberate refusal, not a typo:\n{stderr}"
+    );
+    assert!(stderr.contains(".editorconfig:3 [*.md]"), "{stderr}");
+}
+
+#[test]
+fn an_unknown_enabled_rule_warns_as_a_typo() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD999\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n\nText.\n").unwrap();
+
+    let assert = prim().arg("lint").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(stderr.contains("not a rule prim knows"), "{stderr}");
+}
+
+#[test]
+fn fmt_never_warns_about_an_enabled_rule() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD999\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n\nText.\n").unwrap();
+
+    let assert = prim().arg("fmt").arg(dir.path()).assert().code(0);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(
+        !stderr.contains("MD999"),
+        "prim fmt never consumes prim_mdlint_enable:\n{stderr}"
+    );
+}

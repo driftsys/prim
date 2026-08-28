@@ -125,10 +125,10 @@ fn disable_value(policy: &MdLintPolicy, origin: &SettingOrigin) -> String {
 /// One file's resolved settings, plus the Markdown lint policy they were read
 /// from when the file is Markdown.
 ///
-/// The policy travels with the answer rather than being reported here: an
-/// unrecognised `prim_mdlint_disable` id is warned about once per run, and a
-/// query that writes to stderr on every call cannot honour that (see
-/// [`mdlint_policy::UnknownRuleReporter`]).
+/// The policy travels with the answer rather than being reported here: a
+/// refused `prim_mdlint_enable`/`prim_mdlint_disable` id is warned about once
+/// per run, and a query that writes to stderr on every call cannot honour
+/// that (see [`mdlint_policy::RejectedRuleReporter`]).
 pub struct Explanation {
     pub settings: Vec<ResolvedSetting>,
     pub mdlint_policy: Option<MdLintPolicy>,

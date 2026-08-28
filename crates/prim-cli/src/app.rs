@@ -165,11 +165,11 @@ fn run_explain(args: &ExplainArgs) -> i32 {
         Some(kind) => {
             let explanation = provenance::explain(path, kind);
             print!("{}", explain::render(path, &explanation.settings));
-            // Reporting an unrecognised `prim_mdlint_disable` id is the
-            // command's job, not the query's: the reporter has to outlive a
-            // single resolution for "once per run" to mean anything.
+            // Reporting a refused `prim_mdlint_enable` or `prim_mdlint_disable`
+            // id is the command's job, not the query's: the reporter has to
+            // outlive a single resolution for "once per run" to mean anything.
             if let Some(policy) = &explanation.mdlint_policy {
-                crate::mdlint_policy::UnknownRuleReporter::new().report(policy);
+                crate::mdlint_policy::RejectedRuleReporter::new().report(policy);
             }
             EXIT_OK
         }

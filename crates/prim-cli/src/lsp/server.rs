@@ -37,10 +37,10 @@ pub enum Reaction {
 pub struct Server {
     documents: HashMap<String, String>,
     resolver: editorconfig::Resolver,
-    /// Unrecognised `prim_mdlint_disable` ids already reported. A server
-    /// process is the "run" FR-3.2c counts, so this outlives the request that
-    /// first hit the typo.
-    unknown_rules: crate::mdlint_policy::UnknownRuleReporter,
+    /// Refused `prim_mdlint_enable`/`prim_mdlint_disable` ids already
+    /// reported. A server process is the "run" FR-3.2c counts, so this
+    /// outlives the request that first hit the refusal.
+    rejected_rules: crate::mdlint_policy::RejectedRuleReporter,
     shutdown_requested: bool,
 }
 
@@ -134,7 +134,7 @@ impl Server {
             .map(|(path, kind)| {
                 diagnostics::compute(
                     &mut self.resolver,
-                    &mut self.unknown_rules,
+                    &mut self.rejected_rules,
                     &path,
                     kind,
                     text,
