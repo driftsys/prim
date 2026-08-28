@@ -39,10 +39,11 @@ false`), `ec4rs = "1.2"` for `.editorconfig`,
   first clause). The key selects rules; it never sets their options.
 - The enableable set is exactly the 26 ids already in prim's tiers plus **MD013,
   MD014, MD069**. Everything else rumdl has is withheld.
-- File size: soft limit 300 lines, hard limit 500. `app.rs` is at 537 and
-  `mdlint_policy.rs` at 319 — do not grow either. Task 5 moves
-  `mdlint_policy.rs`'s test module into `mdlint_policy/tests.rs` before adding
-  anything.
+- File size: soft limit 300 lines, hard limit 500. `app.rs` was split along its
+  dispatch and pipeline seams in #141, so the Markdown lint paths now live in
+  `app/stdin.rs` (149 lines) and `app/paths.rs` (229). `mdlint_policy.rs` is at
+  319, over the soft limit — Task 5 moves its test module into
+  `mdlint_policy/tests.rs` before adding anything.
 - Conventional Commits, imperative mood. This work changes what `prim lint`
   reports for a repository that opts in, so the feature commits are `feat`. Run
   `just fmt` before every commit.
@@ -164,7 +165,8 @@ config entry is inert while MD013 is unselected.
 - Modify: `crates/prim-fmt/src/mdlint/tests.rs` (matrix tests)
 - Modify: `crates/prim-cli/src/mdlint_policy.rs` (`MdLintPolicy` holds a
   selection)
-- Modify: `crates/prim-cli/src/app.rs:265-268`, `:474-480`,
+- Modify: `crates/prim-cli/src/app/stdin.rs:93-96`,
+  `crates/prim-cli/src/app/paths.rs:155-176`,
   `crates/prim-cli/src/lsp/diagnostics.rs:44-49`,
   `crates/prim-cli/src/provenance.rs:80-95` (call sites)
 
@@ -558,7 +560,8 @@ tests to `policy.selection.strict` / `policy.selection.disabled`.
 
 - [ ] **Step 10: Update the four call sites**
 
-`crates/prim-cli/src/app.rs`, the stdin lint path (around line 265):
+`crates/prim-cli/src/app/stdin.rs`, the Markdown lint arm (around line 93). It
+already resolves a `Style` in its neighbouring arms, so follow that shape:
 
 ```rust
 Some(FileKind::Markdown) => {
@@ -568,8 +571,8 @@ Some(FileKind::Markdown) => {
     let diagnostics = prim_fmt::lint_markdown(&input, &style, &policy.selection);
 ```
 
-`crates/prim-cli/src/app.rs`, the walk path (around line 474) — `style` is
-already bound by the loop at line 459:
+`crates/prim-cli/src/app/paths.rs`, the walk path (around line 172) — `style` is
+already bound by the loop at line 155:
 
 ```rust
 unknown_rule_reporter.report(&markdown_policy);
@@ -1253,12 +1256,21 @@ Change the dedup set's element type to `(&'static str, String, String)`.
 
 Run: `cargo test -p prim-cli mdlint_policy` Expected: PASS.
 
-- [ ] **Step 6: Rename the reporter at its three call sites**
+- [ ] **Step 6: Rename the reporter everywhere it is named**
 
-`UnknownRuleReporter` is constructed in `crates/prim-cli/src/app.rs` (twice) and
-`crates/prim-cli/src/lsp/diagnostics.rs`. Rename each to `RejectedRuleReporter`.
+`UnknownRuleReporter` appears in five files: constructed in
+`crates/prim-cli/src/app.rs:172` (`prim explain`),
+`crates/prim-cli/src/app/stdin.rs:95` and
+`crates/prim-cli/src/app/paths.rs:154`; imported, taken as a parameter and
+constructed three times in tests in `crates/prim-cli/src/lsp/diagnostics.rs`;
+held as a field in `crates/prim-cli/src/lsp/server.rs:43`; and named in doc
+comments in `crates/prim-cli/src/provenance.rs:131` and
+`crates/prim-cli/src/mdlint_policy.rs`. Rename each to `RejectedRuleReporter`.
+
 Update the comment in `lsp/diagnostics.rs` that says "a typo'd rule id is
-silently ignored" to name both refusal classes.
+silently ignored" to name both refusal classes, and the comment above the
+`prim explain` call site in `app.rs` that says "an unrecognised
+`prim_mdlint_disable` id" to name both keys.
 
 - [ ] **Step 7: Write the failing integration tests**
 

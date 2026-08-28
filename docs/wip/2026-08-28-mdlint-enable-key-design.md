@@ -261,19 +261,19 @@ admission classes of Decision 2.
 
 ## Affected surfaces
 
-| Surface                                            | Change                                                                                  |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `crates/prim-fmt/src/mdlint.rs`                    | tier enum, opt-in rules, classifier, `prim_config(style)`                               |
-| `crates/prim-fmt/src/style.rs`                     | `Style::effective_line_width()`                                                         |
-| `crates/prim-fmt/src/markdown.rs`                  | call the new helper instead of inlining the fallback                                    |
-| `crates/prim-fmt/src/lib.rs`                       | export `MdLintSelection`, replace `is_known_rule`                                       |
-| `crates/prim-cli/src/mdlint_policy.rs`             | resolve the key, three-way reporting, hand over the selection                           |
-| `crates/prim-cli/src/app.rs`, `lsp/diagnostics.rs` | new call signature                                                                      |
-| `crates/prim-cli/src/provenance.rs` / `explain`    | show the key with file, line and section                                                |
-| `docs/decisions/0012-*.md`                         | amend in place — Context, Decision 6, Alternative 6, Consequences                       |
-| `docs/SPEC.md`                                     | new FR-3.2d; amend FR-3.3's no-widening sentence and FR-5.5b; re-partition the off-list |
-| `docs/USAGE.md`, `docs/recipes.md`                 | the key, its reach, and the withheld reasons                                            |
-| `AGENTS.md`                                        | the "one subtract-only exception" sentence                                              |
+| Surface                                                                  | Change                                                                                  |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `crates/prim-fmt/src/mdlint.rs`                                          | tier enum, opt-in rules, classifier, `prim_config(style)`                               |
+| `crates/prim-fmt/src/style.rs`                                           | `Style::effective_line_width()`                                                         |
+| `crates/prim-fmt/src/markdown.rs`                                        | call the new helper instead of inlining the fallback                                    |
+| `crates/prim-fmt/src/lib.rs`                                             | export `MdLintSelection`, replace `is_known_rule`                                       |
+| `crates/prim-cli/src/mdlint_policy.rs`                                   | resolve the key, three-way reporting, hand over the selection                           |
+| `crates/prim-cli/src/app/stdin.rs`, `app/paths.rs`, `lsp/diagnostics.rs` | new call signature                                                                      |
+| `crates/prim-cli/src/provenance.rs` / `explain`                          | show the key with file, line and section                                                |
+| `docs/decisions/0012-*.md`                                               | amend in place — Context, Decision 6, Alternative 6, Consequences                       |
+| `docs/SPEC.md`                                                           | new FR-3.2d; amend FR-3.3's no-widening sentence and FR-5.5b; re-partition the off-list |
+| `docs/USAGE.md`, `docs/recipes.md`                                       | the key, its reach, and the withheld reasons                                            |
+| `AGENTS.md`                                                              | the "one subtract-only exception" sentence                                              |
 
 `prim init` is unchanged: the key is opt-in and there is no placement prim can
 scaffold on a repository's behalf.
