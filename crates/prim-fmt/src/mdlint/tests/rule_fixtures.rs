@@ -1,4 +1,4 @@
-//! One minimal, self-contained Markdown fixture per rule in `ACTIVE_RULES`,
+//! One minimal, self-contained Markdown fixture per rule in `SELECTABLE_RULES`,
 //! each written to make its own rule actually fire against the pinned
 //! `rumdl = "=0.2.35"`.
 //!
@@ -15,6 +15,8 @@
 //! comment on an individual fixture where that shape is not obvious.
 
 use super::super::*;
+use super::tier;
+use crate::Style;
 
 /// One rule's fixture, and the tier at which that fixture is expected to
 /// fire.
@@ -178,7 +180,7 @@ const RULE_FIXTURES: &[RuleFixture] = &[
 #[test]
 fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
     for fixture in RULE_FIXTURES {
-        let strict_diags = lint(fixture.src, true, &[]);
+        let strict_diags = lint(fixture.src, &Style::default(), &tier(true));
         let diag = strict_diags
             .iter()
             .find(|d| d.rule == fixture.rule)
@@ -204,7 +206,7 @@ fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
             fixture.rule
         );
 
-        let floor_diags = lint(fixture.src, false, &[]);
+        let floor_diags = lint(fixture.src, &Style::default(), &tier(false));
         if fixture.floor {
             assert!(
                 floor_diags.iter().any(|d| d.rule == fixture.rule),
@@ -227,12 +229,23 @@ fn rule_fixtures_cover_every_active_rule_exactly_once_except_the_documented_md05
     covered.push("MD057");
     covered.sort_unstable();
 
-    let mut active: Vec<&str> = ACTIVE_RULES.iter().map(|p| p.rule).collect();
+    // `RULE_FIXTURES` only covers the floor and convention tiers. The three
+    // opt-in rules (MD013, MD014, MD069) have no entry here yet — their tier
+    // placement is pinned by `opt_in_rules_run_only_when_enabled` in the
+    // parent module instead, the same way the matrix tests pin floor and
+    // convention placement; only this fixture-firing regression net is
+    // still open for them.
+    let mut active: Vec<&str> = SELECTABLE_RULES
+        .iter()
+        .filter(|policy| policy.tier != Tier::OptIn)
+        .map(|p| p.rule)
+        .collect();
     active.sort_unstable();
 
     assert_eq!(
         covered, active,
-        "every ACTIVE_RULES entry needs exactly one fixture, or the documented MD057 exception"
+        "every floor/convention SELECTABLE_RULES entry needs exactly one fixture, or the \
+         documented MD057 exception"
     );
 }
 
@@ -248,7 +261,7 @@ fn md057_cannot_fire_because_lint_never_passes_a_source_file() {
     // of how broken the link is. This is a real gap in prim's coverage, not
     // a fixture problem: filed as issue #134 rather than worked around here.
     let src = "[broken](./does-not-exist.md)\n";
-    let diags = lint(src, true, &[]);
+    let diags = lint(src, &Style::default(), &tier(true));
     assert!(
         diags.iter().all(|d| d.rule != "MD057"),
         "MD057 is currently unreachable through lint(): {diags:?}"
@@ -262,7 +275,7 @@ fn md057_cannot_fire_because_lint_never_passes_a_source_file() {
 #[test]
 fn md025_front_matter_title_is_metadata_not_a_heading() {
     let page = "---\ntitle: FAQ\n---\n\n# FAQ\n\nText.\n";
-    let diags = lint(page, true, &[]);
+    let diags = lint(page, &Style::default(), &tier(true));
     assert!(
         diags.iter().all(|d| d.rule != "MD025"),
         "front-matter title plus one body H1 is a normal page: {diags:?}"

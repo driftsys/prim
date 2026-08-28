@@ -22,7 +22,12 @@ struct LoadMessage {
 }
 
 enum LoadOutcome {
-    Formatted(FormattedFile),
+    // Boxed: `FormattedFile` grew past clippy's large-enum-variant threshold
+    // once `MdLintPolicy` started carrying an `MdLintSelection` (two
+    // `Vec<String>` fields instead of one), which would otherwise force
+    // every `LoadOutcome` — including the much smaller `Message` and
+    // `Skipped` variants — to reserve the largest variant's size.
+    Formatted(Box<FormattedFile>),
     Message(LoadMessage),
     Skipped,
 }
@@ -109,7 +114,14 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
         MdLintPolicy::default()
     };
 
-    LoadOutcome::Formatted((file.path, kind, style, markdown_policy, original, formatted))
+    LoadOutcome::Formatted(Box::new((
+        file.path,
+        kind,
+        style,
+        markdown_policy,
+        original,
+        formatted,
+    )))
 }
 
 fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<LoadMessage>, bool) {
@@ -119,7 +131,7 @@ fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<Lo
 
     for outcome in outcomes {
         match outcome {
-            LoadOutcome::Formatted(file) => results.push(file),
+            LoadOutcome::Formatted(file) => results.push(*file),
             LoadOutcome::Message(message) => {
                 had_error |= message.kind == LoadMessageKind::Error;
                 messages.push(message);

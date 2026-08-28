@@ -83,7 +83,7 @@ impl Resolver {
         let policy = mdlint_policy::policy_from(&props);
         settings.push(ResolvedSetting {
             key: MDLINT_STRICT_KEY,
-            value: policy.strict.to_string(),
+            value: policy.selection.strict.to_string(),
             origin: origin_of(&props, MDLINT_STRICT_KEY),
         });
         let disable_origin = origin_of(&props, MDLINT_DISABLE_KEY);
@@ -113,8 +113,8 @@ impl Resolver {
 ///   separately on stderr). prim applies no exclusions in either case, which
 ///   is exactly what `none` says.
 fn disable_value(policy: &MdLintPolicy, origin: &SettingOrigin) -> String {
-    if !policy.disabled.is_empty() {
-        return policy.disabled.join(", ");
+    if !policy.selection.disabled.is_empty() {
+        return policy.selection.disabled.join(", ");
     }
     match origin {
         SettingOrigin::Default => "unset".to_string(),

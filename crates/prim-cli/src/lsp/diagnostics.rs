@@ -43,10 +43,11 @@ pub fn compute(
         }
         prim_fmt::FileKind::Markdown => {
             let policy = resolver.resolve_mdlint_policy(path);
+            let style = resolver.resolve(path);
             // FR-3.2c has no editor carve-out: a typo'd rule id is silently
             // ignored, so the only sign of it is this line on stderr.
             unknown_rules.report(&policy);
-            prim_fmt::lint_markdown(text, policy.strict, &policy.disabled)
+            prim_fmt::lint_markdown(text, &style, &policy.selection)
                 .iter()
                 .map(|diagnostic| Diagnostic {
                     range: protocol::point_range(text, diagnostic.line, diagnostic.column),

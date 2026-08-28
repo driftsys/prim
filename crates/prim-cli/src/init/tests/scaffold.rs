@@ -98,7 +98,9 @@ fn a_book_src_inside_docs_wip_keeps_its_strict_tier() {
     run(dir.path()).unwrap();
 
     assert!(
-        crate::mdlint_policy::resolve(&dir.path().join("docs/wip/sub/guide.md")).strict,
+        crate::mdlint_policy::resolve(&dir.path().join("docs/wip/sub/guide.md"))
+            .selection
+            .strict,
         "the book prim was pointed at must be strict: {}",
         fs::read_to_string(dir.path().join(".editorconfig")).unwrap()
     );

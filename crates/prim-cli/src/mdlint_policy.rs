@@ -26,11 +26,8 @@ pub(crate) fn strict_from(props: &Properties) -> bool {
 /// that path excludes from it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MdLintPolicy {
-    /// `true` when `prim_mdlint_strict` selected the strict tier.
-    pub strict: bool,
-    /// Rule ids excluded by `prim_mdlint_disable`, uppercased. Subtract-only:
-    /// these are removed from the tier's rule set and can never add to it.
-    pub disabled: Vec<String>,
+    /// The rules prim runs for this path, ready to hand to the engine.
+    pub selection: prim_fmt::MdLintSelection,
     /// Ids `prim_mdlint_disable` listed that name no rule prim runs in either
     /// tier, uppercased, in the order written. Resolving a policy never
     /// reports these itself — see [`UnknownRuleReporter`] for where and how
@@ -106,8 +103,11 @@ pub(crate) fn policy_from(props: &Properties) -> MdLintPolicy {
         provenance::origin_of(props, MDLINT_DISABLE_KEY)
     };
     MdLintPolicy {
-        strict: strict_from(props),
-        disabled,
+        selection: prim_fmt::MdLintSelection {
+            strict: strict_from(props),
+            enabled: Vec::new(),
+            disabled,
+        },
         unknown,
         unknown_origin,
     }
@@ -165,7 +165,7 @@ mod tests {
 
     /// Test-only helper over the production resolver.
     fn strict_for(dir: &Path, relative: &str) -> bool {
-        resolve(&dir.join(relative)).strict
+        resolve(&dir.join(relative)).selection.strict
     }
 
     #[test]
@@ -243,7 +243,7 @@ mod tests {
         .unwrap();
 
         let policy = resolve(&dir.path().join("a.md"));
-        assert_eq!(policy.disabled, vec!["MD033", "MD041"]);
+        assert_eq!(policy.selection.disabled, vec!["MD033", "MD041"]);
     }
 
     #[test]
@@ -256,9 +256,12 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(resolve(&dir.path().join("a.md")).disabled, vec!["MD033"]);
         assert_eq!(
-            resolve(&dir.path().join("docs/g.md")).disabled,
+            resolve(&dir.path().join("a.md")).selection.disabled,
+            vec!["MD033"]
+        );
+        assert_eq!(
+            resolve(&dir.path().join("docs/g.md")).selection.disabled,
             vec!["MD041"],
             "EditorConfig replaces a value, it does not merge lists"
         );
@@ -275,7 +278,7 @@ mod tests {
 
         let policy = resolve(&dir.path().join("a.md"));
         assert_eq!(
-            policy.disabled,
+            policy.selection.disabled,
             vec!["MD033"],
             "an unknown id is dropped from the exclusion set"
         );
@@ -290,7 +293,12 @@ mod tests {
     fn an_empty_or_unset_key_disables_nothing() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(".editorconfig"), "root = true\n[*.md]\n").unwrap();
-        assert!(resolve(&dir.path().join("a.md")).disabled.is_empty());
+        assert!(
+            resolve(&dir.path().join("a.md"))
+                .selection
+                .disabled
+                .is_empty()
+        );
     }
 
     #[test]
@@ -309,7 +317,7 @@ mod tests {
             .unwrap();
 
             let policy = resolve(&dir.path().join("a.md"));
-            assert!(policy.disabled.is_empty(), "value: {value:?}");
+            assert!(policy.selection.disabled.is_empty(), "value: {value:?}");
             assert!(
                 policy.unknown.is_empty(),
                 "value {value:?} must not be reported as an unrecognised rule id"

@@ -413,7 +413,7 @@ mod tests {
             "a.md",
         );
         let path = _d.path().join("a.md");
-        assert!(crate::mdlint_policy::resolve(&path).strict);
+        assert!(crate::mdlint_policy::resolve(&path).selection.strict);
         assert_eq!(style.max_line_length, Some(100));
         assert_eq!(
             style,
@@ -440,7 +440,7 @@ mod tests {
             "guide.md",
         );
         let path = _d.path().join("guide.md");
-        assert!(crate::mdlint_policy::resolve(&path).strict);
+        assert!(crate::mdlint_policy::resolve(&path).selection.strict);
         assert_eq!(
             style,
             Style {

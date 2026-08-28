@@ -169,11 +169,8 @@ pub(super) fn run_lint_paths(
             }
         } else if kind == FileKind::Markdown {
             unknown_rule_reporter.report(&markdown_policy);
-            let diagnostics = prim_fmt::lint_markdown(
-                &original,
-                markdown_policy.strict,
-                &markdown_policy.disabled,
-            );
+            let diagnostics =
+                prim_fmt::lint_markdown(&original, &style, &markdown_policy.selection);
             if !diagnostics.is_empty() {
                 any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);
                 for diagnostic in &diagnostics {

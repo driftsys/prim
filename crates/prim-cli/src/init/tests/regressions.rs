@@ -21,7 +21,7 @@ mod reporting;
 
 /// The tier `relative` resolves to under `dir`'s `.editorconfig`.
 fn strict_for(dir: &Path, relative: &str) -> bool {
-    mdlint_policy::resolve(&dir.join(relative)).strict
+    mdlint_policy::resolve(&dir.join(relative)).selection.strict
 }
 
 fn fixture(content: &str) -> tempfile::TempDir {

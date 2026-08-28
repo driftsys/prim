@@ -33,6 +33,8 @@ use std::collections::BTreeMap;
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
 
+use crate::Style;
+
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
 /// so callers never touch a rumdl type. Positions are 1-indexed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +52,23 @@ pub struct MdDiagnostic {
     pub message: String,
 }
 
-/// One rule prim runs, and the tier at which it starts running.
+/// The tier at which a rule starts running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tier {
+    /// A defect rule: reports something objectively broken, so it can gate
+    /// every repository with no opt-in. Always on.
+    Floor,
+    /// A documentation convention: decidable, but it fires on documents that
+    /// are otherwise fine. On under `prim_mdlint_strict`, or when
+    /// `prim_mdlint_enable` names it.
+    Convention,
+    /// Off in both tiers: runs only when `prim_mdlint_enable` names it. These
+    /// are the three rules a repository may add beyond prim's curated tiers
+    /// (AD-0012 Decision 6).
+    OptIn,
+}
+
+/// One rule prim can run, and the tier at which it starts running.
 ///
 /// There is no severity column: every rule prim runs is an error. prim reports
 /// nothing it will not fail on, so a finding's presence is its severity. The
@@ -58,24 +76,38 @@ pub struct MdDiagnostic {
 #[derive(Debug, Clone, Copy)]
 struct RulePolicy {
     rule: &'static str,
-    /// `true` when the rule runs in the always-on floor tier, and therefore in
-    /// the strict tier as well.
-    floor: bool,
+    tier: Tier,
 }
 
 /// A rule that reports something objectively broken: a dead link, a dangling
 /// reference, a malformed table. Runs in both tiers.
 const fn defect(rule: &'static str) -> RulePolicy {
-    RulePolicy { rule, floor: true }
+    RulePolicy {
+        rule,
+        tier: Tier::Floor,
+    }
 }
 
 /// A rule that reports a documentation convention — decidable, but it fires on
-/// documents that are otherwise fine. Runs only under `prim_mdlint_strict`.
+/// documents that are otherwise fine. Runs under `prim_mdlint_strict`.
 const fn convention(rule: &'static str) -> RulePolicy {
-    RulePolicy { rule, floor: false }
+    RulePolicy {
+        rule,
+        tier: Tier::Convention,
+    }
 }
 
-const ACTIVE_RULES: &[RulePolicy] = &[
+/// A rule outside both tiers that a repository may still add for a path with
+/// `prim_mdlint_enable`. Admitted only when it is meaningful without a
+/// repository-supplied option — see AD-0012 for the ones that are not.
+const fn opt_in(rule: &'static str) -> RulePolicy {
+    RulePolicy {
+        rule,
+        tier: Tier::OptIn,
+    }
+}
+
+const SELECTABLE_RULES: &[RulePolicy] = &[
     defect("MD042"),
     defect("MD011"),
     defect("MD052"),
@@ -102,43 +134,82 @@ const ACTIVE_RULES: &[RulePolicy] = &[
     convention("MD059"),
     convention("MD073"),
     convention("MD067"),
+    opt_in("MD013"),
+    opt_in("MD014"),
+    opt_in("MD069"),
 ];
 
-/// Whether `rule` runs for a file at this tier.
-fn is_active(rule: &str, strict: bool) -> bool {
-    ACTIVE_RULES
+/// Which Markdown rules prim runs for one file.
+///
+/// Pure data: `prim-cli` resolves this from `.editorconfig` and hands it over,
+/// so the engine never reads a configuration file. `enabled` is applied first
+/// and `disabled` second, so a disable wins a conflict.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MdLintSelection {
+    /// `prim_mdlint_strict` — adds the convention tier on top of the floor.
+    pub strict: bool,
+    /// `prim_mdlint_enable` — rule ids added for this path regardless of tier.
+    pub enabled: Vec<String>,
+    /// `prim_mdlint_disable` — rule ids removed from the result.
+    pub disabled: Vec<String>,
+}
+
+/// Whether `ids` names `rule`, case-insensitively.
+fn names(ids: &[String], rule: &str) -> bool {
+    ids.iter().any(|id| id.eq_ignore_ascii_case(rule))
+}
+
+/// Whether `rule` runs for a file under this selection.
+fn is_active(rule: &str, selection: &MdLintSelection) -> bool {
+    let Some(policy) = SELECTABLE_RULES
         .iter()
-        .any(|policy| policy.rule == rule && (policy.floor || strict))
+        .find(|policy| policy.rule.eq_ignore_ascii_case(rule))
+    else {
+        // Not a rule prim will run at any tier or any enable.
+        return false;
+    };
+    if names(&selection.disabled, rule) {
+        return false;
+    }
+    match policy.tier {
+        Tier::Floor => true,
+        Tier::Convention => selection.strict || names(&selection.enabled, rule),
+        Tier::OptIn => names(&selection.enabled, rule),
+    }
 }
 
 /// Whether `rule` names a rule prim can run in either tier. Callers validating
 /// user-supplied rule ids use this so a typo can be reported rather than
 /// silently matching nothing.
 pub fn is_known_rule(rule: &str) -> bool {
-    ACTIVE_RULES
+    SELECTABLE_RULES
         .iter()
         .any(|policy| policy.rule.eq_ignore_ascii_case(rule))
 }
 
-/// Whether `rule` was excluded for this file by `prim_mdlint_disable`.
-fn is_disabled(rule: &str, disabled: &[String]) -> bool {
-    disabled
-        .iter()
-        .any(|excluded| excluded.eq_ignore_ascii_case(rule))
-}
-
-/// prim's canonical rumdl configuration.
+/// prim's canonical rumdl configuration for one file's resolved [`Style`].
 ///
-/// MD025 counts a front-matter `title:` as a top-level heading by default, so a
-/// page written the way Docusaurus and VitePress expect — front-matter title for
-/// the sidebar, one body H1 for the rendered heading — reports a duplicate
-/// title. Measured across six documentation sites, 123 of 139 MD025 findings
-/// were that shape and only 16 were two real H1s. An empty `front-matter-title`
-/// stops the rule counting page metadata as a heading.
+/// Two rules carry options prim sets for itself. Neither is a configuration
+/// surface a repository can reach: there is still no way to configure a rule's
+/// options (FR-3.3).
 ///
-/// This is prim choosing its canonical defaults, not a user-facing surface:
-/// there is still no way for a repository to configure a rule's options.
-fn prim_config() -> Config {
+/// **MD025** counts a front-matter `title:` as a top-level heading by default,
+/// so a page written the way Docusaurus and VitePress expect — front-matter
+/// title for the sidebar, one body H1 for the rendered heading — reports a
+/// duplicate title. Measured across six documentation sites, 123 of 139 MD025
+/// findings were that shape and only 16 were two real H1s. An empty
+/// `front-matter-title` stops the rule counting page metadata as a heading.
+///
+/// **MD013** defaults to a line length of 80 regardless of what the repository
+/// asked for, so a repository setting `max_line_length = 120` and enabling the
+/// rule would see prim's own output fail at a threshold nobody chose. prim
+/// feeds it the width the formatter actually wrapped to.
+/// `code-block-line-length = 0` is rumdl's "no limit": prim never reflows a
+/// code block, and rewrapping a shell command changes what it says, so a wide
+/// code sample is a finding with no correct fix. Headings stay checked — a
+/// long heading is rewritable prose — and tables stay off at rumdl's own
+/// default, agreeing with prim never reflowing a table.
+fn prim_config(style: &Style) -> Config {
     let mut config = Config::default();
     config.rules.insert(
         "MD025".to_string(),
@@ -150,30 +221,50 @@ fn prim_config() -> Config {
             )]),
         },
     );
+    config.rules.insert(
+        "MD013".to_string(),
+        RuleConfig {
+            severity: None,
+            values: BTreeMap::from([
+                (
+                    "line-length".to_string(),
+                    toml::Value::Integer(style.effective_line_width() as i64),
+                ),
+                (
+                    "code-block-line-length".to_string(),
+                    toml::Value::Integer(0),
+                ),
+            ]),
+        },
+    );
     config
 }
 
 /// Lint `source` as Markdown content, returning prim's own diagnostics.
 ///
-/// `strict = false` runs the always-on floor tier (defect rules only);
-/// `strict = true` adds the convention tier on top. The tier chooses which
-/// rules run; every rule that runs reports an error. `disabled` subtracts
-/// rule ids (case-insensitive) from whichever tier is selected — it can only
-/// narrow the active set, never add to it. A file-level
-/// `<!-- prim-mdlint-strict: true|false -->` directive (story G5, #61)
-/// overrides `strict` for this file only — a surgical, per-file escape hatch
-/// on top of the `.editorconfig`-resolved default, matching the same
-/// precedence rumdl's own `rumdl-disable`/`markdownlint-disable` inline
-/// directives already get (rumdl applies those inside `rumdl_lib::lint`
-/// itself, independent of prim's tier table). Lint-only: `source` is
-/// never modified. Rules are filtered from the full rumdl set by name so
-/// off/formatter-territory rules never run.
-pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic> {
-    let strict = file_level_strict_override(source).unwrap_or(strict);
-    let cfg = prim_config();
+/// `selection` chooses which rules run: the floor tier is always on,
+/// `selection.strict` adds the convention tier on top, and
+/// `selection.enabled` adds specific rule ids regardless of tier.
+/// `selection.disabled` subtracts rule ids (case-insensitive) from whatever
+/// the tier and `enabled` selected — it can only narrow the active set, never
+/// add to it. A file-level `<!-- prim-mdlint-strict: true|false -->`
+/// directive (story G5, #61) overrides `selection.strict` for this file
+/// only — a surgical, per-file escape hatch on top of the
+/// `.editorconfig`-resolved default, matching the same precedence rumdl's own
+/// `rumdl-disable`/`markdownlint-disable` inline directives already get
+/// (rumdl applies those inside `rumdl_lib::lint` itself, independent of
+/// prim's tier table). Lint-only: `source` is never modified. Rules are
+/// filtered from the full rumdl set by name so off/formatter-territory rules
+/// never run.
+pub fn lint(source: &str, style: &Style, selection: &MdLintSelection) -> Vec<MdDiagnostic> {
+    let mut selection = selection.clone();
+    if let Some(strict) = file_level_strict_override(source) {
+        selection.strict = strict;
+    }
+    let cfg = prim_config(style);
     let rules: Vec<_> = all_rules(&cfg)
         .into_iter()
-        .filter(|rule| is_active(rule.name(), strict) && !is_disabled(rule.name(), disabled))
+        .filter(|rule| is_active(rule.name(), &selection))
         .collect();
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
@@ -187,7 +278,7 @@ pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic
     ) {
         Ok(warnings) => warnings,
         // A linter failure must never corrupt a format run: report nothing and
-        // let formatting proceed. Real error surfacing is G2's contract.
+        // let formatting proceed.
         Err(_) => return Vec::new(),
     };
 
@@ -197,8 +288,7 @@ pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic
             let rule = warning.rule_name?;
             // The same predicate that chose `rules` above, applied again to
             // what came back. It guards the subtract-only guarantee: a rule
-            // outside the selected tier, or one `prim_mdlint_disable`
-            // removed, must never reach a caller as a finding.
+            // outside the selection must never reach a caller as a finding.
             //
             // Under the pinned `rumdl = "=0.2.35"` this second pass is
             // unexercised, because `rumdl_lib::lint` only ever names a rule
@@ -209,7 +299,7 @@ pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic
             // two disagree. The check stays as the guarantee's last line of
             // defence if a future rumdl reports a finding under a related
             // rule's name.
-            if !is_active(&rule, strict) || is_disabled(&rule, disabled) {
+            if !is_active(&rule, &selection) {
                 return None;
             }
             Some(MdDiagnostic {
@@ -228,7 +318,7 @@ pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic
 /// return its boolean, or `None` if no such line is present. When several
 /// occurrences exist, the last one wins — consistent with a flat, top-to-
 /// bottom read of the file rather than a cascade. An unparseable value (e.g.
-/// `yes`) is ignored so a typo silently falls back to the caller's `strict`
+/// `yes`) is ignored so a typo silently falls back to `selection.strict`
 /// rather than erroring the whole lint run.
 fn file_level_strict_override(source: &str) -> Option<bool> {
     source
