@@ -34,7 +34,7 @@ pub use classify::{FileKind, classify};
 pub use diagnostics::{Diagnostic, hygiene_diagnostics};
 pub use error::FormatError;
 pub use generated::generated_by;
-pub use mdlint::{MdDiagnostic, MdLintSelection, is_known_rule, lint as lint_markdown};
+pub use mdlint::{MdDiagnostic, MdLintSelection, RuleReach, lint as lint_markdown, rule_reach};
 pub use position::line_col;
 pub use style::{Indent, LineEnding, Style};
 

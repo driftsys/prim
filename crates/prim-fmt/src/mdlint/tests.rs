@@ -93,15 +93,44 @@ fn withheld_rules_never_run_at_any_tier_or_enable() {
 }
 
 #[test]
-fn is_known_rule_covers_both_bands_case_insensitively() {
-    assert!(is_known_rule("MD045"));
-    assert!(is_known_rule("md033"));
-    // An opt-in rule is selectable — `is_known_rule` is what routes
-    // `prim_mdlint_disable` ids into "known" vs. "unknown" — even though it
-    // runs in neither tier until `prim_mdlint_enable` names it.
-    assert!(is_known_rule("MD013"));
-    assert!(!is_known_rule("MD082"));
-    assert!(!is_known_rule("MD999"));
+fn rule_reach_separates_selectable_withheld_and_unknown() {
+    assert_eq!(rule_reach("MD045"), RuleReach::Selectable, "floor tier");
+    assert_eq!(
+        rule_reach("md033"),
+        RuleReach::Selectable,
+        "convention tier, matched case-insensitively"
+    );
+    assert_eq!(rule_reach("MD013"), RuleReach::Selectable, "opt-in");
+
+    // rumdl has these; prim will not run them.
+    assert_eq!(
+        rule_reach("MD072"),
+        RuleReach::Withheld,
+        "sorting front-matter keys would break prim's semantics guarantee"
+    );
+    assert_eq!(
+        rule_reach("MD082"),
+        RuleReach::Withheld,
+        "dropped by AD-0012"
+    );
+    assert_eq!(
+        rule_reach("MD063"),
+        RuleReach::Withheld,
+        "its only meaningful setting is a house-style choice prim will not impose"
+    );
+    assert_eq!(
+        rule_reach("MD047"),
+        RuleReach::Withheld,
+        "formatter territory"
+    );
+    assert_eq!(
+        rule_reach("MD043"),
+        RuleReach::Withheld,
+        "needs a repository-supplied headings list prim has no surface for"
+    );
+
+    assert_eq!(rule_reach("MD999"), RuleReach::Unknown);
+    assert_eq!(rule_reach("nonsense"), RuleReach::Unknown);
 }
 
 #[test]

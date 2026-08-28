@@ -77,7 +77,7 @@ fn disabled_from(props: &Properties) -> (Vec<String>, Vec<String>) {
         if entry.eq_ignore_ascii_case("unset") || entry.eq_ignore_ascii_case("none") {
             continue;
         }
-        if prim_fmt::is_known_rule(entry) {
+        if prim_fmt::rule_reach(entry) == prim_fmt::RuleReach::Selectable {
             disabled.push(entry.to_ascii_uppercase());
         } else {
             unknown.push(entry.to_ascii_uppercase());

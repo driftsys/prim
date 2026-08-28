@@ -183,15 +183,43 @@ fn is_active(rule: &str, selection: &MdLintSelection) -> bool {
     }
 }
 
-/// Whether `rule` is one of the rules `SELECTABLE_RULES` knows how to run —
-/// at the floor or convention tier by default, or as an opt-in rule that only
-/// runs once `prim_mdlint_enable` names it. Callers validating user-supplied
-/// rule ids use this so a typo can be reported rather than silently matching
-/// nothing.
-pub fn is_known_rule(rule: &str) -> bool {
-    SELECTABLE_RULES
+/// How prim treats a rule id written in a `prim_mdlint_*` key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleReach {
+    /// prim can run this rule: it sits in one of prim's tiers, or
+    /// `prim_mdlint_enable` can add it.
+    Selectable,
+    /// rumdl has this rule and prim will not run it — formatter territory, a
+    /// rule that cannot fire under the flavor and context prim pins, one that
+    /// needs an option prim has no surface to supply, or one a decision record
+    /// excludes.
+    Withheld,
+    /// No rumdl rule has this id. A typo.
+    Unknown,
+}
+
+/// Classify a rule id written in `.editorconfig`, so a deliberate refusal can
+/// be reported differently from a typo.
+///
+/// `Withheld` is derived from rumdl's own registry rather than a
+/// hand-maintained list, so it stays correct when rumdl adds rules. Building
+/// that registry is not free, but this runs only while parsing a
+/// `prim_mdlint_*` value — once per `.editorconfig` section that sets one,
+/// not once per file.
+pub fn rule_reach(rule: &str) -> RuleReach {
+    if SELECTABLE_RULES
         .iter()
         .any(|policy| policy.rule.eq_ignore_ascii_case(rule))
+    {
+        return RuleReach::Selectable;
+    }
+    if all_rules(&prim_config(&Style::default()))
+        .iter()
+        .any(|known| known.name().eq_ignore_ascii_case(rule))
+    {
+        return RuleReach::Withheld;
+    }
+    RuleReach::Unknown
 }
 
 /// prim's canonical rumdl configuration for one file's resolved [`Style`].
