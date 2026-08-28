@@ -14,6 +14,92 @@ formatted, and exits `1` (listing the offending files) otherwise. The top-level
 `prim --check` spelling still works as deprecated sugar (warns on stderr;
 removed in v2.0) — prefer `prim fmt --check` in new pipelines.
 
+A repository that is not formatted yet cannot adopt this gate on day one; see
+[Incremental adoption on an unformatted repository](#incremental-adoption-on-an-unformatted-repository)
+for the two ways in.
+
+## Incremental adoption on an unformatted repository
+
+The gate above fails on every pre-existing file the first time it runs in a
+repository that has never been formatted. Two strategies reach a green gate.
+Choose by whether a large one-off reformatting commit is acceptable.
+
+### Format as you touch
+
+Gate only the files a change already modifies. The gate is green from the first
+commit, and coverage grows as the repository is edited:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0 # a merge base needs the history on both sides
+- name: Check formatting of changed files
+  run: prim fmt --check --since "$(git merge-base origin/${{ github.base_ref }} HEAD)" .
+```
+
+Compare against the merge base, not against the branch name. `--since <REF>` is
+a plain two-way `git diff --name-only <REF>`: it reports every path that differs
+between `<REF>` and the working tree, in either direction. Naming the branch
+directly also matches files that changed **on `main`** after the branch point
+and that this branch never touched — the gate then fails on an unrelated
+unformatted file. (A branch that has already merged `main` in does not have this
+problem, which is why it can pass for a while and then start failing.) The REF
+is handed to `git diff` unchanged, so any revision expression works, a
+merge-base SHA included.
+
+Locally the same filter formats rather than checks:
+
+```bash
+prim fmt --since "$(git merge-base main HEAD)" .
+```
+
+In a pre-commit hook use `--staged` instead. It selects the paths in the index
+relative to `HEAD`, which is exactly what the commit will contain:
+
+```bash
+prim fmt --staged .
+```
+
+Two limits are worth knowing before relying on either flag as a gate:
+
+- They see only what git reports. An **untracked** file does not appear in
+  `git diff` output at all, so it is not gated until it is added to the index —
+  `prim fmt --check --since HEAD .` passes on a brand-new file that
+  `prim fmt --check .` would fail. Deleted paths that git does report are
+  skipped silently.
+- Both require the working directory to be inside a git working tree, and
+  `--since` requires its REF to resolve. A shallow `actions/checkout` clone has
+  no merge base to resolve, so prim exits `2` — a usage error, not a format
+  finding — rather than passing silently. That is what `fetch-depth: 0` above
+  prevents.
+
+The filters intersect with the rest of discovery rather than replacing it, so
+`.primignore`, `--exclude`, and the ignore files still apply. `--since` and
+`--staged` are mutually exclusive.
+
+### Format once and record the exceptions
+
+The alternative is to reformat the whole tree in a single commit, add whatever
+must stay byte-exact to `.primignore` (see
+[Protecting golden files](#protecting-golden-files)), and use the full
+`prim fmt --check .` gate from then on:
+
+```bash
+prim fmt .
+git commit -am "style: format the repository with prim"
+```
+
+This keeps every later diff free of formatting churn, at the cost of one commit
+that touches many files. Record that commit in a `.git-blame-ignore-revs` file
+and point git at it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`)
+so it does not obscure `git blame` output.
+
+Format-as-you-touch suits a repository where a large reformatting commit would
+conflict with in-flight branches or is not permitted by review policy.
+Formatting once suits everything else: it is a shorter adoption period and a
+simpler gate. Either way, once the whole tree is formatted, drop `--since` and
+go back to the [CI formatting gate](#ci-formatting-gate).
+
 ## CI Markdown lint gate
 
 Fail the build when a Markdown file has a content-lint finding:
