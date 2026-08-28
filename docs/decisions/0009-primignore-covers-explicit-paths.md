@@ -254,5 +254,6 @@ For point 5 (#112):
 Satisfies: #98, #110, #112, and #114; reshapes FR-4.4 and adds FR-4.4a, FR-4.4b,
 and FR-4.4c. Related: AD-0007 (verb surface — the skip is per-verb-uniform,
 though point 5's exit code separates the gates from the writing modes),
-`crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/cli.rs`,
-`crates/prim-cli/src/app/paths.rs`, `docs/recipes.md`.
+`crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/discover/primignore.rs`,
+`crates/prim-cli/src/cli.rs`, `crates/prim-cli/src/app/paths.rs`,
+`docs/recipes.md`.
