@@ -15,6 +15,20 @@ use ec4rs::ConfigFiles;
 
 use super::EDITORCONFIG_NAME;
 
+/// What a directory currently inherits from `.editorconfig` files above it,
+/// or the reason prim cannot say.
+pub(super) enum Ancestry {
+    /// Nothing above the directory sets anything — the ordinary case of
+    /// running `prim init` at the top of a repository, where a warning would
+    /// be pure noise.
+    Nothing,
+    /// The ancestors that set at least one key, and the keys they set.
+    Inherits(Inheritance),
+    /// An ancestor `.editorconfig` could not be parsed, so prim cannot say
+    /// what `root = true` cuts this directory off from.
+    Malformed { path: PathBuf, error: String },
+}
+
 /// What a directory currently inherits from `.editorconfig` files above it.
 pub(super) struct Inheritance {
     /// The ancestor files that set at least one key in a section, in the
@@ -30,13 +44,11 @@ pub(super) struct Inheritance {
     keys: BTreeSet<String>,
 }
 
-/// What `dir` inherits from above it today, or `None` when nothing up there
-/// sets anything — the ordinary case of running `prim init` at the top of a
-/// repository, where the warning would be pure noise.
+/// What `dir` inherits from above it today.
 ///
 /// The walk stops where EditorConfig's own does, so an ancestor already
 /// marked `root = true` bounds the answer rather than appearing beyond it.
-pub(super) fn from_ancestors(dir: &Path) -> Option<Inheritance> {
+pub(super) fn from_ancestors(dir: &Path) -> Ancestry {
     // The probe need not exist; only its directory steers the walk. Matches
     // `editorconfig::build_cascade`.
     let probe = dir.join(EDITORCONFIG_NAME);
@@ -47,28 +59,40 @@ pub(super) fn from_ancestors(dir: &Path) -> Option<Inheritance> {
     // `prim init` with no PATH argument passes `.`, so that is the common
     // case, not an edge one.
     let own_dir = if dir.is_relative() {
-        std::env::current_dir().ok()?.join(dir)
+        let Ok(cwd) = std::env::current_dir() else {
+            return Ancestry::Nothing;
+        };
+        cwd.join(dir)
     } else {
         dir.to_path_buf()
+    };
+    let Ok(config_files) = ConfigFiles::open(&probe, Option::<&Path>::None) else {
+        return Ancestry::Nothing;
     };
     let mut files = Vec::new();
     let mut keys = BTreeSet::new();
 
-    for mut file in ConfigFiles::open(&probe, Option::<&Path>::None).ok()? {
+    for mut file in config_files {
         let path = file.path.clone();
         if path.parent() == Some(own_dir.as_path()) {
             continue;
         }
         let mut sets_anything = false;
         for section in file.by_ref() {
-            // A malformed ancestor is not something this warning can speak
-            // for. `editorconfig::build_cascade` reports it when prim next
-            // resolves a file, but `prim init` never builds a resolver, so
-            // during this command the reader hears nothing. That is
-            // tolerable only because prim drops the whole cascade to
-            // canonical style on a malformed config anyway, so nothing prim
-            // itself resolves is being severed.
-            let Ok(section) = section else { return None };
+            // A malformed ancestor cannot be summarized, so prim stops here
+            // and names the file instead. `editorconfig::build_cascade`
+            // reports it when prim next resolves a file, but `prim init`
+            // never builds a resolver, so without this the reader hears
+            // nothing at all during this command.
+            let section = match section {
+                Ok(section) => section,
+                Err(error) => {
+                    return Ancestry::Malformed {
+                        path,
+                        error: error.to_string(),
+                    };
+                }
+            };
             for (key, _) in section.props().iter() {
                 sets_anything = true;
                 keys.insert(key.to_string());
@@ -79,7 +103,39 @@ pub(super) fn from_ancestors(dir: &Path) -> Option<Inheritance> {
         }
     }
 
-    (!files.is_empty()).then_some(Inheritance { files, keys })
+    if files.is_empty() {
+        Ancestry::Nothing
+    } else {
+        Ancestry::Inherits(Inheritance { files, keys })
+    }
+}
+
+/// The text `init` prints once it has written `root = true` in `dir`, or
+/// `None` when there is nothing above `dir` worth reporting.
+pub(super) fn severing_warning(dir: &Path, ancestry: &Ancestry) -> Option<String> {
+    match ancestry {
+        Ancestry::Nothing => None,
+        Ancestry::Inherits(inherited) => Some(severed_cascade(dir, inherited)),
+        Ancestry::Malformed { path, error } => Some(unreadable_ancestor(dir, path, error)),
+    }
+}
+
+/// The text for an ancestor prim could not parse. It opens with the same
+/// sentence `editorconfig::build_cascade` prints on the resolution path, so a
+/// reader who has met one of them recognizes the other, and it says only what
+/// prim can stand behind: prim cannot describe a cascade it could not read.
+/// It still says the write happened, because another EditorConfig reader —
+/// most are more tolerant than prim — may be applying that file today.
+fn unreadable_ancestor(dir: &Path, path: &Path, error: &str) -> String {
+    format!(
+        "{}: ignoring malformed .editorconfig ({error}); using canonical style. prim wrote \
+         root = true in {}, so files under that directory no longer inherit from this file, and \
+         prim cannot say what that cuts off, because it could not read it. prim resolves this \
+         file as absent either way, but other EditorConfig readers are more tolerant and may \
+         still be applying it.",
+        path.display(),
+        dir.display()
+    )
 }
 
 /// The text `init` prints when it is about to write `root = true` over
@@ -92,7 +148,7 @@ pub(super) fn from_ancestors(dir: &Path) -> Option<Inheritance> {
 /// path, and a directory has no single representative file. The wording says
 /// the keys no longer reach the directory rather than that they stop
 /// applying, because the second would claim more than this can check.
-pub(super) fn severing_warning(dir: &Path, inherited: &Inheritance) -> String {
+fn severed_cascade(dir: &Path, inherited: &Inheritance) -> String {
     let files = inherited
         .files
         .iter()

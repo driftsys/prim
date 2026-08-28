@@ -4,9 +4,9 @@ use crate::Style;
 mod rule_fixtures;
 mod withheld_rules;
 
-const DEFECT_RULES: [&str; 13] = [
-    "MD042", "MD011", "MD052", "MD056", "MD062", "MD057", "MD034", "MD051", "MD045", "MD075",
-    "MD066", "MD068", "MD070",
+const DEFECT_RULES: [&str; 12] = [
+    "MD042", "MD011", "MD052", "MD056", "MD062", "MD034", "MD051", "MD045", "MD075", "MD066",
+    "MD068", "MD070",
 ];
 
 const CONVENTION_RULES: [&str; 13] = [
@@ -84,9 +84,10 @@ fn disabling_beats_enabling_for_the_same_rule() {
 #[test]
 fn withheld_rules_never_run_at_any_tier_or_enable() {
     // MD072 would reorder front-matter keys; MD082 was dropped by AD-0012;
-    // MD063's only meaningful setting is a house-style choice prim will not
-    // impose; MD003 and MD047 are formatter territory.
-    for rule in ["MD072", "MD082", "MD063", "MD003", "MD047"] {
+    // MD057 was dropped by AD-0013; MD063's only meaningful setting is a
+    // house-style choice prim will not impose; MD003 and MD047 are formatter
+    // territory.
+    for rule in ["MD072", "MD082", "MD057", "MD063", "MD003", "MD047"] {
         assert!(!is_active(rule, &tier(false)), "{rule} floor");
         assert!(!is_active(rule, &tier(true)), "{rule} strict");
         assert!(!is_active(rule, &enabling(rule)), "{rule} enabled");
@@ -113,6 +114,12 @@ fn rule_reach_separates_selectable_withheld_and_unknown() {
         rule_reach("MD082"),
         RuleReach::Withheld,
         "dropped by AD-0012"
+    );
+    assert_eq!(
+        rule_reach("MD057"),
+        RuleReach::Withheld,
+        "dropped by AD-0013: prim does not answer the cross-file link \
+         question at all, so prim_mdlint_enable must not reach it either"
     );
     assert_eq!(
         rule_reach("MD063"),

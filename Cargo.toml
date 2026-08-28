@@ -20,12 +20,24 @@ codegen-units = 1
 # Markdown containing an inline code span with an embedded newline. Release
 # builds (and the dprint wasm plugins) compile it out; disable it here so prim's
 # dev/test builds are equally robust. See AD-0006.
+#
+# No upstream issue has been filed, so a dprint-core version bump is the moment
+# to revisit this. Delete the two lines below, run the regression test AD-0006
+# names for it —
+# `crates/prim-fmt/src/markdown.rs::inline_code_spanning_a_newline_does_not_panic`
+# — and restore the override only if that test still fails.
 [profile.dev.package.dprint-core]
 debug-assertions = false
 
 # dprint-plugin-markdown ships a debug-only assertion (is_list_word in utils.rs)
 # that panics on valid Markdown holding whitespace inside a word. Release builds
 # compile it out; disable it here so prim's dev/test builds are equally robust.
-# AD-0006 states the exact trigger condition. No upstream issue has been filed.
+# AD-0006 states the exact trigger condition.
+#
+# No upstream issue has been filed, so a dprint-plugin-markdown version bump is
+# the moment to revisit this. Delete the two lines below, run the regression
+# tests AD-0006 names for it — `whitespace_inside_a_word_does_not_panic` in
+# `crates/prim-fmt/src/markdown.rs`, plus the four dispatch-path tests listed
+# alongside it — and restore the override only if they still fail.
 [profile.dev.package.dprint-plugin-markdown]
 debug-assertions = false

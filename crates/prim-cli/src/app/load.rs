@@ -9,6 +9,19 @@ use prim_fmt::{FileKind, Style};
 
 pub(super) type FormattedFile = (PathBuf, FileKind, Style, MdLintPolicy, String, String);
 
+/// What one discovery-and-format pass produced.
+pub(super) struct Loaded {
+    /// The files prim owns, each paired with its formatted form.
+    pub(super) files: Vec<FormattedFile>,
+    /// A named path could not be read or parsed (exit `2`). A failed write is
+    /// the caller's to add: it happens after this pass.
+    pub(super) had_error: bool,
+    /// Every path prim was pointed at was skipped, so nothing was examined
+    /// (FR-4.4c). The gate modes report it as an error; the writing modes
+    /// treat it as the no-op it is.
+    pub(super) examined_nothing: bool,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum LoadMessageKind {
     Warning,
@@ -37,7 +50,7 @@ pub(super) fn load_and_format(
     excludes: &[String],
     ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
-) -> Result<(Vec<FormattedFile>, bool), discover::Error> {
+) -> Result<Loaded, discover::Error> {
     let discovery = discover::collect(paths, excludes, ignores, changed_files_scope)?;
     for ignored in &discovery.ignored {
         let message = match ignored.reason {
@@ -55,7 +68,11 @@ pub(super) fn load_and_format(
     let outcomes = load_discovered(discovery.files);
     let (results, messages, had_error) = summarize_outcomes(outcomes);
     emit_messages(&messages);
-    Ok((results, had_error))
+    Ok(Loaded {
+        files: results,
+        had_error,
+        examined_nothing: discovery.examined_nothing,
+    })
 }
 
 fn load_discovered(files: Vec<discover::Discovered>) -> Vec<LoadOutcome> {

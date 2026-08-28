@@ -81,10 +81,13 @@ Regression tests pin both:
 - `crates/prim-fmt/src/markdown.rs::whitespace_inside_a_word_does_not_panic`
   covers the whole triggering character set plus the U+00A0 exemption;
   `crates/prim-cli/tests/markdown.rs::whitespace_inside_a_word_does_not_panic`,
-  `crates/prim-cli/tests/discovery.rs::a_walk_reports_neighbours_of_a_file_that_used_to_panic`
-  and
+  `crates/prim-cli/tests/discovery.rs::a_walk_reports_neighbours_of_a_file_that_used_to_panic`,
   `crates/prim-cli/tests/modes.rs::stdin_filepath_handles_whitespace_inside_a_word`
-  pin the three CLI dispatch paths (`dprint-plugin-markdown`).
+  and
+  `crates/prim-cli/tests/lsp.rs::formats_markdown_holding_whitespace_inside_a_word`
+  pin the four dispatch paths (`dprint-plugin-markdown`). Each of the four
+  reaches `prim_fmt::format` on its own, so one representative character is
+  enough per path; the character set itself is covered once, in `prim-fmt`.
 
 ### Alternatives considered
 

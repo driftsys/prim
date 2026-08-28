@@ -70,8 +70,9 @@ directly on bare `prim` as deprecated `fmt` sugar (warn once on stderr, removed
 in v2.0); the bare `fmt` alias itself is permanent.
 
 **Exit codes:** `0` nothing to do / clean · `1` actionable (format drift or a
-lint finding) · `2` prim could not do its job (parse/IO/usage error). Warnings
-never raise the exit code.
+lint finding) · `2` prim could not do its job (parse/IO/usage error, or a gate
+mode pointed only at paths it skipped — FR-4.4c). Warnings never raise the exit
+code.
 
 **Key design decisions:**
 
@@ -79,7 +80,7 @@ never raise the exit code.
   flags to configure a rule's options. Two `.editorconfig` keys select which
   Markdown lint rules run, and neither configures a rule's options (AD-0012):
   `prim_mdlint_disable` removes a rule from the set prim already selected for a
-  path, and `prim_mdlint_enable` adds one, reaching the 26 rules in prim's own
+  path, and `prim_mdlint_enable` adds one, reaching the 25 rules in prim's own
   two tiers plus MD013, MD014 and MD069 and refusing everything else. A disable
   is applied after an enable, so it wins a conflict.
 - Semantics-preserving: never reorder keys, table entries, or array elements.
@@ -90,6 +91,11 @@ never raise the exit code.
 
 **Key dependencies:** `clap` (CLI), `clap_complete`/`clap_mangen` (completions +
 man pages), `yansi` (colour), `ignore` (recursive file discovery).
+
+When bumping a `dprint-*` dependency, re-check the `[profile.dev.package.*]`
+debug-assertion overrides in the workspace `Cargo.toml`: each comment names the
+regression tests to run before deciding whether the override is still needed
+(AD-0006).
 
 ## Workflow
 

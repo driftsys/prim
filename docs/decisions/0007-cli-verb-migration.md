@@ -87,14 +87,21 @@ The `0` / `1` / `2` contract is kept but given a per-verb meaning. **`1` means
 "actionable findings"; `2` means "prim could not do its job." Warnings never
 raise the exit code — only errors do** (the G1 "errors only" rule).
 
-| Verb / mode          | `0`                     | `1`                                    | `2`                      |
-| -------------------- | ----------------------- | -------------------------------------- | ------------------------ |
-| `fmt` (write)        | done (or nothing to do) | — (writing is not a "finding")         | parse / IO / usage error |
-| `fmt --check`        | already formatted       | at least one file would change (drift) | parse / IO / usage error |
-| `fmt --diff`         | always (preview only)   | —                                      | parse / IO / usage error |
-| `lint`               | no error-severity finds | ≥1 **error-severity** diagnostic       | IO / usage error         |
-| `fix` (write)        | applied; nothing broken | —                                      | parse / IO / usage error |
-| `fix --check/--diff` | nothing to fix          | at least one fixable finding pending   | parse / IO / usage error |
+| Verb / mode          | `0`                     | `1`                                    | `2`                                   |
+| -------------------- | ----------------------- | -------------------------------------- | ------------------------------------- |
+| `fmt` (write)        | done (or nothing to do) | — (writing is not a "finding")         | parse / IO / usage error              |
+| `fmt --check`        | already formatted       | at least one file would change (drift) | as above, or examined nothing         |
+| `fmt --diff`         | always (preview only)   | —                                      | parse / IO / usage error              |
+| `lint`               | no error-severity finds | ≥1 **error-severity** diagnostic       | IO / usage error, or examined nothing |
+| `fix` (write)        | applied; nothing broken | —                                      | parse / IO / usage error              |
+| `fix --check/--diff` | nothing to fix          | at least one fixable finding pending   | as above, or examined nothing         |
+
+"Examined nothing" is the gate rule AD-0009 point 5 adds (FR-4.4c):
+`.primignore` or the built-in generated-file list covered every path prim was
+pointed at, so the run has no answer to give. It applies to the gate modes in
+this table — the rows whose `1` column is a finding — and to
+`fmt --check-idempotence`; the writing modes keep `0`, which is what leaves the
+hooks prim ships unaffected.
 
 Notes:
 

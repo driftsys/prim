@@ -183,7 +183,7 @@ prim_mdlint_enable = MD040
 
 The rule runs regardless of tier, so this works from a floor-tier path and
 survives a file-level `<!-- prim-mdlint-strict: false -->`. The key reaches the
-26 rules in prim's own floor and strict tiers, plus MD013, MD014 and MD069; any
+25 rules in prim's own floor and strict tiers, plus MD013, MD014 and MD069; any
 other id is refused with a warning on stderr that names the `.editorconfig`
 line, and the exit code is unaffected.
 
@@ -216,6 +216,23 @@ prim has no per-rule option surface, so there is no way to widen MD013 back to
 whole lines. A repository that needs whole-line enforcement needs a different
 tool. See [AD-0012](decisions/0012-markdown-lint-bands-and-rule-exclusion.md)
 for the measurement.
+
+## Checking links between files
+
+prim checks the links that resolve inside a file — a dead heading anchor
+(MD051), an undefined reference definition (MD052) — and nothing beyond it. A
+link to another file is left to a dedicated link checker, because whether it
+resolves depends on the renderer the file is published through, not on the
+filesystem alone (AD-0013).
+
+Run one beside prim. [`lychee`](https://github.com/lycheeverse/lychee) checks
+local and remote links across a whole tree and is the general choice; for an
+mdBook site,
+[`mdbook-linkcheck`](https://github.com/Michael-F-Bryan/mdbook-linkcheck)
+resolves links the way mdBook itself does, which catches a link that exists on
+disk but escapes the book root. Note that `mdbook build` on its own checks
+nothing: it renders a link to a missing page without a warning and exits `0`, so
+the backend has to be installed and configured for the check to run.
 
 ## Editor format-on-save
 
@@ -262,9 +279,40 @@ crates/prim-fmt/tests/correctness/fixtures/
 
 Note: `.primignore` applies however prim is invoked — a file it covers is left
 alone whether prim walked to it or you named it on the command line (AD-0009).
+Excluding a directory covers everything under it, and a later `!` line cannot
+take one file back out: under gitignore's rules `fixtures/` followed by
+`!fixtures/keep.md` leaves `keep.md` covered, wherever the `!` line is written.
 That is what makes the entry worth having in a pre-commit hook, which passes
 prim an explicit list of staged files. Naming an ignored path prints a warning
 so the no-op is visible; pass `--no-primignore` to process it anyway.
+
+To keep one file formatted, exclude the directory's contents rather than the
+directory itself. `fixtures/*` covers what is in the directory without covering
+the directory, so the negation beneath it still works:
+
+```gitignore
+# .primignore
+fixtures/*
+!fixtures/keep.md
+```
+
+Skipping some of the paths given never changes the exit code, so a commit that
+stages one ignored file alongside others still passes the hook — and so does one
+that stages nothing but ignored files, because `prim fmt` and `prim fix` write
+and doing nothing is the correct outcome there. A gate is the exception: where
+`prim fmt --check`, `prim fix --check`, `prim fix --diff`,
+`prim fmt --check-idempotence`, or `prim lint` is pointed only at paths it
+skips, it examined nothing and exits `2` rather than reporting a clean run
+(FR-4.4c). The rule counts the paths prim was pointed at, so
+`prim fmt --check --since <ref> .` — the changed-file gate above — is outside
+it: `.` was pointed at and was not skipped. It is a gate handed a path list that
+the rule protects. Wire one with that in mind: a pipeline whose changed-file
+list can legitimately be all-ignored — a release commit touching only a
+`.primignore`d `CHANGELOG.md`, say — should run the gate over the repository
+rather than over the diff. Do not paper over it with `|| [ $? -eq 2 ]` either:
+`2` is also how prim reports a file it could not parse, a path it could not
+read, and a malformed `--exclude` glob, so a pipeline that accepts `2` accepts
+those too.
 
 A `.primignore` governs only the repository that holds it. prim reads the
 `.primignore` files that apply from the path upward, stopping at the root of the

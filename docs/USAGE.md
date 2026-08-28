@@ -59,7 +59,8 @@ for removal in v2.0 — the bare `fmt` alias itself is not deprecated.
 | `1`  | Actionable: format drift (`fmt`/`fix --check`) or a `lint` finding. |
 | `2`  | prim could not do its job (parse, I/O, or usage error).             |
 
-Warnings never raise the exit code; only errors do.
+Warnings never raise the exit code; only errors do. A gate that was pointed only
+at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 
 ## Operating modes
 
@@ -73,10 +74,16 @@ Warnings never raise the exit code; only errors do.
 - **`--no-primignore`** — the opposite switch: keep VCS ignore files but drop
   `.primignore`. Needed only to process a path `.primignore` covers, since that
   file is honoured however prim is invoked — walked to or named on the command
-  line (AD-0009). This same flag also disables the built-in generated-file list
-  (AD-0011), which behaves as the outermost `.primignore` layer. Naming an
-  ignored path without this flag prints a warning and changes nothing; warnings
-  never raise the exit code.
+  line (AD-0009), and under gitignore's own rules: a `!` line cannot re-include
+  a file when a directory holding it is excluded, so `fixtures/` followed by
+  `!fixtures/keep.md` leaves `keep.md` covered. This same flag also disables the
+  built-in generated-file list (AD-0011), which behaves as the outermost
+  `.primignore` layer. Naming an ignored path without this flag prints a warning
+  and changes nothing; warnings never raise the exit code. The one case that
+  does is a gate — `fmt --check`, `fix --check`, `fix --diff`,
+  `fmt --check-idempotence`, or `lint` — where _every_ path prim was pointed at
+  is skipped: prim then examined nothing, so it reports an error and exits `2`
+  instead of reporting a clean run (FR-4.4c).
 - **`--since <REF>`** — limit discovery to the paths
   `git diff --name-only <REF>` reports: files that differ between `<REF>` and
   the current working tree, including both staged and unstaged changes. prim
@@ -112,7 +119,7 @@ Warnings never raise the exit code; only errors do.
   - For Markdown, `prim lint` runs rumdl in Standard flavor against prim's own
     curated rule set, placed into two bands and selected per file through
     `.editorconfig` `prim_mdlint_strict = true|false` (default `false`). `false`
-    runs the always-on floor tier of 13 defect rules; `true` adds 13 convention
+    runs the always-on floor tier of 12 defect rules; `true` adds 13 convention
     rules on top. Every rule prim runs, at either tier, is an error — there is
     no warning severity for Markdown, so a finding's presence is its severity.
     prim prints each finding as `path:line:col: message
@@ -120,10 +127,10 @@ Warnings never raise the exit code; only errors do.
     rumdl's rule codes through verbatim, never invokes rumdl's formatter/fixer,
     and does not auto-fix these findings in `fix` yet.
     - **Floor tier — defect rules** (always on, error at floor and strict):
-      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066,
-      MD068, MD070, MD075. Each reports something objectively broken — a dead
-      link, a dangling reference, a malformed table — so it gates every
-      repository with no opt-in.
+      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
+      MD070, MD075. Each reports something objectively broken — a dead link, a
+      dangling reference, a malformed table — so it gates every repository with
+      no opt-in.
     - **Strict tier — convention rules** (`prim_mdlint_strict = true` only,
       error when active): MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,
@@ -144,9 +151,11 @@ Warnings never raise the exit code; only errors do.
       prim has no surface to accept, and cannot fire without one; MD074, MD078
       and MD079 cannot fire under the Standard flavor prim pins; MD063 is a
       sentence-case-versus-title-case house-style choice prim will not impose;
-      MD072 (frontmatter key sorting) would break prim's semantics-preserving
-      guarantee; MD082 is dropped entirely. See AD-0012 for the evidence behind
-      each refusal.
+      and three rules are excluded by a decision record — MD072 (frontmatter key
+      sorting) would break prim's semantics-preserving guarantee, MD082 is
+      dropped entirely, and MD057 is dropped because a cross-file link's target
+      depends on the renderer, so prim does not check it. See AD-0012 for the
+      evidence behind each refusal, and AD-0013 for MD057's.
     - Floor-tier and strict-tier findings alike raise `prim lint`'s exit code to
       `1`; no Markdown rule emits a warning.
     - **Rule options prim sets for itself:** prim configures MD025's
@@ -658,7 +667,13 @@ A directory walk skips a listed file silently. Naming one explicitly on the
 command line skips it too, with a warning on stderr. For those two path-based
 cases, the list behaves as the weakest `.primignore` layer (AD-0011): a
 committed `!name` line re-includes the file, and `--no-primignore` disables the
-built-in list along with the rest of the `.primignore` stack.
+built-in list along with the rest of the `.primignore` stack. The `!name` line
+works where nothing above the file is excluded, which is the documented recipe
+(`!package-lock.json` at the repository root). Where the `.primignore` stack
+leaves a directory holding the file excluded, that exclusion wins and the
+negation never reaches the built-in list — gitignore's rule that a `!` rule
+cannot re-include a path under an excluded directory. A directory a later `!`
+line puts back is not excluded, so an override under it still applies.
 
 `--stdin-filepath` and an editor's format-on-save request skip a listed file
 without a warning: stdin echoes the input back unchanged, and the LSP formatting
@@ -679,7 +694,7 @@ remains prim's only user-facing configuration file, including the documented
 `prim_*` keys below. Two of those keys are the only exceptions to "no per-rule
 flags", and both only select which rules run — neither changes a rule's
 behaviour or its options. `prim_mdlint_disable` removes a rule from the set prim
-already selected for a path. `prim_mdlint_enable` adds one, reaching the 26
+already selected for a path. `prim_mdlint_enable` adds one, reaching the 25
 rules in prim's own two tiers plus exactly three more (MD013, MD014, MD069); it
 refuses every other rule. See the scope notes below.
 
@@ -720,7 +735,7 @@ Scope notes:
   regardless of that tier, so a floor-tier path can run one convention rule
   without adopting all thirteen, and a file-level
   `<!-- prim-mdlint-strict: false -->` moves the tier without cancelling an
-  enable. It reaches the 26 rules in prim's floor and strict tiers plus MD013,
+  enable. It reaches the 25 rules in prim's floor and strict tiers plus MD013,
   MD014 and MD069, and refuses everything else.
 - `prim_mdlint_disable` is subtract-only: it removes rules from the set prim
   already selected for that path, and can never add one. prim applies it

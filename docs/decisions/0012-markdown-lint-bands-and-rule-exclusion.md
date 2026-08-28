@@ -11,9 +11,16 @@ more. MD082 is dropped from prim's rule set entirely. MD025's
 `.editorconfig` key, `prim_mdlint_disable`, removes named rules from the tier
 selected for a path.
 
+Amended 2026-08-28 (issue #134): MD057 is dropped from the floor tier as well,
+leaving 12 defect rules. AD-0013 records why — a cross-file link's target
+depends on the renderer, so a file-existence check is the wrong question at this
+layer.
+
 Amended 2026-08-28 (issue #123): a second `.editorconfig` key,
 `prim_mdlint_enable`, adds named rules to the set prim runs for a path. The
-subtract-only guarantee below is narrowed accordingly — see Decision 6.
+subtract-only guarantee below is narrowed accordingly — see Decision 6. That key
+does not reach MD057: AD-0013 withdrew prim's answer to the cross-file link
+question rather than making it answerable on request.
 
 ## Context
 
@@ -166,10 +173,12 @@ markdownlint's entire default rule set, formatter-territory rules included, with
 zero findings. That objection did not survive. What replaced it is that most of
 the off-list is not worth reaching.
 
-Fourteen rules were off in both tiers. Removing MD072 (frontmatter key sorting
-would break prim's semantics-preserving guarantee) and MD082 (dropped by
-Decision 2, so there is nothing to opt into) leaves twelve. Reading each rule's
-config struct and `check()` in `rumdl 0.2.35`:
+Fifteen rules are off in both tiers. Three of them are withheld by a decision
+already taken, so there is nothing to opt into: MD072 (frontmatter key sorting
+would break prim's semantics-preserving guarantee), MD082 (dropped by
+Decision 2) and MD057 (dropped by AD-0013, because a cross-file link's target
+depends on the renderer). That leaves twelve. Reading each rule's config struct
+and `check()` in `rumdl 0.2.35`:
 
 | Id    | Under prim                | Evidence                                                                 |
 | ----- | ------------------------- | ------------------------------------------------------------------------ |
@@ -288,6 +297,8 @@ totals are not a typical heading over-width rate either.
    MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066, MD068,
    MD070, MD075.
 
+   MD057 was removed from this list by AD-0013, leaving 12.
+
    `.editorconfig` `prim_mdlint_strict = true` adds 13 convention rules on top:
 
    MD001, MD024, MD025, MD026, MD033, MD036, MD040, MD041, MD053, MD059, MD067,
@@ -355,16 +366,16 @@ totals are not a typical heading over-width rate either.
    **What it reaches.** Every id falls into one of three classes, decided per
    id:
 
-   - **Selectable** — the 26 ids in prim's own two tiers, plus three ids prim
+   - **Selectable** — the 25 ids in prim's own two tiers, plus three ids prim
      runs at neither tier: MD013, MD014 and MD069. Enabling a floor-tier rule
      changes nothing, since it already runs. Enabling one convention rule from a
      floor-tier path, without adopting all thirteen, is the case the key exists
      to serve.
    - **Withheld** — any other rule rumdl has. prim knows the rule and will not
-     run it: MD072, MD082, the nine off-list rules the Context above accounts
-     for, and every formatter-territory rule. The set is derived from rumdl's
-     own registry rather than a hand-maintained list, so it stays correct when
-     rumdl adds a rule.
+     run it: MD072, MD082, MD057, the nine off-list rules the Context above
+     accounts for, and every formatter-territory rule. The set is derived from
+     rumdl's own registry rather than a hand-maintained list, so it stays
+     correct when rumdl adds a rule.
    - **Unknown** — an id naming no rumdl rule at all. A typo.
 
    **Reporting.** Withheld and Unknown ids are dropped from the list and warned
@@ -540,10 +551,13 @@ totals are not a typical heading over-width rate either.
     `prim fmt --check` already covers. The corpus measurement in the Context
     above then showed the stronger form of the same point: the paragraph lines
     MD013 does report after formatting are ones prim must not touch.
-12. **Write a new AD-0013 superseding this record.** Rejected: the
+12. **Write a new decision record superseding this one.** Rejected: the
     working-memory lifecycle rule says to edit an existing record in place when
     new work changes it, and reserves a new record for a genuinely new topic.
-    The subtract-only guarantee is this record's own clause.
+    The subtract-only guarantee is this record's own clause. (AD-0013 is a new
+    record for the genuinely new topic that rule reserves one for: where prim's
+    link checking stops. It amends this record's floor tier list rather than
+    superseding it.)
 
 ---
 

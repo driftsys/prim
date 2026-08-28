@@ -77,11 +77,12 @@ source-code formatter and has **no plugin system**.
   re-includes such a file only when its final path segment is a literal file
   name equal to the generated file's name (for example `!package-lock.json`,
   `!**/package-lock.json`, or `!vendor/package-lock.json`) — a broader negation
-  such as `!*.json` or `!*` does not. The `.primignore` files consulted for a
-  path are bounded as FR-4.4b specifies, so a `.primignore` outside the
-  repository cannot disable the built-in list for every repository beneath it.
-  `--no-primignore` disables the built-in list along with the rest of the
-  `.primignore` stack.
+  such as `!*.json` or `!*` does not, and no negation re-includes a file that a
+  directory exclusion above it already covers (FR-4.4). The `.primignore` files
+  consulted for a path are bounded as FR-4.4b specifies, so a `.primignore`
+  outside the repository cannot disable the built-in list for every repository
+  beneath it. `--no-primignore` disables the built-in list along with the rest
+  of the `.primignore` stack.
 
 ## FR-3 — Style resolution
 
@@ -125,7 +126,7 @@ source-code formatter and has **no plugin system**.
   key shall add the named rules to the set prim runs for that path, regardless
   of the tier `prim_mdlint_strict` selected; `prim_mdlint_disable` shall be
   applied after it, so an id named by both keys does not run. The enableable set
-  shall be the 26 rules in prim's floor and strict tiers (FR-5.5b) plus MD013,
+  shall be the 25 rules in prim's floor and strict tiers (FR-5.5b) plus MD013,
   MD014 and MD069; every other rule shall be refused. prim shall report a
   refused id on stderr, naming the `.editorconfig` file, line and section that
   set it, once per run for each section that carries it, without changing the
@@ -258,10 +259,16 @@ source-code formatter and has **no plugin system**.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax) for
   every path it is given, whether reached by a directory walk or named on the
   command line (AD-0009). `--no-primignore` shall process ignored paths anyway.
+  gitignore's re-inclusion rule shall hold on both routes: a `!` rule shall not
+  re-include a path when a directory holding it is excluded, however near that
+  path the rule is written, including in a `.primignore` beneath the excluded
+  directory (#114).
 - **FR-4.4a** prim shall report on stderr each path that was named on the
   command line and skipped, whether because `.primignore` covers it or because
   it matches the built-in generated-file list (FR-2.7, AD-0011). Skipping a path
-  reached by a directory walk shall be silent for either reason.
+  reached by a directory walk shall be silent for either reason. Where no path
+  is named, the working directory is the path prim was pointed at, and skipping
+  it shall be reported the same way.
 - **FR-4.4b** The `.primignore` files that apply to a path shall be those from
   its own directory up to a bound, and none above that bound. The bound shall be
   the root of the repository containing whatever prim was pointed at — a path
@@ -272,7 +279,24 @@ source-code formatter and has **no plugin system**.
   bound be the current working directory instead. Consequently a nested checkout
   is governed by the enclosing repository's `.primignore` when prim is pointed
   at the enclosing repository, and by its own when prim is pointed at the
-  checkout.
+  checkout. Where the working directory is the bound, the bound shall be the
+  outermost directory holding the path that resolves inside the working
+  directory with every directory between it and the path resolving inside it
+  too, named as the path names it (#113). Matching itself shall stay lexical — a
+  rule naming a symlinked directory covers the paths written through it — so a
+  path is never judged under a spelling other than the one prim was given, and a
+  `.primignore` that the path as spelled does not pass shall not apply to it
+  however that path resolves.
+- **FR-4.4c** In a gate mode — one whose exit code gates on pending findings:
+  `fmt --check`, `fix --check`, `fix --diff`, `fmt --check-idempotence`, `lint`
+  — prim shall exit `2` when every path it was pointed at was skipped (FR-4.4a):
+  each path named on the command line, or the working directory when none was
+  named. A `0` there would report a clean run over files prim never looked at,
+  which is the assurance a CI gate reads. The modes that write (`fmt`, `fix`)
+  and the preview mode (`fmt --diff`) shall exit `0` in the same case, so a
+  pre-commit hook handed a staged list of ignored paths still passes (AD-0009).
+  Skipping only some of the paths given shall not raise the exit code in any
+  mode.
 - **FR-4.5** prim shall accept CLI exclude globs; a malformed glob is a usage
   error (exit `2`).
 - **FR-4.6** prim shall handle an explicitly named path strictly: a path that
@@ -291,28 +315,32 @@ default, format-in-place action.
   files in place.
 - **FR-5.2** `prim fmt --check` (also `fix --check`) shall write nothing, exit
   `0` when all files are already formatted, exit non-zero when any file would
-  change, and list the files that would change.
+  change, and list the files that would change. A run that examined nothing
+  exits `2` instead of `0` (FR-4.4c).
 - **FR-5.3** `prim fmt --diff` shall print a unified diff of pending changes and
   write nothing; it shall exit `0` whether or not changes are pending (`--check`
   is the CI gate). `prim fix --diff` shares `fix --check`'s gated contract
   instead (FR-5.2): it also prints the diff and writes nothing, but exits
   non-zero when a fixable finding is pending, since `fix`'s `--check` and
   `--diff` are both format-drift gates, unlike `fmt --diff`'s preview-only
-  behaviour (AD-0007 §4).
+  behaviour (AD-0007 §4). Being gates, both also exit `2` when the run examined
+  nothing (FR-4.4c); `fmt --diff` does not.
 - **FR-5.3a** `prim fmt --check-idempotence` (also reachable as bare
   `prim --check-idempotence` through the permanent `fmt` alias) shall write
   nothing and verify FR-6.1 across the matched corpus: for each discovered file
   prim owns, it formats the current bytes in memory, formats that output a
   second time with the same resolved `.editorconfig` style, and exits `1` if any
   second pass still changes bytes. It lists each failing file on stdout, exits
-  `0` when every second pass is stable, and uses the normal discovery/classify
-  rules (structured formats plus the orphan hygiene allowlist only).
+  `0` when every second pass is stable (`2` when it examined nothing, FR-4.4c),
+  and uses the normal discovery/classify rules (structured formats plus the
+  orphan hygiene allowlist only).
 - **FR-5.4** With `--stdin-filepath <path>` (valid on `fmt`, `lint`, and `fix`),
   prim shall read stdin and, for `fmt`/`fix`, write the formatted result to
   stdout. The flag is mutually exclusive with `--check` and `--diff`.
 - **FR-5.5** `prim lint` shall report hygiene and content violations without
   ever rewriting a file; it has neither `--check` nor `--diff` (report-only is
-  its only mode).
+  its only mode). Being report-only makes it a gate throughout: a `lint` run
+  that examined nothing exits `2` (FR-4.4c).
   - **FR-5.5a** _(hygiene diagnostics, story B1)_ For the un-owned-text
     allowlist (the orphan set, shell excluded — same scope as FR-2.4/2.5),
     `prim lint` shall report each whitespace-hygiene violation individually: a
@@ -330,7 +358,7 @@ default, format-in-place action.
     `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
     prim's active rule subset by `Rule::name()`. The per-file `.editorconfig`
     key `prim_mdlint_strict = true|false` (default `false`) is resolved through
-    the normal EditorConfig cascade; `false` runs the always-on floor tier of 13
+    the normal EditorConfig cascade; `false` runs the always-on floor tier of 12
     defect rules, `true` adds 13 convention rules on top. `prim_mdlint_enable`
     (FR-3.2d) adds named rules to that set regardless of tier, and
     `prim_mdlint_disable` (FR-3.2c) removes named rules from the result. Every
@@ -341,10 +369,10 @@ default, format-in-place action.
     invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
     not yet auto-fix these rules.
     - **Floor tier — defect rules (always on, error at floor and strict):**
-      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066,
-      MD068, MD070, MD075. Each reports something objectively broken — a dead
-      link, a dangling reference, a malformed table — independent of what the
-      author intended, so it can gate every repository with no opt-in.
+      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
+      MD070, MD075. Each reports something objectively broken — a dead link, a
+      dangling reference, a malformed table — independent of what the author
+      intended, so it can gate every repository with no opt-in.
     - **Strict tier — convention rules (`prim_mdlint_strict = true` only, error
       when active):** MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,
@@ -367,13 +395,16 @@ default, format-in-place action.
       threshold that prim has no surface to accept, and cannot fire without one;
       MD074, MD078 and MD079 cannot fire under the `Standard` flavor prim pins;
       MD063 is a sentence-case-versus-title-case house-style choice prim will
-      not impose; MD072 (frontmatter key sorting) would violate prim's
-      semantics-preserving guardrail; and MD082 is dropped from prim's rule
-      table entirely (absent from markdownlint, opt-in in rumdl, no fix by
-      design, and — measured across six public documentation sites — 569 of 573
-      findings flag a parent heading immediately followed by a deeper one, an
-      ordinary outline shape rather than an empty section). See AD-0012 for the
-      evidence behind each refusal.
+      not impose; and three rules are excluded by a decision record — MD072
+      (frontmatter key sorting) would violate prim's semantics-preserving
+      guardrail, MD082 is dropped from prim's rule table entirely (absent from
+      markdownlint, opt-in in rumdl, no fix by design, and — measured across six
+      public documentation sites — 569 of 573 findings flag a parent heading
+      immediately followed by a deeper one, an ordinary outline shape rather
+      than an empty section), and MD057 is dropped because whether a link that
+      leaves the file resolves depends on the renderer, so a file-existence
+      check is the wrong question at this layer. See AD-0012 for the evidence
+      behind each refusal, and AD-0013 for MD057's.
     - **Exit-code implication:** floor-tier findings and strict-tier findings
       alike raise `prim lint`'s exit code to `1`; no Markdown rule emits a
       warning.
@@ -408,8 +439,8 @@ default, format-in-place action.
     per-rule matrix.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
-  could not do its job (parse/IO/usage error). Warnings never raise the exit
-  code; only errors do.
+  could not do its job (parse/IO/usage error, or a gate that examined nothing —
+  FR-4.4c). Warnings never raise the exit code; only errors do.
 - **FR-5.7** _(deprecated top-level flags)_ The top-level `--check`, `--diff`,
   and `--stdin-filepath` flags remain accepted directly on bare `prim` as
   deprecated sugar for the `fmt` forms; the first use in a run emits a one-line

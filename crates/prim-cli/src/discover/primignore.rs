@@ -20,6 +20,19 @@
 //! prim matches `.primignore` here rather than registering it with the `ignore`
 //! crate's walker, because the walker's ancestor stack has no bound: it reads
 //! ignore files from every directory up to the filesystem root.
+//!
+//! # The re-inclusion rule
+//!
+//! Matching here rather than in the walker means this module owns a second rule
+//! the walker would have applied for free. Under gitignore semantics a `!` rule
+//! cannot re-include a path when a directory holding it is excluded; a walk
+//! gets that by pruning the excluded directory and never descending, and a
+//! named path has no walk to prune. So [`PrimignoreCache::verdict`] decides the
+//! directories holding a path first, each against the stack that governs it,
+//! and matches the rules naming the path only where every one of them survived.
+//! That is also why the path itself is matched with `Gitignore::matched` rather
+//! than `matched_path_or_any_parents`: the latter folds a path's parents into
+//! its own match, at the wrong precedence and against the wrong stack (#114).
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
@@ -56,6 +69,15 @@ pub(crate) enum Verdict {
 /// search before it reaches the `.primignore` that names it, or the escape
 /// hatch stops protecting the files it was added for.
 pub(crate) fn bound_for(path: &Path) -> Option<PathBuf> {
+    bound_from(path, std::env::current_dir().ok())
+}
+
+/// [`bound_for`], with the working directory passed in.
+///
+/// A test suite running in parallel from one process cannot move the process
+/// working directory, so the rule that both sides of this comparison are
+/// resolved before comparing is checked through this seam instead.
+fn bound_from(path: &Path, working_directory: Option<PathBuf>) -> Option<PathBuf> {
     // A file cannot hold a `.git` entry, and its own directory is where the
     // search starts, so resolve the bound from a directory either way.
     let absolute = normalized(path)?;
@@ -73,10 +95,51 @@ pub(crate) fn bound_for(path: &Path) -> Option<PathBuf> {
     // somewhere beneath it, and otherwise at the pointed-at directory itself: a
     // bound the search can never reach is no bound at all, and would let it
     // climb out into an unrelated tree.
-    match std::env::current_dir() {
-        Ok(cwd) if start.starts_with(&cwd) => Some(cwd),
-        _ => Some(start),
+    working_directory
+        .and_then(|cwd| working_directory_bound(&start, &cwd))
+        .or(Some(start))
+}
+
+/// The outermost ancestor of `start` still inside `cwd`, named the way `start`
+/// is.
+///
+/// `std::path::absolute` leaves a symlink in place while
+/// `std::env::current_dir` reports a resolved path, so a path spelled through a
+/// symlink shares no prefix with the working directory even when it lies
+/// beneath it, and the search stopped at the pointed-at directory — short of
+/// the `.primignore` protecting the file (#113).
+///
+/// Ancestors are therefore compared with the working directory in resolved
+/// form, and the last one still inside it becomes the bound. What comes back is
+/// that ancestor's own spelling, because that is what the search walks; nothing
+/// is resolved for matching. AD-0009 records why, and what the rule does not
+/// reach.
+///
+/// The plain prefix test above answers the common case without a system call.
+/// The comparison below is reached at most once per path prim was pointed at —
+/// never for each file under one.
+fn working_directory_bound(start: &Path, cwd: &Path) -> Option<PathBuf> {
+    if start.starts_with(cwd) {
+        return Some(cwd.to_path_buf());
     }
+    let resolved_cwd = std::fs::canonicalize(cwd).ok()?;
+    let mut bound = None;
+    for ancestor in start.ancestors() {
+        match std::fs::canonicalize(ancestor) {
+            // A directory that does not exist yet says nothing about where the
+            // path sits, so the climb carries on to a directory that can
+            // answer. That keeps a named path that does not exist bounded the
+            // way the same path would be were it there (FR-4.6).
+            Err(_) if bound.is_none() => continue,
+            Ok(resolved) if resolved.starts_with(&resolved_cwd) => bound = Some(ancestor),
+            // The first directory outside the working directory ends the run,
+            // and so does one that cannot be resolved once the run has begun:
+            // every directory between the path and the bound has to be known
+            // to be inside, or the bound stops guaranteeing anything.
+            _ => break,
+        }
+    }
+    bound.map(Path::to_path_buf)
 }
 
 /// `path`, made absolute and then normalized lexically: `.` components dropped
@@ -102,22 +165,42 @@ fn normalized(path: &Path) -> Option<PathBuf> {
 
 /// Answers "does `.primignore` cover this path?" within one bound.
 ///
-/// Matchers are cached because both callers ask about many paths in the same
+/// Answers are cached because both callers ask about many paths in the same
 /// directory: a hook hands prim its whole staged-file list at once, and a walk
-/// yields a directory's entries together. The bound is part of the key, since
-/// the same directory yields a different stack under a different bound.
+/// yields a directory's entries together. The cache is split by bound, since
+/// the same directory yields a different stack under a different one — and
+/// because a per-bound map is keyed by directory alone, which a `&Path` probes
+/// without allocating. Selecting the scope still allocates one key per
+/// question; the directory lookups inside it no longer do.
 #[derive(Default)]
 pub(crate) struct PrimignoreCache {
-    by_scope: BTreeMap<(Option<PathBuf>, PathBuf), Vec<Gitignore>>,
+    scopes: BTreeMap<Option<PathBuf>, Scope>,
+}
+
+/// What is remembered for one bound.
+#[derive(Default)]
+struct Scope {
+    /// The `.primignore` stack that governs a directory.
+    matchers: BTreeMap<PathBuf, Vec<Gitignore>>,
+    /// Whether a directory, or one above it, is excluded. Kept apart from the
+    /// matchers because it is a property of the directory: every file in it
+    /// shares one answer, and a walk asks about the same directory once per
+    /// entry it holds.
+    covered_directories: BTreeMap<PathBuf, bool>,
 }
 
 impl PrimignoreCache {
     /// The verdict on `path`, searching no higher than `bound`.
+    ///
+    /// An excluded directory takes everything under it with it: under gitignore
+    /// semantics a `!` rule cannot re-include a file whose parent directory is
+    /// excluded, however near the file that rule is written. The directories
+    /// holding `path` are therefore decided first, and only a path whose every
+    /// parent below the bound survived is matched against the rules that name
+    /// it (#114). A walk gets the same answer by pruning the excluded directory
+    /// before it descends, so both routes agree.
     pub(crate) fn verdict(&mut self, path: &Path, is_dir: bool, bound: Option<&Path>) -> Verdict {
         let Some(absolute) = normalized(path) else {
-            return Verdict::Unmatched;
-        };
-        let Some(directory) = absolute.parent() else {
             return Verdict::Unmatched;
         };
 
@@ -130,18 +213,73 @@ impl PrimignoreCache {
             return Verdict::Unmatched;
         }
 
+        let scope = self.scopes.entry(bound.map(Path::to_path_buf)).or_default();
+
+        // Every directory holding `absolute` — each one below `bound`, and not
+        // `absolute` itself — must survive before its own rules are consulted.
+        if absolute
+            .parent()
+            .is_some_and(|directory| scope.is_covered(directory, bound))
+        {
+            return Verdict::Ignored;
+        }
+        scope.own_verdict(&absolute, is_dir, bound)
+    }
+}
+
+impl Scope {
+    /// Whether `directory` is excluded, or lies under a directory that is.
+    ///
+    /// Each directory is judged on its own, against the `.primignore` stack
+    /// that governs it, exactly as the walk judges it before deciding whether
+    /// to descend. The answer is remembered, so a walk pays for a directory
+    /// once rather than once per file in it.
+    fn is_covered(&mut self, directory: &Path, bound: Option<&Path>) -> bool {
+        // The search stops at the bound, so nothing at or above it decides
+        // what lies below.
+        if bound == Some(directory) {
+            return false;
+        }
+        if let Some(&known) = self.covered_directories.get(directory) {
+            return known;
+        }
+        let Some(parent) = directory.parent() else {
+            return false;
+        };
+
+        // The directory above first: an exclusion there covers this directory
+        // whatever its own rules say, which is the rule being applied.
+        let covered = self.is_covered(parent, bound)
+            || self.own_verdict(directory, true, bound) == Verdict::Ignored;
+        self.covered_directories
+            .insert(directory.to_path_buf(), covered);
+        covered
+    }
+
+    /// What the `.primignore` stack says about `absolute` itself, with no
+    /// regard for the directories holding it. `absolute` must already be
+    /// normalized, and must sit strictly below `bound`.
+    fn own_verdict(&mut self, absolute: &Path, is_dir: bool, bound: Option<&Path>) -> Verdict {
+        let Some(directory) = absolute.parent() else {
+            return Verdict::Unmatched;
+        };
+
         let file_name = absolute.file_name().and_then(|name| name.to_str());
-        let key = (bound.map(Path::to_path_buf), directory.to_path_buf());
-        let matchers = self
-            .by_scope
-            .entry(key)
-            .or_insert_with(|| matchers_between(directory, bound));
+        if !self.matchers.contains_key(directory) {
+            self.matchers
+                .insert(directory.to_path_buf(), matchers_between(directory, bound));
+        }
+        let matchers = &self.matchers[directory];
 
         // Nearest `.primignore` first, so a closer whitelist (`!name`) beats a
         // more distant ignore — the precedence gitignore semantics give a
         // nested ignore file.
         for matcher in matchers.iter() {
-            match matcher.matched_path_or_any_parents(&absolute, is_dir) {
+            // `matched`, not `matched_path_or_any_parents`: the directories
+            // holding the path are decided one at a time by [`Scope::is_covered`],
+            // where each gets the stack that governs it rather than being
+            // folded into the file's own match.
+            match matcher.matched(absolute, is_dir) {
                 Match::Ignore(_) => return Verdict::Ignored,
                 Match::Whitelist(glob) => {
                     let specific = file_name.is_some_and(|name| whitelist_names_file(glob, name));
@@ -204,117 +342,4 @@ fn whitelist_names_file(glob: &Glob, file_name: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    fn write(path: &Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, contents).unwrap();
-    }
-
-    /// A repository whose `.primignore` names `fixtures/`, holding the fixture
-    /// it protects.
-    fn repository_ignoring_fixtures() -> tempfile::TempDir {
-        let repo = tempfile::tempdir().unwrap();
-        fs::create_dir_all(repo.path().join(".git")).unwrap();
-        write(&repo.path().join(".primignore"), "fixtures/\n");
-        write(&repo.path().join("fixtures/golden.json"), "{\"a\" :1}\n");
-        repo
-    }
-
-    #[test]
-    fn the_bound_is_the_repository_root_not_the_directory_asked_about() {
-        // These tests cannot move the working directory — the suite runs
-        // in parallel from one process — so the ordering of the two bounds is
-        // pinned at the CLI layer instead, by
-        // `an_ignored_directory_named_from_inside_itself_is_still_skipped`.
-        // What is checked here is the repository half on its own.
-        let repo = repository_ignoring_fixtures();
-        let fixtures = repo.path().join("fixtures");
-
-        assert_eq!(
-            bound_for(&fixtures).as_deref(),
-            Some(repo.path()),
-            "the bound is the repository root above the directory, not the \
-             directory itself"
-        );
-    }
-
-    #[test]
-    fn an_ignored_directory_is_covered_by_the_primignore_naming_it() {
-        // The bound resolved above must actually reach that `.primignore`.
-        let repo = repository_ignoring_fixtures();
-        let fixtures = repo.path().join("fixtures");
-        let bound = bound_for(&fixtures);
-
-        assert_eq!(
-            PrimignoreCache::default().verdict(&fixtures, true, bound.as_deref()),
-            Verdict::Ignored,
-            "`fixtures/` in the repository's own `.primignore` must cover it"
-        );
-    }
-
-    #[test]
-    fn a_file_under_an_ignored_directory_is_covered_by_the_directorys_rule() {
-        // `fixtures/` names the directory, so the match is found by walking the
-        // file's parents rather than the file's own path.
-        let repo = repository_ignoring_fixtures();
-        let golden = repo.path().join("fixtures/golden.json");
-        let bound = bound_for(&golden);
-
-        assert_eq!(
-            PrimignoreCache::default().verdict(&golden, false, bound.as_deref()),
-            Verdict::Ignored,
-            "a file under an ignored directory is ignored too"
-        );
-    }
-
-    #[test]
-    fn a_worktree_root_bounds_the_search_though_its_git_entry_is_a_file() {
-        // A git worktree records its root with a `.git` *file* holding a
-        // `gitdir:` pointer, not a directory. It is the shape #110 was reported
-        // from, so it must bound the search exactly as a clone does.
-        let outer = tempfile::tempdir().unwrap();
-        fs::create_dir_all(outer.path().join(".git")).unwrap();
-        write(&outer.path().join(".primignore"), "worktree/\n");
-        let worktree = outer.path().join("worktree");
-        fs::create_dir_all(&worktree).unwrap();
-        write(
-            &worktree.join(".git"),
-            "gitdir: /elsewhere/.git/worktrees/w\n",
-        );
-
-        assert_eq!(
-            bound_for(&worktree).as_deref(),
-            Some(worktree.as_path()),
-            "a `.git` file marks a repository root as much as a `.git` directory"
-        );
-        assert_eq!(
-            PrimignoreCache::default().verdict(&worktree, true, bound_for(&worktree).as_deref()),
-            Verdict::Unmatched,
-            "the enclosing repository's `.primignore` must not reach a separate \
-             checkout that happens to sit at that path"
-        );
-    }
-
-    #[test]
-    fn the_enclosing_repository_still_prunes_a_nested_checkout_it_names() {
-        // Pointed at the outer repository, prim keeps the outer rules: the
-        // bound is the outer root, so `worktree/` still covers the nested
-        // checkout. Only pointing prim at the checkout itself changes the bound.
-        let outer = tempfile::tempdir().unwrap();
-        fs::create_dir_all(outer.path().join(".git")).unwrap();
-        write(&outer.path().join(".primignore"), "worktree/\n");
-        let worktree = outer.path().join("worktree");
-        fs::create_dir_all(worktree.join(".git")).unwrap();
-
-        assert_eq!(
-            PrimignoreCache::default().verdict(&worktree, true, bound_for(outer.path()).as_deref()),
-            Verdict::Ignored,
-            "under the outer repository's bound, its own rules still apply"
-        );
-    }
-}
+mod tests;

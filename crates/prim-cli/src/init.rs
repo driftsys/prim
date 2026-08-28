@@ -121,7 +121,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     let editorconfig = target_dir.join(EDITORCONFIG_NAME);
     // Asked before any write: prim's own `root = true` stops the very walk
     // this reads, so afterwards there is nothing left to find.
-    let inherited = cascade::from_ancestors(target_dir);
+    let ancestry = cascade::from_ancestors(target_dir);
 
     if !editorconfig.exists() {
         write::atomic(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
@@ -130,7 +130,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         })?;
         // The scaffold opens with `root = true`, so creating one here cuts
         // this directory off from anything above it just as a merge would.
-        warn_if_severed(target_dir, inherited.as_ref());
+        warn_if_severed(target_dir, &ancestry);
         // Read off the same sections the scaffold was built from: a summary
         // that advertises a section prim decided not to write is the same
         // defect in miniature as writing one that does not hold.
@@ -182,7 +182,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         source,
     })?;
     if merged.added_root {
-        warn_if_severed(target_dir, inherited.as_ref());
+        warn_if_severed(target_dir, &ancestry);
     }
     Ok(Outcome {
         message: format!(
@@ -193,13 +193,13 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     })
 }
 
-/// Report the cascade `root = true` just cut off, if it cut off anything.
-/// Emitted after the write so it follows the write it describes, but read
-/// from `inherited`, which was gathered before it. Never changes the exit
+/// Report the cascade `root = true` just cut off, if there is anything to
+/// report. Emitted after the write so it follows the write it describes, but
+/// read from `ancestry`, which was gathered before it. Never changes the exit
 /// code.
-fn warn_if_severed(target_dir: &Path, inherited: Option<&cascade::Inheritance>) {
-    if let Some(inherited) = inherited {
-        ui::warning(&cascade::severing_warning(target_dir, inherited));
+fn warn_if_severed(target_dir: &Path, ancestry: &cascade::Ancestry) {
+    if let Some(warning) = cascade::severing_warning(target_dir, ancestry) {
+        ui::warning(&warning);
     }
 }
 
