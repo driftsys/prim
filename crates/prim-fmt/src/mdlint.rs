@@ -5,11 +5,16 @@
 //! issues a formatter cannot and **never rewrites** — prim never invokes rumdl's
 //! formatter, LSP, or file walker, only [`rumdl_lib::lint`].
 //!
-//! Story G3 (#59) splits rumdl's rules into two bands. The floor tier is
+//! Story G3 (#59) splits rumdl's rules into three tiers. The floor tier is
 //! always on and runs the defect rules — rules that report something
 //! objectively broken. `.editorconfig` `prim_mdlint_strict = true` adds the
-//! convention tier on top. Every rule prim runs is an error: there is no
-//! warning severity, so a finding's presence is its severity.
+//! convention tier on top. A third tier, opt-in, holds rules that run in
+//! neither the floor nor the convention tier by default — `.editorconfig`
+//! `prim_mdlint_enable` adds specific rule ids from it (any tier, including
+//! opt-in) for a path regardless of the strict setting; `prim_mdlint_disable`
+//! removes ids from whatever the tier and enable list selected. Every rule
+//! prim runs is an error: there is no warning severity, so a finding's
+//! presence is its severity.
 //!
 //! Story G5 (#61) adds the surgical override surface on top: a standalone
 //! `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
@@ -178,9 +183,11 @@ fn is_active(rule: &str, selection: &MdLintSelection) -> bool {
     }
 }
 
-/// Whether `rule` names a rule prim can run in either tier. Callers validating
-/// user-supplied rule ids use this so a typo can be reported rather than
-/// silently matching nothing.
+/// Whether `rule` is one of the rules `SELECTABLE_RULES` knows how to run —
+/// at the floor or convention tier by default, or as an opt-in rule that only
+/// runs once `prim_mdlint_enable` names it. Callers validating user-supplied
+/// rule ids use this so a typo can be reported rather than silently matching
+/// nothing.
 pub fn is_known_rule(rule: &str) -> bool {
     SELECTABLE_RULES
         .iter()

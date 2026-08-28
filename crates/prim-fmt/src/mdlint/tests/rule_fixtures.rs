@@ -15,18 +15,20 @@
 //! comment on an individual fixture where that shape is not obvious.
 
 use super::super::*;
-use super::tier;
+use super::{OPT_IN_RULES, enabling, tier};
 use crate::Style;
 
 /// One rule's fixture, and the tier at which that fixture is expected to
 /// fire.
 struct RuleFixture {
     rule: &'static str,
-    /// Mirrors [`RulePolicy::floor`]: `true` for a defect rule (fires at the
-    /// floor tier, and therefore at strict too); `false` for a convention
-    /// rule (fires only under `prim_mdlint_strict = true`, and must NOT fire
-    /// at the floor tier — the half of this test that pins the band model
-    /// itself, not just the rule).
+    /// Mirrors [`RulePolicy::tier`]: `true` for a defect rule (fires at the
+    /// floor tier, and therefore at strict too); `false` for a convention or
+    /// opt-in rule (must NOT fire at the floor tier — the half of this test
+    /// that pins the band model itself, not just the rule). An opt-in
+    /// fixture (its rule listed in `OPT_IN_RULES`) is additionally expected
+    /// to fire only once its id is named in `enabled`, never under strict
+    /// alone — see the branch on `is_opt_in` in the test below.
     floor: bool,
     src: &'static str,
 }
@@ -175,34 +177,67 @@ const RULE_FIXTURES: &[RuleFixture] = &[
         floor: false,
         src: "Text with [^2] and then [^1].\n\n[^1]: First definition\n[^2]: Second definition\n",
     },
+    // Opt-in rules — off in both tiers; fire only once `prim_mdlint_enable`
+    // names them (`enabling(rule)` below drives that case).
+    RuleFixture {
+        rule: "MD013",
+        floor: false,
+        // One line past prim's canonical eighty-character wrap width.
+        src: "This line keeps going and going with ordinary padding words to reach the target length for the\n",
+    },
+    RuleFixture {
+        rule: "MD014",
+        floor: false,
+        // A `$`-prompted shell command with no output line: rumdl only
+        // flags commands it expects to produce visible output (`ls -l`
+        // qualifies; `cd`/`mkdir`/`touch` do not).
+        src: "```bash\n$ ls -l\n```\n",
+    },
+    RuleFixture {
+        rule: "MD069",
+        floor: false,
+        // A doubled list marker from the classic copy-paste-with-editor-
+        // auto-continuation accident.
+        src: "- - duplicate text\n",
+    },
 ];
 
 #[test]
 fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
     for fixture in RULE_FIXTURES {
-        let strict_diags = lint(fixture.src, &Style::default(), &tier(true));
-        let diag = strict_diags
+        let is_opt_in = OPT_IN_RULES.contains(&fixture.rule);
+        // A floor/convention fixture is expected under strict; an opt-in
+        // fixture is off in both tiers, so it is only expected once its id
+        // is named in `enabled`.
+        let firing_selection = if is_opt_in {
+            enabling(fixture.rule)
+        } else {
+            tier(true)
+        };
+        let firing_diags = lint(fixture.src, &Style::default(), &firing_selection);
+        let diag = firing_diags
             .iter()
             .find(|d| d.rule == fixture.rule)
             .unwrap_or_else(|| {
                 panic!(
-                    "{} did not fire under strict: {strict_diags:?}",
-                    fixture.rule
+                    "{} did not fire under {}: {firing_diags:?}",
+                    fixture.rule,
+                    if is_opt_in { "enable" } else { "strict" }
                 )
             });
-        assert!(diag.is_error, "{}: {strict_diags:?}", fixture.rule);
+        assert!(diag.is_error, "{}: {firing_diags:?}", fixture.rule);
         // A smoke check that the rule reported a position at all, not that it
         // reported the right one: an offset applied to every diagnostic would
         // survive this. `mdlint::tests::reports_a_bare_url_with_real_line_col`
         // is what pins the mapping, and it does catch such an offset.
         assert!(
             diag.line >= 1,
-            "{}: 1-indexed line: {strict_diags:?}",
+            "{}: 1-indexed line: {firing_diags:?}",
             fixture.rule
         );
         assert!(
             diag.column >= 1,
-            "{}: 1-indexed column: {strict_diags:?}",
+            "{}: 1-indexed column: {firing_diags:?}",
             fixture.rule
         );
 
@@ -216,7 +251,19 @@ fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
         } else {
             assert!(
                 floor_diags.iter().all(|d| d.rule != fixture.rule),
-                "{}: a convention rule must not fire at the floor tier: {floor_diags:?}",
+                "{}: a convention or opt-in rule must not fire at the floor tier: {floor_diags:?}",
+                fixture.rule
+            );
+        }
+
+        if is_opt_in {
+            // The distinguishing behaviour of the opt-in tier: unlike a
+            // convention rule, `prim_mdlint_strict` alone must not turn it
+            // on.
+            let strict_diags = lint(fixture.src, &Style::default(), &tier(true));
+            assert!(
+                strict_diags.iter().all(|d| d.rule != fixture.rule),
+                "{}: an opt-in rule must not fire under prim_mdlint_strict alone: {strict_diags:?}",
                 fixture.rule
             );
         }
@@ -229,23 +276,12 @@ fn rule_fixtures_cover_every_active_rule_exactly_once_except_the_documented_md05
     covered.push("MD057");
     covered.sort_unstable();
 
-    // `RULE_FIXTURES` only covers the floor and convention tiers. The three
-    // opt-in rules (MD013, MD014, MD069) have no entry here yet — their tier
-    // placement is pinned by `opt_in_rules_run_only_when_enabled` in the
-    // parent module instead, the same way the matrix tests pin floor and
-    // convention placement; only this fixture-firing regression net is
-    // still open for them.
-    let mut active: Vec<&str> = SELECTABLE_RULES
-        .iter()
-        .filter(|policy| policy.tier != Tier::OptIn)
-        .map(|p| p.rule)
-        .collect();
+    let mut active: Vec<&str> = SELECTABLE_RULES.iter().map(|p| p.rule).collect();
     active.sort_unstable();
 
     assert_eq!(
         covered, active,
-        "every floor/convention SELECTABLE_RULES entry needs exactly one fixture, or the \
-         documented MD057 exception"
+        "every SELECTABLE_RULES entry needs exactly one fixture, or the documented MD057 exception"
     );
 }
 
@@ -279,5 +315,38 @@ fn md025_front_matter_title_is_metadata_not_a_heading() {
     assert!(
         diags.iter().all(|d| d.rule != "MD025"),
         "front-matter title plus one body H1 is a normal page: {diags:?}"
+    );
+}
+
+/// `prim_config` feeds MD013 the width `Style` actually wrapped to, never
+/// rumdl's own default of 80 (see `mdlint.rs`). Both lines below sit well
+/// past 80, so this only passes if MD013 is reading the widened 120 rather
+/// than falling back to rumdl's default — if it were reading the default,
+/// the first assertion (the line under 120) would find MD013 firing anyway
+/// and fail.
+#[test]
+fn md013_line_length_reads_the_resolved_style_not_rumdls_default() {
+    let style = Style {
+        max_line_length: Some(120),
+        ..Style::default()
+    };
+    let selection = enabling("MD013");
+
+    let under_120 = "This line keeps going and going with ordinary padding words to reach \
+                      the target length for the test This line keeps\n";
+    assert_eq!(under_120.trim_end().len(), 115, "fixture length drifted");
+    let diags = lint(under_120, &style, &selection);
+    assert!(
+        diags.iter().all(|d| d.rule != "MD013"),
+        "a line under the widened max_line_length must not fire: {diags:?}"
+    );
+
+    let over_120 = "This line keeps going and going with ordinary padding words to reach \
+                     the target length for the test This line keeps going and going with\n";
+    assert_eq!(over_120.trim_end().len(), 136, "fixture length drifted");
+    let diags = lint(over_120, &style, &selection);
+    assert!(
+        diags.iter().any(|d| d.rule == "MD013"),
+        "a line past the widened max_line_length must fire: {diags:?}"
     );
 }

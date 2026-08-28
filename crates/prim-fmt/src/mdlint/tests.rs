@@ -96,6 +96,10 @@ fn withheld_rules_never_run_at_any_tier_or_enable() {
 fn is_known_rule_covers_both_bands_case_insensitively() {
     assert!(is_known_rule("MD045"));
     assert!(is_known_rule("md033"));
+    // An opt-in rule is selectable — `is_known_rule` is what routes
+    // `prim_mdlint_disable` ids into "known" vs. "unknown" — even though it
+    // runs in neither tier until `prim_mdlint_enable` names it.
+    assert!(is_known_rule("MD013"));
     assert!(!is_known_rule("MD082"));
     assert!(!is_known_rule("MD999"));
 }

@@ -28,7 +28,7 @@ pub(crate) fn strict_from(props: &Properties) -> bool {
 pub struct MdLintPolicy {
     /// The rules prim runs for this path, ready to hand to the engine.
     pub selection: prim_fmt::MdLintSelection,
-    /// Ids `prim_mdlint_disable` listed that name no rule prim runs in either
+    /// Ids `prim_mdlint_disable` listed that name no rule prim runs in any
     /// tier, uppercased, in the order written. Resolving a policy never
     /// reports these itself — see [`UnknownRuleReporter`] for where and how
     /// often that happens.
