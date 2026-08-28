@@ -47,7 +47,7 @@ struct PlannedWrite {
     creates_section: bool,
 }
 
-/// prim's four canonical sections, in the order they must appear, each with
+/// prim's canonical sections, in the order they must appear, each with
 /// one representative path the outcome check resolves to decide whether a
 /// write did what prim meant it to.
 pub(super) fn canonical_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
@@ -72,7 +72,7 @@ pub(super) fn reported_specs(strict_glob: &str) -> Vec<SectionSpec<'_>> {
         .collect()
 }
 
-/// The four canonical sections in canonical order, each with whether prim
+/// Every canonical section in canonical order, each with whether prim
 /// writes it for this strict glob.
 ///
 /// A section the strict glob makes dead on arrival is not written — and drops
@@ -103,12 +103,12 @@ fn every_section(strict_glob: &str) -> Vec<(SectionSpec<'_>, bool)> {
     ];
 
     // Superpowers working memory is exempt from the strict tier: specs and
-    // plans under `docs/wip/` are transient, and their raw originals under
-    // `docs/archive/` are frozen. Neither may be edited to satisfy a linter,
-    // so the strict tier must not apply even when the strict glob covers
-    // `docs/**` — unless the strict glob is that directory itself or one
-    // inside it, where the exemption is the broader glob and would turn the
-    // whole book back off.
+    // plans under `docs/wip/` are transient, and gardening moves their raw
+    // originals to `docs/archive/`. That move must not change a document's
+    // tier, so the strict tier reaches neither, even when the strict glob
+    // covers `docs/**` — unless the strict glob is that directory itself or
+    // one inside it, where the exemption is the broader glob and would turn
+    // the whole book back off.
     sections.extend(WORKING_MEMORY.iter().map(|memory| {
         (
             SectionSpec {
@@ -383,8 +383,9 @@ pub(super) fn merge(existing: &str, strict_glob: &str) -> MergeResult {
 /// over `plan`; among equally large sets, the one that keeps the canonically
 /// earliest writes wins. Writing nothing is always a candidate, so this
 /// always has an answer — prim does as much good as it safely can, and no
-/// more. The search is exhaustive because `plan` holds at most one write per
-/// canonical section (four).
+/// more. The search is exhaustive over every subset of `plan`, which is
+/// affordable because `plan` holds at most one write per canonical section and
+/// `every_section` is a fixed short list.
 fn safe_writes(
     plan: &[PlannedWrite],
     specs: &[SectionSpec<'_>],

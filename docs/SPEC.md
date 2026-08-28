@@ -144,12 +144,11 @@ source-code formatter and has **no plugin system**.
   memory, so the strict tier must not apply to them even when the strict glob
   covers `docs/**` or a custom mdBook `src` directory. Specs and plans under
   `docs/wip/` are transient; gardening moves their raw originals to
-  `docs/archive/` and forbids editing them. The second exemption matters as much
-  as the first — without it, gardening a branch is the moment a repository's own
-  documentation starts failing `prim lint` on files nobody may fix. An exemption
-  whose directory the strict glob is rooted at, or inside, is not written: there
-  the exemption would be the broader glob and would turn the whole book back
-  off.
+  `docs/archive/`. That move is not an edit, so it must not change a document's
+  tier — without the second exemption, filing work away is what would make a
+  repository's own CI start failing on it. An exemption whose directory the
+  strict glob is rooted at, or inside, is not written: there the exemption would
+  be the broader glob and would turn the whole book back off.
 
   When `PATH/.editorconfig` already exists, `prim init` shall merge minimally
   and never reorder or rewrite unrelated bytes: leave an existing top-level

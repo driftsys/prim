@@ -36,10 +36,11 @@ struct WorkingMemory {
 
 /// The directories holding Superpowers working memory, in canonical order.
 /// Specs and plans live under `docs/wip/` while a branch is open; gardening
-/// moves the raw originals to `docs/archive/` and forbids editing them. Both
-/// are exempt from the strict tier, and the second matters as much as the
-/// first: without it, gardening a branch is the moment a repository's own
-/// documentation starts failing `prim lint` on files nobody may fix.
+/// moves the raw originals to `docs/archive/`. Both are exempt from the strict
+/// tier, because gardening is a move rather than an edit: a document whose
+/// lint tier changed the moment somebody relocated it, without touching a
+/// byte of it, would make a repository's own CI fail on work it had just
+/// filed away.
 const WORKING_MEMORY: [WorkingMemory; 2] = [
     WorkingMemory {
         dir: "docs/wip",

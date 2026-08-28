@@ -444,30 +444,37 @@ fn route_8_a_missing_canonical_section_is_added_when_an_existing_header_has_inte
 }
 
 #[test]
-fn route_9_a_summary_under_docs_wip_is_checked_too() {
+fn route_9_a_summary_under_each_working_memory_directory_is_checked_too() {
     // One representative per section is not enough for `[**/SUMMARY.md]`: a
-    // summary under `docs/wip/` is decided by a different set of sections
-    // from one under the strict glob, and it was the docs/wip one the retired
-    // section-order check used to catch.
-    let content = "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[docs/wip/**.md]\nprim_mdlint_strict = true\n";
-    let dir = fixture(content);
-    assert!(
-        strict_for(dir.path(), "docs/wip/SUMMARY.md"),
-        "precondition: the summary under docs/wip is strict as written"
-    );
+    // summary inside an exempt directory is decided by a different set of
+    // sections from one under the strict glob, and it was the docs/wip one the
+    // retired section-order check used to catch. Every exempt directory needs
+    // its own probe, or the section that overrides it goes unnoticed.
+    for dir_name in ["docs/wip", "docs/archive"] {
+        let content = format!(
+            "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = \
+             true\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n[{dir_name}/**.md]\nprim_mdlint_strict = true\n"
+        );
+        let summary = format!("{dir_name}/SUMMARY.md");
+        let dir = fixture(&content);
+        assert!(
+            strict_for(dir.path(), &summary),
+            "precondition: the summary under {dir_name} is strict as written"
+        );
 
-    let outcome = run(dir.path()).unwrap();
+        let outcome = run(dir.path()).unwrap();
 
-    assert!(
-        !outcome.message.contains("already contains"),
-        "got: {}",
-        outcome.message
-    );
-    let warnings = warnings_of(dir.path());
-    assert!(
-        warnings.contains("applies to docs/wip/SUMMARY.md"),
-        "got: {warnings}"
-    );
+        assert!(
+            !outcome.message.contains("already contains"),
+            "got: {}",
+            outcome.message
+        );
+        let warnings = warnings_of(dir.path());
+        assert!(
+            warnings.contains(&format!("applies to {summary}")),
+            "got: {warnings}"
+        );
+    }
 }
 
 #[test]

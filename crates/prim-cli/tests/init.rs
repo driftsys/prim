@@ -122,10 +122,9 @@ fn init_scaffold_resolves_docs_wip_to_the_floor_tier_despite_the_strict_glob() {
 
 #[test]
 fn init_scaffold_resolves_docs_archive_to_the_floor_tier_despite_the_strict_glob() {
-    // Gardening moves the raw originals of docs/wip/ into docs/archive/ and
-    // forbids editing them. Without this exemption, gardening a branch is the
-    // moment a repository's own documentation starts failing prim lint on
-    // files nobody may fix.
+    // Gardening moves the raw originals of docs/wip/ into docs/archive/. That
+    // move is not an edit, so it must not change a document's tier: otherwise
+    // filing work away is what makes a repository's own CI start failing on it.
     let dir = tempfile::tempdir().unwrap();
 
     prim().arg("init").arg(dir.path()).assert().success();
