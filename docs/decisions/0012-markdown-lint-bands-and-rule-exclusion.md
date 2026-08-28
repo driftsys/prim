@@ -228,10 +228,14 @@ opt-in agrees with dropping it here.
   `prim lint`'s exit code newly fail on any of these eleven where it did not
   before; this is the migration impact of adopting this decision on an existing
   strict-tier repository.
-- **`prim init`'s placement map** gained a fourth section,
-  `[docs/wip/**.md] prim_mdlint_strict = false`, so Superpowers specs and plans
-  committed under `docs/wip/` are never swept into the strict tier by a
-  `docs/**` glob (FR-3.5).
+- **`prim init`'s placement map** gained two working-memory exemptions,
+  `[docs/wip/**.md]` and `[docs/archive/**.md]`, both
+  `prim_mdlint_strict = false`, so Superpowers specs and plans are never swept
+  into the strict tier by a `docs/**` glob (FR-3.5). `docs/wip/` came first;
+  `docs/archive/` followed because gardening moves the raw originals there and
+  forbids editing them, so exempting only the transient half would make
+  gardening a branch the moment a repository's documentation starts failing
+  `prim lint` on files nobody may fix.
 - **`prim_fmt::lint_markdown` gained a third parameter**, the exclusion list
   (`disabled: &[String]`), to carry `prim_mdlint_disable`'s resolved ids into
   the engine. Any crate consuming `prim-fmt` directly must update its call site.

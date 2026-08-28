@@ -26,7 +26,7 @@ fn init_scaffolds_the_default_map_and_lint_resolves_it_end_to_end() {
 
     assert_eq!(
         fs::read_to_string(dir.path().join(".editorconfig")).unwrap(),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
     );
 
     prim()
@@ -79,7 +79,7 @@ fn init_keeps_an_existing_strict_section_strict_when_it_backfills_the_floor() {
 
     assert_eq!(
         fs::read_to_string(dir.path().join(".editorconfig")).unwrap(),
-        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
+        "root = true\n[*.md]\nprim_mdlint_strict = false\n[docs/**.md]\nprim_mdlint_strict = true\n[docs/wip/**.md]\nprim_mdlint_strict = false\n[docs/archive/**.md]\nprim_mdlint_strict = false\n[**/SUMMARY.md]\nprim_mdlint_strict = false\n",
     );
 
     prim()
@@ -114,6 +114,25 @@ fn init_scaffold_resolves_docs_wip_to_the_floor_tier_despite_the_strict_glob() {
     prim()
         .current_dir(dir.path())
         .args(["lint", "--stdin-filepath", "docs/wip/plan.md"])
+        .write_stdin("Intro\n\n# Title\n")
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("[MD041]").not());
+}
+
+#[test]
+fn init_scaffold_resolves_docs_archive_to_the_floor_tier_despite_the_strict_glob() {
+    // Gardening moves the raw originals of docs/wip/ into docs/archive/ and
+    // forbids editing them. Without this exemption, gardening a branch is the
+    // moment a repository's own documentation starts failing prim lint on
+    // files nobody may fix.
+    let dir = tempfile::tempdir().unwrap();
+
+    prim().arg("init").arg(dir.path()).assert().success();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "--stdin-filepath", "docs/archive/plans/old.md"])
         .write_stdin("Intro\n\n# Title\n")
         .assert()
         .code(0)

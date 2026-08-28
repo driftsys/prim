@@ -131,16 +131,25 @@ source-code formatter and has **no plugin system**.
   prim_mdlint_strict = true
   [docs/wip/**.md]
   prim_mdlint_strict = false
+  [docs/archive/**.md]
+  prim_mdlint_strict = false
   [**/SUMMARY.md]
   prim_mdlint_strict = false
   ```
 
   When `PATH/book.toml` exists, the strict glob shall use mdBook's `[book].src`
   directory instead of `docs/`, defaulting to `src/**.md` when the key is absent
-  or the TOML is malformed. `[docs/wip/**.md]` is a literal, not derived from
-  the strict glob: Superpowers specs and plans committed under `docs/wip/` are
-  transient working memory, so the strict tier must not apply to them even when
-  the strict glob covers `docs/**` or a custom mdBook `src` directory.
+  or the TOML is malformed. `[docs/wip/**.md]` and `[docs/archive/**.md]` are
+  literals, not derived from the strict glob: they hold Superpowers working
+  memory, so the strict tier must not apply to them even when the strict glob
+  covers `docs/**` or a custom mdBook `src` directory. Specs and plans under
+  `docs/wip/` are transient; gardening moves their raw originals to
+  `docs/archive/` and forbids editing them. The second exemption matters as much
+  as the first — without it, gardening a branch is the moment a repository's own
+  documentation starts failing `prim lint` on files nobody may fix. An exemption
+  whose directory the strict glob is rooted at, or inside, is not written: there
+  the exemption would be the broader glob and would turn the whole book back
+  off.
 
   When `PATH/.editorconfig` already exists, `prim init` shall merge minimally
   and never reorder or rewrite unrelated bytes: leave an existing top-level

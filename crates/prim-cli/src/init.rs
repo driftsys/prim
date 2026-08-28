@@ -23,13 +23,33 @@ const MDBOOK_NAME: &str = "book.toml";
 const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
 const DEFAULT_STRICT_DIR: &str = "docs";
 const MDBOOK_DEFAULT_SRC: &str = "src";
-/// The literal docs/wip exemption glob — a constant so it can be compared
-/// against a detected strict glob (a mdBook `src = "docs/wip"` derives this
-/// same glob) rather than duplicated as a string literal.
-const DOCS_WIP_GLOB: &str = "docs/wip/**.md";
-/// The directory [`DOCS_WIP_GLOB`] exempts, for comparing a detected strict
-/// glob against it.
-const DOCS_WIP_DIR: &str = "docs/wip";
+/// One directory of Superpowers working memory that the strict tier must not
+/// reach.
+struct WorkingMemory {
+    /// The directory itself, for comparing a detected strict glob against it.
+    dir: &'static str,
+    /// The exemption section prim writes for it. Spelled out rather than
+    /// derived from `dir` so it can stay a `&'static str`; a test pins the
+    /// two against each other.
+    glob: &'static str,
+}
+
+/// The directories holding Superpowers working memory, in canonical order.
+/// Specs and plans live under `docs/wip/` while a branch is open; gardening
+/// moves the raw originals to `docs/archive/` and forbids editing them. Both
+/// are exempt from the strict tier, and the second matters as much as the
+/// first: without it, gardening a branch is the moment a repository's own
+/// documentation starts failing `prim lint` on files nobody may fix.
+const WORKING_MEMORY: [WorkingMemory; 2] = [
+    WorkingMemory {
+        dir: "docs/wip",
+        glob: "docs/wip/**.md",
+    },
+    WorkingMemory {
+        dir: "docs/archive",
+        glob: "docs/archive/**.md",
+    },
+];
 /// The strict glob a book rooted at the repository itself derives — it covers
 /// every Markdown file, so no floor section can sit under it.
 const EVERYTHING_GLOB: &str = "**.md";
