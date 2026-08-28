@@ -257,7 +257,14 @@ source-code formatter and has **no plugin system**.
   bound be the current working directory instead. Consequently a nested checkout
   is governed by the enclosing repository's `.primignore` when prim is pointed
   at the enclosing repository, and by its own when prim is pointed at the
-  checkout.
+  checkout. Where the working directory is the bound, the bound shall be the
+  outermost directory holding the path that resolves inside the working
+  directory with every directory between it and the path resolving inside it
+  too, named as the path names it (#113). Matching itself shall stay lexical — a
+  rule naming a symlinked directory covers the paths written through it — so a
+  path is never judged under a spelling other than the one prim was given, and a
+  `.primignore` that the path as spelled does not pass shall not apply to it
+  however that path resolves.
 - **FR-4.4c** In a gate mode — one whose exit code gates on pending findings:
   `fmt --check`, `fix --check`, `fix --diff`, `fmt --check-idempotence`, `lint`
   — prim shall exit `2` when every path it was pointed at was skipped (FR-4.4a):
