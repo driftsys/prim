@@ -329,7 +329,7 @@ default, format-in-place action.
     `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
     prim's active rule subset by `Rule::name()`. The per-file `.editorconfig`
     key `prim_mdlint_strict = true|false` (default `false`) is resolved through
-    the normal EditorConfig cascade; `false` runs the always-on floor tier of 13
+    the normal EditorConfig cascade; `false` runs the always-on floor tier of 12
     defect rules, `true` adds 13 convention rules on top. Every rule prim runs,
     at either tier, is an error: there is no warning severity for Markdown, so a
     finding's presence is its severity. Each finding carries rumdl's rule code
@@ -338,10 +338,10 @@ default, format-in-place action.
     invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
     not yet auto-fix these rules.
     - **Floor tier — defect rules (always on, error at floor and strict):**
-      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066,
-      MD068, MD070, MD075. Each reports something objectively broken — a dead
-      link, a dangling reference, a malformed table — independent of what the
-      author intended, so it can gate every repository with no opt-in.
+      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
+      MD070, MD075. Each reports something objectively broken — a dead link, a
+      dangling reference, a malformed table — independent of what the author
+      intended, so it can gate every repository with no opt-in.
     - **Strict tier — convention rules (`prim_mdlint_strict = true` only, error
       when active):** MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,
@@ -353,12 +353,14 @@ default, format-in-place action.
       MD060, MD064, MD065, MD071, MD076, MD077.
     - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
       MD069, MD072 (frontmatter key sorting would violate prim's
-      semantics-preserving guardrail), MD074, MD078, MD079, MD081, and MD082
-      (dropped from `ACTIVE_RULES` entirely: absent from markdownlint, opt-in in
-      rumdl, no fix by design, and — measured across six public documentation
-      sites — 569 of 573 findings flag a parent heading immediately followed by
-      a deeper one, an ordinary outline shape rather than an empty section; see
-      AD-0012).
+      semantics-preserving guardrail), MD074, MD078, MD079, MD081, MD057
+      (dropped from `ACTIVE_RULES`: whether a link that leaves the file resolves
+      depends on the renderer, so a file-existence check is the wrong question
+      at this layer; see AD-0013), and MD082 (dropped from `ACTIVE_RULES`
+      entirely: absent from markdownlint, opt-in in rumdl, no fix by design, and
+      — measured across six public documentation sites — 569 of 573 findings
+      flag a parent heading immediately followed by a deeper one, an ordinary
+      outline shape rather than an empty section; see AD-0012).
     - **Exit-code implication:** floor-tier findings and strict-tier findings
       alike raise `prim lint`'s exit code to `1`; no Markdown rule emits a
       warning.

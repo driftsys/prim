@@ -119,7 +119,7 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
   - For Markdown, `prim lint` runs rumdl in Standard flavor against prim's own
     curated rule set, placed into two bands and selected per file through
     `.editorconfig` `prim_mdlint_strict = true|false` (default `false`). `false`
-    runs the always-on floor tier of 13 defect rules; `true` adds 13 convention
+    runs the always-on floor tier of 12 defect rules; `true` adds 13 convention
     rules on top. Every rule prim runs, at either tier, is an error — there is
     no warning severity for Markdown, so a finding's presence is its severity.
     prim prints each finding as `path:line:col: message
@@ -127,10 +127,10 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
     rumdl's rule codes through verbatim, never invokes rumdl's formatter/fixer,
     and does not auto-fix these findings in `fix` yet.
     - **Floor tier — defect rules** (always on, error at floor and strict):
-      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066,
-      MD068, MD070, MD075. Each reports something objectively broken — a dead
-      link, a dangling reference, a malformed table — so it gates every
-      repository with no opt-in.
+      MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
+      MD070, MD075. Each reports something objectively broken — a dead link, a
+      dangling reference, a malformed table — so it gates every repository with
+      no opt-in.
     - **Strict tier — convention rules** (`prim_mdlint_strict = true` only,
       error when active): MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,
@@ -142,8 +142,9 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
       MD060, MD064, MD065, MD071, MD076, MD077.
     - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
       MD069, MD072 (frontmatter key sorting stays off because prim must remain
-      semantics-preserving), MD074, MD078, MD079, MD081, and MD082 (dropped
-      entirely — see AD-0012).
+      semantics-preserving), MD074, MD078, MD079, MD081, MD057 (dropped — a
+      cross-file link's target depends on the renderer, so prim does not check
+      it; see AD-0013), and MD082 (dropped entirely — see AD-0012).
     - Floor-tier and strict-tier findings alike raise `prim lint`'s exit code to
       `1`; no Markdown rule emits a warning.
     - **A rule option prim sets for itself:** prim configures MD025's

@@ -2,9 +2,9 @@ use super::*;
 
 mod rule_fixtures;
 
-const DEFECT_RULES: [&str; 13] = [
-    "MD042", "MD011", "MD052", "MD056", "MD062", "MD057", "MD034", "MD051", "MD045", "MD075",
-    "MD066", "MD068", "MD070",
+const DEFECT_RULES: [&str; 12] = [
+    "MD042", "MD011", "MD052", "MD056", "MD062", "MD034", "MD051", "MD045", "MD075", "MD066",
+    "MD068", "MD070",
 ];
 
 const CONVENTION_RULES: [&str; 13] = [
@@ -29,9 +29,12 @@ fn dropped_and_formatter_territory_rules_never_run() {
     // MD082 was dropped (measured across six public documentation sites —
     // React Native, FastAPI, Vue, Redux, Vite, Building Secure Contracts —
     // 569 of 573 MD082 findings flag a parent heading followed by a
-    // deeper one; 4 flag a genuinely empty section); the rest are
-    // formatter territory or off.
-    for rule in ["MD082", "MD013", "MD060", "MD072", "MD003", "MD047"] {
+    // deeper one; 4 flag a genuinely empty section). MD057 was dropped
+    // because a file-existence check is the wrong question at this layer
+    // (AD-0013). The rest are formatter territory or off.
+    for rule in [
+        "MD082", "MD057", "MD013", "MD060", "MD072", "MD003", "MD047",
+    ] {
         assert!(!is_active(rule, false), "{rule} floor");
         assert!(!is_active(rule, true), "{rule} strict");
     }

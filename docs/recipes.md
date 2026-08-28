@@ -169,6 +169,23 @@ that path — it is subtract-only, so it can never turn on a rule prim decided n
 to run. See [USAGE.md](USAGE.md#configuration) for the full resolution
 semantics.
 
+## Checking links between files
+
+prim checks the links that resolve inside a file — a dead heading anchor
+(MD051), an undefined reference definition (MD052) — and nothing beyond it. A
+link to another file is left to a dedicated link checker, because whether it
+resolves depends on the renderer the file is published through, not on the
+filesystem alone (AD-0013).
+
+Run one beside prim. [`lychee`](https://github.com/lycheeverse/lychee) checks
+local and remote links across a whole tree and is the general choice; for an
+mdBook site,
+[`mdbook-linkcheck`](https://github.com/Michael-F-Bryan/mdbook-linkcheck)
+resolves links the way mdBook itself does, which catches a link that exists on
+disk but escapes the book root. Note that `mdbook build` on its own checks
+nothing: it renders a link to a missing page without a warning and exits `0`, so
+the backend has to be installed and configured for the check to run.
+
 ## Editor format-on-save
 
 Point your editor's "format with external command" hook at:

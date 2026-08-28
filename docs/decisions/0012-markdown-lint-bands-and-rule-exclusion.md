@@ -11,6 +11,10 @@ more. MD082 is dropped from prim's rule set entirely. MD025's
 `.editorconfig` key, `prim_mdlint_disable`, removes named rules from the tier
 selected for a path.
 
+Amended for #134: MD057 is dropped from the floor tier as well, leaving 12
+defect rules. AD-0013 records why — a cross-file link's target depends on the
+renderer, so a file-existence check is the wrong question at this layer.
+
 ## Context
 
 Before this change, prim placed each Markdown rule at one of `off`/`warn`/
@@ -152,6 +156,8 @@ opt-in agrees with dropping it here.
 
    MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD057, MD062, MD066, MD068,
    MD070, MD075.
+
+   MD057 was removed from this list by AD-0013, leaving 12.
 
    `.editorconfig` `prim_mdlint_strict = true` adds 13 convention rules on top:
 
