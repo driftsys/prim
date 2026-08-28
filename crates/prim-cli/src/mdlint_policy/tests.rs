@@ -151,7 +151,7 @@ fn a_value_of_unset_or_none_disables_nothing_and_is_not_reported_as_unknown() {
     // and `= none` (prim's accepted spelling of the same intent) must
     // clear the list on purpose, not by accident of failing to match a
     // known rule id — and neither should trigger the "is not a rule
-    // prim runs" warning that a genuine typo gets.
+    // prim knows" warning that a genuine typo gets.
     for value in ["unset", "UNSET", "none", "None"] {
         let dir = tempfile::tempdir().unwrap();
         fs::write(

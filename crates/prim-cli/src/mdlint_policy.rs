@@ -144,11 +144,12 @@ pub(crate) fn policy_from(props: &Properties) -> MdLintPolicy {
 /// carrying the same refused id are two mistakes to fix, not one.
 #[derive(Default)]
 pub struct RejectedRuleReporter {
-    /// Already-warned `(key, location, id)` triples. The key and location are
-    /// part of the identity because the same id can be refused by both keys,
-    /// and the same id refused in two different sections is two mistakes to
-    /// fix — reporting only the first would name a line the second one is
-    /// not on.
+    /// Already-warned `(key, location, id)` triples. Two keys cannot set the
+    /// same `.editorconfig` line, so `location` alone already tells apart an
+    /// id refused by both keys; `key` is part of the identity only for the
+    /// case `location` cannot cover — a [`SettingOrigin::Default`] origin,
+    /// where every id shares the same empty location regardless of which key
+    /// refused it.
     reported: HashSet<(&'static str, String, String)>,
 }
 
@@ -178,7 +179,10 @@ impl RejectedRuleReporter {
             };
             let reason = match reject.reach {
                 prim_fmt::RuleReach::Withheld => "which prim does not run at any tier",
-                _ => "which is not a rule prim knows",
+                prim_fmt::RuleReach::Unknown => "which is not a rule prim knows",
+                prim_fmt::RuleReach::Selectable => {
+                    unreachable!("a RejectedRuleId's reach is never Selectable")
+                }
             };
             ui::warning(&format!(
                 "{attribution}{} lists '{}', {reason} — ignoring it",

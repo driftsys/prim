@@ -457,15 +457,32 @@ fn an_enabled_convention_rule_gates_without_the_strict_tier() {
 
 #[test]
 fn disabling_beats_enabling_for_the_same_rule() {
+    // MD033 is a convention rule outside the floor tier, so an exit code of 0
+    // is also what an enable that never took effect would produce. Proving
+    // the enable-only configuration gates first rules that out: the second
+    // assertion below can then only pass because disable won the conflict,
+    // not because enable was a no-op to begin with.
     let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a.md");
+    std::fs::write(&file, "# Title\n\nText with <span>inline HTML</span>.\n").unwrap();
+
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD033\n",
+    )
+    .unwrap();
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD033]"));
+
     std::fs::write(
         dir.path().join(".editorconfig"),
         "root = true\n[*.md]\nprim_mdlint_enable = MD033\nprim_mdlint_disable = MD033\n",
     )
     .unwrap();
-    let file = dir.path().join("a.md");
-    std::fs::write(&file, "# Title\n\nText with <span>inline HTML</span>.\n").unwrap();
-
     prim().arg("lint").arg(&file).assert().code(0);
 }
 

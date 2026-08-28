@@ -277,7 +277,7 @@ fn explain_reports_a_deliberately_cleared_disable_key_as_none() {
             .args(["explain", "a.md"])
             .assert()
             .success()
-            .stderr(predicate::str::contains("not a rule prim runs").not());
+            .stderr(predicate::str::contains("ignoring it").not());
 
         let disable = line_for(&assert.get_output().stdout, "prim_mdlint_disable");
         assert!(
