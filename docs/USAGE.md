@@ -719,14 +719,21 @@ Scope notes:
   a closed allowlist, not a generic extension hook or a second config file.
 - Standard EditorConfig keys and documented `prim_*` keys resolve together for
   the same file; custom keys do not interfere with `Style` resolution.
-- A malformed `.editorconfig` is ignored with a warning, and the built-in
-  canonical style applies for the whole cascade — including any `.editorconfig`
-  that was read successfully before the malformed one.
-- An `.editorconfig` that prim cannot open is skipped without a warning. The
-  rest of the cascade still applies; only the settings that file would have
-  contributed are missing. A file can therefore resolve differently — for
-  example a `max_line_length` reverting to prim's default — with nothing on
-  stderr to say why.
+- An `.editorconfig` whose first invalid line falls at or after its first
+  `[section]` header is reported with a warning, and the built-in canonical
+  style applies for the whole cascade — including any `.editorconfig` that was
+  read successfully before it.
+- An `.editorconfig` that prim cannot open, and one whose first invalid line
+  falls before its first `[section]` header, are both skipped without a warning,
+  and the walk continues past them. Being malformed is therefore not on its own
+  enough to get a file reported; where the broken line sits is what decides.
+- Skipping a file silently can change resolution in both directions. The
+  settings that file would have contributed go missing, and if it carried
+  `root = true`, prim never sees that boundary and keeps reading `.editorconfig`
+  files above it. So a file can resolve with a `max_line_length` back at prim's
+  default, or with an `indent_style` inherited from a directory that
+  `root = true` was supposed to cut off, and nothing is printed on stderr either
+  way.
 
 > **Status:** prim applies whitespace hygiene (trailing-whitespace removal,
 > final newline, line endings) — driven by `.editorconfig` — to every file it

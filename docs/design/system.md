@@ -62,10 +62,13 @@ For every file that prim processes the steps are, in order:
    file) and the file is not written (FR-6.3, FR-6.5).
 3. **Resolve** — `editorconfig::resolve(&path)` walks the `.editorconfig`
    cascade from the file's directory upward. A missing config yields
-   `Style::default()` (FR-3.1). A malformed config drops the whole cascade back
-   to `Style::default()` with a warning (AD-0002). A config prim cannot open is
-   a different case: `ec4rs` skips it and continues the walk, so the rest of the
-   cascade still applies and no warning is emitted.
+   `Style::default()` (FR-3.1). A config whose first invalid line is at or after
+   its first section header drops the whole cascade back to `Style::default()`
+   with a warning (AD-0002). A config prim cannot open, and one whose first
+   invalid line precedes its first section header, are both skipped silently:
+   `ec4rs` never constructs the file and continues the walk, so the rest of the
+   cascade still applies — including any `.editorconfig` above a `root = true`
+   prim did not get to read.
 4. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
    hygiene pass (FR-2), and for structured formats the per-format pass followed
    by hygiene: `Json`/`Jsonc` via `dprint-plugin-json` (FR-1.2/1.3, AD-0003),

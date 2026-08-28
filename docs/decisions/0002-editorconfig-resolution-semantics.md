@@ -72,14 +72,28 @@ applies: profile first, cache only if NFR-4 (5,000 files < 2 s) shows pressure.
 This is the fail-safe posture: a bad config file should not silently corrupt
 output or block the tool.
 
-Only the malformed half of that posture is implemented. `ec4rs` skips an
-`.editorconfig` it cannot open and carries on with the walk, so prim never
-learns the file was there: no warning is emitted, the rest of the cascade still
-applies, and resolution quietly loses whatever that file would have contributed.
-Detecting it would need a check for an `.editorconfig` that prim can `stat` but
-cannot read, on a resolution path that runs per directory during a walk. The
-decision above stands as the intended posture; the gap between it and the
-implementation is tracked as issue #153.
+That posture is only partly implemented, and the line it actually falls on is
+not malformed-versus-unreadable. prim warns only when `ec4rs` yields an error
+while iterating a `ConfigFile`'s sections. A file whose preamble — everything
+before the first section header — is invalid never becomes a `ConfigFile` at
+all: `ConfigParser::new_with_path` parses the preamble eagerly and fails,
+`ConfigFile::open` propagates that, and `ConfigFiles::open` discards the error
+and carries on with the walk. A file that cannot be opened takes the same silent
+path. The real split is therefore where the first invalid line sits relative to
+the first section header, and an unreadable file is indistinguishable from a
+file broken above its first header.
+
+Both silent cases also let the walk continue past the skipped file. If that file
+carried `root = true`, prim never sees the boundary and keeps reading
+`.editorconfig` files above it, so resolution can gain settings as well as lose
+them. Measured, for a file under a `root = true` parent: with the parent
+readable, `indent_style` resolves to prim's default; with the same parent
+unreadable, it resolves to `tab` inherited from the grandparent.
+
+Closing this needs prim to notice an `.editorconfig` it can `stat` but cannot
+turn into a `ConfigFile`, on a resolution path that runs per directory during a
+walk. The decision above stands as the intended posture; the gap between it and
+the implementation is tracked as issue #153.
 
 **Line-level parsing is reimplemented, not called, and is pinned to `ec4rs`'s
 `ConfigParser`, not its private `parse_line`.** `.editorconfig`-writing and
