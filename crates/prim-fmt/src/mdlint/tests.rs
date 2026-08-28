@@ -2,6 +2,7 @@ use super::*;
 use crate::Style;
 
 mod rule_fixtures;
+mod withheld_rules;
 
 const DEFECT_RULES: [&str; 13] = [
     "MD042", "MD011", "MD052", "MD056", "MD062", "MD057", "MD034", "MD051", "MD045", "MD075",
