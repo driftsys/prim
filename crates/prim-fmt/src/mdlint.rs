@@ -266,9 +266,28 @@ fn withheld_rule_names() -> &'static [&'static str] {
 /// feeds it the width the formatter actually wrapped to.
 /// `code-block-line-length = 0` is rumdl's "no limit": prim never reflows a
 /// code block, and rewrapping a shell command changes what it says, so a wide
-/// code sample is a finding with no correct fix. Headings stay checked — a
-/// long heading is rewritable prose — and tables stay off at rumdl's own
-/// default, agreeing with prim never reflowing a table.
+/// code sample is a finding with no correct fix. Tables stay off at rumdl's
+/// own default, agreeing with prim never reflowing a table.
+///
+/// `paragraphs = false` narrows MD013 to headings only. prim already
+/// guarantees prose width itself, by formatting: every ordinary paragraph is
+/// hard-wrapped to this same width during `prim fmt`, so an over-width
+/// paragraph line found afterwards is not ordinary prose — it is content
+/// whose meaning would change if it were broken, which prim must not touch.
+/// A corpus measurement across 774 Markdown files from six documentation
+/// sites (issue #123, task 7) found this in practice: every one of 113
+/// non-heading findings traced to an atomic run — an inline code span, an
+/// HTML tag's attributes, a `$$...$$` LaTeX line, or prose inside a raw HTML
+/// block — never an ordinary sentence with an available break point. A
+/// heading is the one over-width case that is both real and fixable by the
+/// author, and prim does not wrap headings, so headings stay checked. This is
+/// the same reasoning already applied to code blocks above, extended to the
+/// case the measurement showed also exists in prose. rumdl skips blockquote
+/// content under `paragraphs = false` too (confirmed in the vendored
+/// `md013_line_length.rs` and `md013_config.rs` sources for `rumdl = "=0.2.35"`:
+/// blockquote content is paragraph text, so it falls out of the check the
+/// same way as any other paragraph line) — no separate `blockquotes = false`
+/// is needed.
 fn prim_config(style: &Style) -> Config {
     let mut config = Config::default();
     config.rules.insert(
@@ -294,6 +313,7 @@ fn prim_config(style: &Style) -> Config {
                     "code-block-line-length".to_string(),
                     toml::Value::Integer(0),
                 ),
+                ("paragraphs".to_string(), toml::Value::Boolean(false)),
             ]),
         },
     );

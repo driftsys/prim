@@ -182,8 +182,11 @@ const RULE_FIXTURES: &[RuleFixture] = &[
     RuleFixture {
         rule: "MD013",
         floor: false,
-        // One line past prim's canonical eighty-character wrap width.
-        src: "This line keeps going and going with ordinary padding words to reach the target length for the\n",
+        // A heading past prim's canonical eighty-character wrap width.
+        // `prim_config` sets `paragraphs = false` (see mdlint.rs), so an
+        // ordinary paragraph line no longer fires MD013 at all — only a
+        // heading does.
+        src: "# This heading keeps going and going with ordinary padding words to reach the target length for the\n",
     },
     RuleFixture {
         rule: "MD014",
@@ -319,11 +322,17 @@ fn md025_front_matter_title_is_metadata_not_a_heading() {
 }
 
 /// `prim_config` feeds MD013 the width `Style` actually wrapped to, never
-/// rumdl's own default of 80 (see `mdlint.rs`). Both lines below sit well
+/// rumdl's own default of 80 (see `mdlint.rs`). Both headings below sit well
 /// past 80, so this only passes if MD013 is reading the widened 120 rather
 /// than falling back to rumdl's default — if it were reading the default,
-/// the first assertion (the line under 120) would find MD013 firing anyway
-/// and fail.
+/// the first assertion (the heading under 120) would find MD013 firing
+/// anyway and fail.
+///
+/// Headings, not paragraphs: `prim_config` sets `paragraphs = false`, so a
+/// paragraph line no longer proves anything about which width MD013 read —
+/// it would pass at any width, including rumdl's default. A heading is the
+/// one case MD013 still checks, so it is the only fixture that can still
+/// tell the widened width apart from the default.
 #[test]
 fn md013_line_length_reads_the_resolved_style_not_rumdls_default() {
     let style = Style {
@@ -332,21 +341,49 @@ fn md013_line_length_reads_the_resolved_style_not_rumdls_default() {
     };
     let selection = enabling("MD013");
 
-    let under_120 = "This line keeps going and going with ordinary padding words to reach \
+    let under_120 = "# This line keeps going and going with ordinary padding words to reach \
                       the target length for the test This line keeps\n";
-    assert_eq!(under_120.trim_end().len(), 115, "fixture length drifted");
+    assert_eq!(under_120.trim_end().len(), 117, "fixture length drifted");
     let diags = lint(under_120, &style, &selection);
     assert!(
         diags.iter().all(|d| d.rule != "MD013"),
-        "a line under the widened max_line_length must not fire: {diags:?}"
+        "a heading under the widened max_line_length must not fire: {diags:?}"
     );
 
-    let over_120 = "This line keeps going and going with ordinary padding words to reach \
+    let over_120 = "# This line keeps going and going with ordinary padding words to reach \
                      the target length for the test This line keeps going and going with\n";
-    assert_eq!(over_120.trim_end().len(), 136, "fixture length drifted");
+    assert_eq!(over_120.trim_end().len(), 138, "fixture length drifted");
     let diags = lint(over_120, &style, &selection);
     assert!(
         diags.iter().any(|d| d.rule == "MD013"),
-        "a line past the widened max_line_length must fire: {diags:?}"
+        "a heading past the widened max_line_length must fire: {diags:?}"
+    );
+}
+
+/// Pins the narrowing this task made: `prim_config` sets `paragraphs = false`
+/// (see `mdlint.rs`), so an enabled MD013 checks headings only. A corpus
+/// measurement across 774 Markdown files from six documentation sites (issue
+/// #123, task 7) found that every non-heading MD013 finding traced to
+/// content prim must not reflow — an inline code span, an HTML tag's
+/// attributes, a `$$...$$` LaTeX line, or prose inside a raw HTML block —
+/// never an ordinary sentence with an available break point. This test is
+/// the guard against someone quietly restoring `paragraphs = true`: it fails
+/// the moment an over-width paragraph line starts firing again.
+#[test]
+fn md013_checks_headings_only_never_paragraphs() {
+    let selection = enabling("MD013");
+    let src = "# This heading keeps going and going with ordinary padding words to reach the target length\n\
+               \n\
+               This paragraph keeps going and going with ordinary padding words to reach the target length too.\n";
+
+    let diags = lint(src, &Style::default(), &selection);
+
+    assert!(
+        diags.iter().any(|d| d.rule == "MD013" && d.line == 1),
+        "an over-width heading must still fire: {diags:?}"
+    );
+    assert!(
+        diags.iter().all(|d| d.rule != "MD013" || d.line != 3),
+        "an over-width paragraph must never fire: {diags:?}"
     );
 }

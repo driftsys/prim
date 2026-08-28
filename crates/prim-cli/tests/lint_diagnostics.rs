@@ -413,7 +413,13 @@ fn enabling_an_opt_in_rule_makes_it_gate() {
 #[test]
 fn an_enabled_md013_uses_the_width_the_formatter_wrapped_to() {
     // rumdl's own MD013 default is 80. A repository asking for 120 and
-    // enabling the rule must not have its own formatted prose reported.
+    // enabling the rule must not report a heading that sits between those
+    // two widths.
+    //
+    // Headings, not prose: `prim_config` sets `paragraphs = false`
+    // (mdlint.rs), so an over-width paragraph never fires MD013 at any
+    // width. A heading is the one case MD013 still checks, so it is the
+    // only fixture that can still prove which width MD013 read.
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
         dir.path().join(".editorconfig"),
@@ -421,8 +427,10 @@ fn an_enabled_md013_uses_the_width_the_formatter_wrapped_to() {
     )
     .unwrap();
     let file = dir.path().join("a.md");
-    let prose = "word ".repeat(40);
-    std::fs::write(&file, format!("# Title\n\n{prose}\n")).unwrap();
+    // 108 characters: past rumdl's default of 80, within the 120 this
+    // repository asked for.
+    let heading = "# long enough to pass eighty characters but stay well under the one hundred twenty this repository asked for\n";
+    std::fs::write(&file, heading).unwrap();
 
     prim().arg("fmt").arg(&file).assert().code(0);
     prim().arg("lint").arg(&file).assert().code(0);
