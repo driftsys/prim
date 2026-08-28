@@ -1,5 +1,6 @@
 use super::*;
 
+mod property;
 mod regressions;
 mod scaffold;
 
