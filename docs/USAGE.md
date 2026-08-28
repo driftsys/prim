@@ -277,6 +277,13 @@ reads `.editorconfig left unchanged — see the warning(s) above` instead of
 `.editorconfig already contains the Markdown strict-glob map`, even on a run
 that writes nothing, because the two are different outcomes.
 
+`prim init` writes the whole file with the `end_of_line` resolved for
+`.editorconfig` itself, which is LF unless the resolved `.editorconfig` sets
+`end_of_line = crlf` (FR-2.3). It does not carry an existing file's line endings
+through: merging LF additions into a CRLF file would leave mixed endings, and a
+uniformly CRLF file with no `end_of_line` key is one `prim fmt --check` reports.
+What `prim init` writes is what `prim fmt` accepts.
+
 Running `prim init` twice is idempotent: once the map is present, the second run
 reports a no-op and leaves `.editorconfig` byte-identical. An occurrence of one
 of those globs that neither sets `prim_mdlint_strict` nor receives it — an

@@ -6,8 +6,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use prim_fmt::LineEnding;
 use toml::Value;
 
+use crate::editorconfig;
 use crate::ui;
 use crate::write;
 
@@ -120,10 +122,13 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     })?;
     let editorconfig = target_dir.join(EDITORCONFIG_NAME);
     // Asked before any write: prim's own `root = true` stops the very walk
-    // this reads, so afterwards there is nothing left to find.
+    // this reads, so afterwards there is nothing left to find. The line ending
+    // is resolved here for that same reason.
     let ancestry = cascade::from_ancestors(target_dir);
+    let ending = editorconfig::resolve(&editorconfig).end_of_line;
 
     if !editorconfig.exists() {
+        let scaffold = with_line_endings(&scaffold, ending);
         write::atomic(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
             path: editorconfig.clone(),
             source,
@@ -177,7 +182,8 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         return Ok(Outcome { message });
     }
 
-    write::atomic(&editorconfig, &merged.contents).map_err(|source| Error::WriteEditorConfig {
+    let contents = with_line_endings(&merged.contents, ending);
+    write::atomic(&editorconfig, &contents).map_err(|source| Error::WriteEditorConfig {
         path: editorconfig.clone(),
         source,
     })?;
@@ -197,6 +203,21 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
 /// report. Emitted after the write so it follows the write it describes, but
 /// read from `ancestry`, which was gathered before it. Never changes the exit
 /// code.
+/// `text` with every line ending rewritten to `ending`.
+///
+/// `prim init` builds its output from the existing file's lines plus its own
+/// additions, and those additions are written with LF. In a CRLF file that
+/// mixes the two. FR-2.3 settles which one wins: the `end_of_line` resolved
+/// for the file, the same one `prim fmt` would apply to it, so what `init`
+/// writes is what `prim fmt --check` accepts.
+fn with_line_endings(text: &str, ending: LineEnding) -> String {
+    let lf = text.replace("\r\n", "\n");
+    match ending {
+        LineEnding::Lf => lf,
+        LineEnding::CrLf => lf.replace('\n', "\r\n"),
+    }
+}
+
 fn warn_if_severed(target_dir: &Path, ancestry: &cascade::Ancestry) {
     if let Some(warning) = cascade::severing_warning(target_dir, ancestry) {
         ui::warning(&warning);

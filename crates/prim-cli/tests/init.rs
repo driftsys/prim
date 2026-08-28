@@ -280,3 +280,63 @@ fn init_recognizes_a_section_header_with_a_trailing_comment_instead_of_duplicati
             .stdout(predicates::str::contains("[MD041]").not());
     }
 }
+
+#[test]
+fn init_writes_lf_when_a_crlf_editorconfig_declares_no_end_of_line() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\r\n\r\n[*.md]\r\nindent_size = 2\r\n",
+    )
+    .unwrap();
+
+    prim().arg("init").arg(dir.path()).assert().success();
+
+    // FR-2.3: LF unless `.editorconfig` sets `end_of_line = crlf`. Leaving the
+    // existing CRLF in place would hand `prim fmt --check` a file its own
+    // `init` had just written and it would report as unformatted.
+    let bytes = fs::read(dir.path().join(".editorconfig")).unwrap();
+    assert!(
+        !bytes.contains(&b'\r'),
+        "expected uniform LF, got {:?}",
+        String::from_utf8_lossy(&bytes)
+    );
+}
+
+#[test]
+fn init_writes_crlf_when_the_editorconfig_declares_end_of_line_crlf() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\r\n\r\n[*]\r\nend_of_line = crlf\r\n",
+    )
+    .unwrap();
+
+    prim().arg("init").arg(dir.path()).assert().success();
+
+    let text = fs::read_to_string(dir.path().join(".editorconfig")).unwrap();
+    let stray_lf = text
+        .match_indices('\n')
+        .any(|(at, _)| at == 0 || text.as_bytes()[at - 1] != b'\r');
+    assert!(!stray_lf, "expected uniform CRLF, got {text:?}");
+}
+
+#[test]
+fn what_init_writes_survives_prims_own_format_gate() {
+    for existing in [
+        "root = true\r\n\r\n[*.md]\r\nindent_size = 2\r\n",
+        "root = true\r\n\r\n[*]\r\nend_of_line = crlf\r\n",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".editorconfig"), existing).unwrap();
+
+        prim().arg("init").arg(dir.path()).assert().success();
+
+        prim()
+            .args(["fmt", "--check"])
+            .arg(dir.path().join(".editorconfig"))
+            .assert()
+            .success()
+            .stdout(predicates::str::is_empty());
+    }
+}
