@@ -230,6 +230,45 @@ fn deleted_paths_reported_by_git_are_dropped_silently() {
 }
 
 #[test]
+fn untracked_paths_are_invisible_until_they_reach_the_index() {
+    let repo = init_repo();
+    write(&repo.path().join("tracked.txt"), "tracked\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("tracked.txt"), "tracked  \n");
+    write(&repo.path().join("untracked.txt"), "untracked  \n");
+
+    // `git diff` never reports an untracked path, so `--since` cannot select
+    // one. docs/recipes.md warns readers that a changed-file gate therefore
+    // passes on a brand-new file an unfiltered run would fail.
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "HEAD"])
+        .assert()
+        .code(1)
+        .stdout(
+            predicates::str::contains("tracked.txt")
+                .and(predicates::str::contains("untracked.txt").not()),
+        );
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("untracked.txt"));
+
+    git(repo.path(), &["add", "untracked.txt"]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "HEAD"])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("untracked.txt"));
+}
+
+#[test]
 fn changed_file_scopes_require_a_git_working_tree() {
     let dir = tempfile::tempdir().unwrap();
     write(&dir.path().join("doc.txt"), "doc  \n");
