@@ -16,17 +16,18 @@ removed in v2.0) — prefer `prim fmt --check` in new pipelines.
 
 A repository that is not formatted yet cannot adopt this gate on day one; see
 [Incremental adoption on an unformatted repository](#incremental-adoption-on-an-unformatted-repository)
-for the two ways in.
+for the two routes to it.
 
 ## Incremental adoption on an unformatted repository
 
-The gate above fails on every pre-existing file the first time it runs in a
-repository that has never been formatted. Two strategies reach a green gate.
-Choose by whether a large one-off reformatting commit is acceptable.
+The gate above reports every pre-existing file that is not already in prim's
+canonical form, which in a repository that has never been formatted can be most
+of the tree. Two strategies get that gate passing. Choose by whether a large
+one-off reformatting commit is acceptable.
 
 ### Format as you touch
 
-Gate only the files a change already modifies. The gate is green from the first
+Gate only the files a change already modifies. The gate passes from the first
 commit, and coverage grows as the repository is edited:
 
 ```yaml
@@ -37,15 +38,22 @@ commit, and coverage grows as the repository is edited:
   run: prim fmt --check --since "$(git merge-base origin/${{ github.base_ref }} HEAD)" .
 ```
 
+That snippet is for a `pull_request`-triggered workflow: `github.base_ref` is
+empty on a `push` event, which leaves prim with `origin/` and exits `2`.
+
 Compare against the merge base, not against the branch name. `--since <REF>` is
 a plain two-way `git diff --name-only <REF>`: it reports every path that differs
 between `<REF>` and the working tree, in either direction. Naming the branch
-directly also matches files that changed **on `main`** after the branch point
-and that this branch never touched — the gate then fails on an unrelated
-unformatted file. (A branch that has already merged `main` in does not have this
-problem, which is why it can pass for a while and then start failing.) The REF
-is handed to `git diff` unchanged, so any revision expression works, a
-merge-base SHA included.
+directly also matches files **modified on `main`** after the branch point that
+this branch never touched — the gate then fails on an unrelated unformatted
+file. A branch cut from the tip of `main` therefore passes at first and starts
+failing as `main` advances underneath it, and a branch that has already merged
+`main` in does not hit the problem at all. (Only modifications trigger it: a
+file _added_ on `main` is a deletion relative to this branch's working tree, and
+prim drops those silently.) The REF is handed to `git diff` unchanged, so any
+revision expression `git diff` accepts works, a merge-base SHA included — though
+a name that is also a path in the tree, such as a `docs` branch beside a `docs/`
+directory, is ambiguous to `git diff` and exits `2`.
 
 Locally the same filter formats rather than checks:
 
@@ -53,12 +61,28 @@ Locally the same filter formats rather than checks:
 prim fmt --since "$(git merge-base main HEAD)" .
 ```
 
-In a pre-commit hook use `--staged` instead. It selects the paths in the index
-relative to `HEAD`, which is exactly what the commit will contain:
+`--staged` applies the same idea to the index: it selects the paths
+`git diff --name-only --cached` reports, which is what a commit is about to
+contain. Use it to report on a commit before making it:
 
 ```bash
-prim fmt --staged .
+prim fmt --check --staged .
 ```
+
+The index chooses the paths, but prim still reads each one from the working
+tree, so the report describes the commit only for files staged in full. A file
+staged in part is reported on its working-tree content, including the part that
+is not being committed.
+
+Do **not** reach for `prim fmt --staged .` as a pre-commit hook on its own.
+`--staged` only chooses which paths prim looks at; prim then writes the
+formatted bytes to the **working-tree** file and never touches the index, so
+`git commit` still records the unformatted blob that was staged before prim ran.
+A hook has to re-stage the result, and for a partially staged file it has to
+deal with the unstaged remainder first. Both existing hook recipes below —
+[git-std](#wiring-prim-into-a-git-std-pre-commit-hook) and
+[pre-commit](#using-prim-with-the-pre-commit-framework) — already do that and
+pass prim the staged list themselves, so a hook needs neither of these flags.
 
 Two limits are worth knowing before relying on either flag as a gate:
 
@@ -68,14 +92,16 @@ Two limits are worth knowing before relying on either flag as a gate:
   `prim fmt --check .` would fail. Deleted paths that git does report are
   skipped silently.
 - Both require the working directory to be inside a git working tree, and
-  `--since` requires its REF to resolve. A shallow `actions/checkout` clone has
-  no merge base to resolve, so prim exits `2` — a usage error, not a format
-  finding — rather than passing silently. That is what `fetch-depth: 0` above
-  prevents.
+  `--since` requires git to resolve its REF. On a shallow `actions/checkout`
+  clone there is no merge base, so the `git merge-base` substitution in the
+  workflow above fails in the shell and prim is handed an empty REF. prim then
+  exits `2` — a usage error, not a format finding — rather than passing
+  silently. That is what `fetch-depth: 0` above prevents.
 
-The filters intersect with the rest of discovery rather than replacing it, so
-`.primignore`, `--exclude`, and the ignore files still apply. `--since` and
-`--staged` are mutually exclusive.
+Both filters intersect with the rest of discovery rather than replacing it, so
+`.primignore`, `--exclude`, and the ignore files still apply, and the two are
+mutually exclusive. See [USAGE.md](USAGE.md#operating-modes) for the full
+semantics.
 
 ### Format once and record the exceptions
 
@@ -87,18 +113,26 @@ must stay byte-exact to `.primignore` (see
 ```bash
 prim fmt .
 git commit -am "style: format the repository with prim"
+git rev-parse HEAD >> .git-blame-ignore-revs
 ```
 
+Make that commit on an otherwise clean tree: `git commit -am` also sweeps in any
+unrelated pending edit, and this is the commit you least want anything else
+mixed into.
+
 This keeps every later diff free of formatting churn, at the cost of one commit
-that touches many files. Record that commit in a `.git-blame-ignore-revs` file
-and point git at it (`git config blame.ignoreRevsFile .git-blame-ignore-revs`)
-so it does not obscure `git blame` output.
+that touches many files. Point git at the ignore file
+(`git config blame.ignoreRevsFile .git-blame-ignore-revs`) so that commit does
+not obscure `git blame` output.
 
 Format-as-you-touch suits a repository where a large reformatting commit would
-conflict with in-flight branches or is not permitted by review policy.
-Formatting once suits everything else: it is a shorter adoption period and a
-simpler gate. Either way, once the whole tree is formatted, drop `--since` and
-go back to the [CI formatting gate](#ci-formatting-gate).
+conflict with branches already open, or is not permitted by review policy. Its
+running cost is the mirror image of that: a change touching one line of an
+unformatted file reformats the whole file, so every diff carries reformatting
+that has nothing to do with the change under review, for as long as adoption
+takes. Formatting once suits everything else: it is a shorter adoption period
+and a simpler gate. Either way, once the whole tree is formatted, drop `--since`
+and go back to the [CI formatting gate](#ci-formatting-gate).
 
 ## CI Markdown lint gate
 
