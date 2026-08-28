@@ -73,15 +73,22 @@ This is the fail-safe posture: a bad config file should not silently corrupt
 output or block the tool.
 
 That posture is only partly implemented, and the line it actually falls on is
-not malformed-versus-unreadable. prim warns only when `ec4rs` yields an error
-while iterating a `ConfigFile`'s sections. A file whose preamble — everything
-before the first section header — is invalid never becomes a `ConfigFile` at
-all: `ConfigParser::new_with_path` parses the preamble eagerly and fails,
-`ConfigFile::open` propagates that, and `ConfigFiles::open` discards the error
-and carries on with the walk. A file that cannot be opened takes the same silent
-path. The real split is therefore where the first invalid line sits relative to
-the first section header, and an unreadable file is indistinguishable from a
-file broken above its first header.
+not malformed-versus-unreadable. prim reports a file in the cascade only when
+`ec4rs` yields an error while iterating a `ConfigFile`'s sections, which
+requires the file to have parsed far enough to have a valid first section
+header. `ConfigParser::new_with_path` eagerly parses everything up to and
+including that header; an invalid line anywhere in that span fails there,
+`ConfigFile::open` propagates it, and `ConfigFiles::open` discards the error and
+carries on with the walk. So a file whose first invalid line is the section
+header itself — an unclosed `[*.md`, the common `.editorconfig` typo — is
+skipped in silence, as is a file that cannot be opened at all. The real split is
+whether there is a valid first section header with the broken line after it, and
+an unreadable file is indistinguishable from one broken at or above its first
+header.
+
+(The other warning `build_cascade` can emit, `cannot search for .editorconfig`,
+is not about a file in the cascade: it reports the walk failing to start, which
+for a relative probe means the working directory could not be determined.)
 
 Both silent cases also let the walk continue past the skipped file. If that file
 carried `root = true`, prim never sees the boundary and keeps reading
