@@ -19,9 +19,12 @@
 //! keeps resolution correct while leaving prim with work it will try again on
 //! the next run.
 
+use std::path::Path;
+
 use proptest::prelude::*;
 use proptest::sample::select;
 
+use super::super::MDLINT_STRICT_KEY;
 use super::super::map;
 use super::super::merge;
 use super::super::outcome::resolves_strict;
@@ -159,6 +162,53 @@ fn is_line_subsequence(before: &str, after: &str) -> bool {
     true
 }
 
+/// The glob written between a header's brackets, for every header line in
+/// `content`, in file order — read verbatim, with no trimming, matching
+/// `ec4rs`'s own rule that a header's brackets are not trimmed. Written from
+/// scratch rather than calling `sections::header_lines`: this only has to
+/// recognise the three header shapes this module's own generator produces
+/// (`header`), not the full generality a real `.editorconfig` needs, and it
+/// must not share an implementation with the scan `deciding_section` uses —
+/// see `decider` below for why.
+fn header_globs(content: &str) -> Vec<&str> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix('[')?;
+            let close = rest.find(']')?;
+            Some(&rest[..close])
+        })
+        .collect()
+}
+
+/// The index into `sections` of the section that decides `probe`'s
+/// `prim_mdlint_strict`: the last one, in file order, that both applies to
+/// `probe` and sets the key itself — `ec4rs`'s own last-match-wins rule,
+/// walked here directly over `ec4rs::Section::applies_to` and each section's
+/// own `props()`. `None` when nothing in the file decides it.
+///
+/// This never calls `sections::deciding_section`. That function and this one
+/// would have to independently agree for a bug in one to show up here; if
+/// this called it instead, the property below would be checking
+/// `defeated_sections` against its own reasoning rather than against
+/// `ec4rs` — the exact shape issue #117 was, where prim's own scanner
+/// disagreed with the parser it resolves with.
+fn decider(sections: &[ec4rs::Section], probe: &str) -> Option<usize> {
+    sections
+        .iter()
+        .enumerate()
+        .filter(|(_, section)| {
+            section.applies_to(Path::new(probe))
+                && section
+                    .props()
+                    .get_raw_for_key(MDLINT_STRICT_KEY)
+                    .into_option()
+                    .is_some()
+        })
+        .map(|(index, _)| index)
+        .next_back()
+}
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
@@ -263,5 +313,74 @@ proptest! {
             "merging merge's own output still had actions to make: {:?}\n{}",
             twice.actions, once.contents,
         );
+    }
+
+    /// A written section that decides none of its own representatives is a
+    /// defect `merge`'s outcome guard cannot see (it only rules out writes
+    /// prim itself makes) — story #129's own reproduction is exactly this:
+    /// a section prim never touched, agreeing with a later one that has
+    /// swallowed it whole. Every canonical section the file still carries
+    /// `prim_mdlint_strict` for must either decide one of its own
+    /// representatives, by `decider`'s independent walk over `ec4rs`, or
+    /// `merge` must say so in `warnings`.
+    #[test]
+    fn merge_reports_every_written_section_that_decides_nothing_of_its_own(
+        (strict_glob, before) in case(),
+    ) {
+        let specs = map::canonical_specs(strict_glob);
+        let parse_probe = &specs[0].probes[0];
+        if resolves_strict(&before, parse_probe).is_none() {
+            return Ok(());
+        }
+
+        let result = merge(&before, strict_glob);
+        let after = &result.contents;
+
+        let globs = header_globs(after);
+        let Ok(parser) = ec4rs::ConfigParser::new_buffered(after.as_bytes()) else {
+            return Ok(());
+        };
+        let Ok(sections) = parser.collect::<Result<Vec<_>, _>>() else {
+            return Ok(());
+        };
+        prop_assert_eq!(
+            globs.len(),
+            sections.len(),
+            "this module's own header scan and ec4rs's parser disagree on how many sections \
+             {} has",
+            after,
+        );
+
+        for spec in &specs {
+            let occurrences: Vec<usize> = globs
+                .iter()
+                .enumerate()
+                .filter(|(_, glob)| **glob == spec.glob)
+                .map(|(index, _)| index)
+                .filter(|&index| {
+                    sections[index]
+                        .props()
+                        .get_raw_for_key(MDLINT_STRICT_KEY)
+                        .into_option()
+                        .is_some()
+                })
+                .collect();
+            if occurrences.is_empty() {
+                continue;
+            }
+
+            let representatives = spec.probes.iter().chain(spec.witness.iter());
+            let decides = representatives
+                .filter_map(|probe| decider(&sections, probe))
+                .any(|winner| occurrences.contains(&winner));
+
+            prop_assert!(
+                decides || !result.warnings.is_empty(),
+                "glob [{}] carries {MDLINT_STRICT_KEY} in the file merge left behind, decides \
+                 none of its own representatives, and merge gave no warning\n--- before \
+                 ---\n{before}\n--- after ---\n{after}",
+                spec.glob,
+            );
+        }
     }
 }

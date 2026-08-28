@@ -32,7 +32,7 @@ use ec4rs::{ConfigParser, Properties, PropertiesSource};
 use super::MDLINT_STRICT_KEY;
 use super::sections::{
     Bound, SectionSpec, bool_word, deciding_section, governing, header_lines, is_boolean,
-    matching_sections, reads_as_strict, split_lines,
+    matching_sections, owns, reads_as_strict, split_lines,
 };
 use crate::mdlint_policy;
 
@@ -256,6 +256,32 @@ pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<St
             }
         }
 
+        // A later section can defeat this one while still agreeing with its
+        // value, which nothing above catches. Ask directly whether this
+        // occurrence decides any representative of its own — probes or
+        // witness. A narrower, agreeing override still leaves the witness (a
+        // path it cannot also reach) to this section; a section that reaches
+        // every representative leaves it deciding nothing, worth a warning
+        // even though no value moved. Skipped once `Defeated` already fired
+        // for this spec, to avoid saying the same thing twice.
+        let already_defeated = failures
+            .iter()
+            .any(|(cause, _)| matches!(cause, Cause::Defeated { .. }));
+        if !already_defeated {
+            let representatives = spec.probes.iter().chain(spec.witness.iter());
+            let considered: Vec<bool> = representatives
+                .filter_map(|path| owns(&lines, &headers, occurrence.header_line, spec.glob, path))
+                .collect();
+            if !considered.is_empty() && considered.iter().all(|owned| !owned) {
+                let primary = &spec.probes[0];
+                let winner = deciding_section(&lines, &headers, primary)
+                    .filter(|(line, _)| *line != occurrence.header_line)
+                    .map(|(line, glob)| format!("[{glob}] (line {})", line + 1))
+                    .unwrap_or_else(|| "nothing else in this .editorconfig".to_string());
+                failures.push((Cause::Inert { winner }, vec![primary.clone()]));
+            }
+        }
+
         warnings.extend(failures.into_iter().map(|(cause, paths)| {
             let paths = paths.join(" and ");
             match cause {
@@ -273,6 +299,17 @@ pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<St
                     bool_word(value),
                     bool_word(resolved),
                 ),
+                Cause::Inert { winner } => format!(
+                    "[{}] (line {at}) sets {MDLINT_STRICT_KEY} = {}, but {winner} comes after it \
+                     and is what decides {paths}; the two agree today, so nothing resolves \
+                     wrongly, but [{}] decides nothing and will not hold the floor if it changes \
+                     — prim will not reorder sections a person wrote, so move [{}] after it \
+                     yourself if you want it to",
+                    spec.glob,
+                    bool_word(value),
+                    spec.glob,
+                    spec.glob,
+                ),
             }
         }));
     }
@@ -281,10 +318,16 @@ pub(super) fn defeated_sections(specs: &[SectionSpec<'_>], file: &str) -> Vec<St
 
 /// Why a section that is written does not decide a path of its own. Grouped
 /// on, so that a section failing the same way for two paths is one report.
+/// `Inert`'s `winner` is the section that decides the primary probe instead,
+/// shaped like `Defeated`'s: `[glob] (line N)`, or a fallback when nothing
+/// else in the file decides the probe either. It fires when a section
+/// decides none of its own representatives, even though its value still
+/// agrees with whatever does decide them today.
 #[derive(PartialEq, Eq)]
 enum Cause {
     NotBoolean { tier: &'static str },
     Defeated { winner: String, resolved: bool },
+    Inert { winner: String },
 }
 
 /// The tier a resolved `prim_mdlint_strict` names, for a message about which
