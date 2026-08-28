@@ -719,8 +719,14 @@ Scope notes:
   a closed allowlist, not a generic extension hook or a second config file.
 - Standard EditorConfig keys and documented `prim_*` keys resolve together for
   the same file; custom keys do not interfere with `Style` resolution.
-- An unreadable or malformed `.editorconfig` is ignored with a warning, and the
-  built-in canonical style applies.
+- A malformed `.editorconfig` is ignored with a warning, and the built-in
+  canonical style applies for the whole cascade — including any `.editorconfig`
+  that was read successfully before the malformed one.
+- An `.editorconfig` that prim cannot open is skipped without a warning. The
+  rest of the cascade still applies; only the settings that file would have
+  contributed are missing. A file can therefore resolve differently — for
+  example a `max_line_length` reverting to prim's default — with nothing on
+  stderr to say why.
 
 > **Status:** prim applies whitespace hygiene (trailing-whitespace removal,
 > final newline, line endings) — driven by `.editorconfig` — to every file it

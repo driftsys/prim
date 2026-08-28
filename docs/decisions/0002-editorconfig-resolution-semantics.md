@@ -72,6 +72,15 @@ applies: profile first, cache only if NFR-4 (5,000 files < 2 s) shows pressure.
 This is the fail-safe posture: a bad config file should not silently corrupt
 output or block the tool.
 
+Only the malformed half of that posture is implemented. `ec4rs` skips an
+`.editorconfig` it cannot open and carries on with the walk, so prim never
+learns the file was there: no warning is emitted, the rest of the cascade still
+applies, and resolution quietly loses whatever that file would have contributed.
+Detecting it would need a check for an `.editorconfig` that prim can `stat` but
+cannot read, on a resolution path that runs per directory during a walk. The
+decision above stands as the intended posture; the gap between it and the
+implementation is tracked as issue #153.
+
 **Line-level parsing is reimplemented, not called, and is pinned to `ec4rs`'s
 `ConfigParser`, not its private `parse_line`.** `.editorconfig`-writing and
 `.editorconfig`-explaining code (`prim init`'s section scan, `prim explain`'s
