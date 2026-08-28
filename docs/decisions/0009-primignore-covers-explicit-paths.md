@@ -6,6 +6,9 @@ Accepted. Supersedes the note in `docs/recipes.md` that said an explicitly named
 path is always processed. Breaking: `prim fmt <ignored-path>` no longer rewrites
 the file.
 
+Amended for #112: point 5 adds the one case where a skip does raise the exit
+code. Breaking: `prim fmt --check <ignored-path>` now exits `2` rather than `0`.
+
 ## Context
 
 `.primignore` is prim's committed escape hatch (FR-4.4). The file prim ships in
@@ -60,15 +63,51 @@ file untouched. Chosen.
 2. Skipping a path that was **named on the command line** is reported on stderr.
    Skipping during a walk stays silent: filtering is what a walk is for, whereas
    naming a path and getting nothing back is a surprise worth a line. Warnings
-   never raise the exit code, so hooks still pass.
+   never raise the exit code, so hooks still pass — except in the one case point
+   5 names.
 3. `--no-primignore` processes ignored paths anyway. It is separate from
    `--no-ignore`, which continues to cover VCS ignore files only.
 4. Naming an ignored **directory** skips it too, rather than walking into it.
+5. A **gate** — `fmt --check`, `fix --check`, `fix --diff`,
+   `fmt --check-idempotence`, or `lint` — exits `2` when **every** path prim was
+   pointed at was skipped: each path named on the command line, or the working
+   directory when none was named. The modes that write (`fmt`, `fix`) and the
+   preview mode (`fmt --diff`) still exit `0` in that case. Skipping only some
+   of the paths given never raises the exit code in any mode.
 
 Point 2 is where prim departs from Prettier, which skips silently and — worse —
 reports "All matched files use Prettier code style!" from `--check` on a file it
 never looked at. The reporter's complaint in #98 was as much about silence as
 about the rewrite, and the fix should not reintroduce it at the other end.
+
+Point 5 finishes that thought at the only place a machine reads (#112). A `0`
+from a gate is the claim "I looked, and there is nothing to do"; where every
+path was skipped it means "I looked at nothing", and a stderr warning does not
+reach a pipeline that only tests the exit code. #110 removed the accidental
+route into that state — an ancestor's `.primignore` covering a whole checkout —
+but not the fail-open default that remained where the matching is deliberate.
+
+Two boundaries make point 5 safe to adopt. The first is which modes it covers.
+Only the gates assert something about the paths they were given; `fmt` and `fix`
+assert that they wrote what they could, and doing nothing is the correct outcome
+there. That distinction is what keeps the hooks this decision was written to
+protect working: prim's own `.githooks/pre-commit.hooks` and
+`.pre-commit-hooks.yaml` both run `prim fmt` over a staged-file list, and a
+release commit that stages only a `.primignore`d `CHANGELOG.md` must not be
+blocked. The second is that the rule fires only when _every_ path was skipped. A
+staged list with one ignored path among several is the ordinary case, and it
+keeps the exit code the rest of the run earns.
+
+The code is `2`, not `1`. Exit `1` means an actionable finding, and under
+`--check` it comes with the list of files that would change on stdout; an exit
+`1` with an empty list would contradict that contract. Prim was asked a question
+it could not answer, which is what exit `2` already means.
+
+Where no path is named, prim is pointed at the working directory. It is judged
+as a named `.` would be — skipped with the same warning, and gated the same way
+— so the two spellings of one invocation cannot give different answers. This is
+the same "one answer per question" rule the rest of this decision applies to
+named and walked paths.
 
 Discovery already tracks provenance (`Discovered.explicit`), so the walked/named
 distinction costs nothing. prim matches `.primignore` itself, for named paths
@@ -123,8 +162,14 @@ a whole nested checkout.
 
 - `prim fmt <ignored-path>` is now a no-op with a warning. Anyone relying on the
   old behaviour adds `--no-primignore`.
-- `prim fmt --check <ignored-path>` exits 0 and lists nothing, consistent with
-  `prim fmt --check .` over the same file.
+- `prim fmt --check <ignored-path>` lists nothing, consistent with
+  `prim fmt --check .` over the same file, and exits `2` because that run
+  examined nothing (point 5). Where the same command names an unignored path as
+  well, the exit code is the ordinary `0` or `1`.
+- A CI gate over a changed-file list that can legitimately be all-ignored — a
+  release commit touching only a `.primignore`d `CHANGELOG.md` — now fails
+  rather than passing silently. Such a pipeline treats `2` as "nothing to
+  check", or runs the gate over the repository instead of over the diff.
 - The recipes.md note is inverted, and the recipes it supports now hold: the
   `.primignore` entry for `CHANGELOG.md` protects it from the git-std hook, and
   the fixtures entry protects the correctness harness's golden files.
@@ -149,9 +194,22 @@ a whole nested checkout.
   cannot tell a hook's argument list from a human's, and a rule that depends on
   guessing the caller is worse than either fixed rule.
 
+For point 5 (#112):
+
+- **Leave the exit code at `0` and rely on the warning.** Costs nothing and
+  keeps every invocation working, but leaves the gate silent in exactly the
+  place a gate is read. Rejected once #110 showed how easily a whole checkout
+  reaches that state.
+- **Exit non-zero in every mode.** One rule instead of two, and rejected for the
+  reason AD-0009 exists: it blocks a commit that stages only ignored files,
+  which is the hook case this decision was written to protect.
+- **An opt-in flag, for example `--error-on-all-ignored`.** Rejected: against
+  prim's near-zero-config goal, and a flag every consumer has to remember is a
+  default that is backwards, the same argument that rejected option B above.
+
 ---
 
-Satisfies: #98 and #110; reshapes FR-4.4 and adds FR-4.4a and FR-4.4b. Related:
-AD-0007 (verb surface — the rule is per-verb-uniform),
+Satisfies: #98, #110, and #112; reshapes FR-4.4 and adds FR-4.4a, FR-4.4b, and
+FR-4.4c. Related: AD-0007 (verb surface — the rule is per-verb-uniform),
 `crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/cli.rs`,
-`docs/recipes.md`.
+`crates/prim-cli/src/app/paths.rs`, `docs/recipes.md`.

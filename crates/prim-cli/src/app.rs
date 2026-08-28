@@ -37,6 +37,12 @@ const FORMAT_DRIFT_CODE: &str = "format::drift";
 const FORMAT_CHECK_FINDING: &str = "would be reformatted";
 const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix)";
 
+/// What a gate reports when every path prim was pointed at was skipped
+/// (FR-4.4c). `0` there would claim a clean run over files prim never looked
+/// at; the run failed to answer the question, so it is an error, not a
+/// finding.
+const EXAMINED_NOTHING: &str = "nothing was examined: every path prim was pointed at was skipped";
+
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
     let changed_files_scope = changed_files_scope(cli);

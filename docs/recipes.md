@@ -218,6 +218,18 @@ That is what makes the entry worth having in a pre-commit hook, which passes
 prim an explicit list of staged files. Naming an ignored path prints a warning
 so the no-op is visible; pass `--no-primignore` to process it anyway.
 
+Skipping some of the paths given never changes the exit code, so a commit that
+stages one ignored file alongside others still passes the hook — and so does one
+that stages nothing but ignored files, because `prim fmt` and `prim fix` write
+and doing nothing is the correct outcome there. A gate is the exception: where
+`prim fmt --check`, `prim fix --check`, `prim fix --diff`,
+`prim fmt --check-idempotence`, or `prim lint` is pointed only at paths it
+skips, it examined nothing and exits `2` rather than reporting a clean run
+(FR-4.4c). Wire a CI gate over changed files with that in mind: a pipeline whose
+changed-file list can legitimately be all-ignored — a release commit touching
+only a `.primignore`d `CHANGELOG.md`, say — should treat `2` as "nothing to
+check" or run the gate over the repository instead.
+
 A `.primignore` governs only the repository that holds it. prim reads the
 `.primignore` files that apply from the path upward, stopping at the root of the
 repository it was pointed at — the nearest directory holding a `.git` entry,
