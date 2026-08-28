@@ -290,3 +290,75 @@ fn explain_reports_a_deliberately_cleared_disable_key_as_none() {
         );
     }
 }
+
+#[test]
+fn explain_reports_the_enable_key_with_its_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = MD013, MD014\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n").unwrap();
+
+    let assert = prim()
+        .arg("explain")
+        .arg(dir.path().join("a.md"))
+        .assert()
+        .code(0);
+    let enable = line_for(&assert.get_output().stdout, "prim_mdlint_enable");
+    assert!(enable.contains("MD013, MD014"), "{enable}");
+    assert!(enable.contains(".editorconfig:3"), "{enable}");
+}
+
+#[test]
+fn explain_distinguishes_an_unset_enable_key_from_a_cleared_one() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".editorconfig"), "root = true\n[*.md]\n").unwrap();
+    std::fs::write(dir.path().join("a.md"), "# Title\n").unwrap();
+    let assert = prim()
+        .arg("explain")
+        .arg(dir.path().join("a.md"))
+        .assert()
+        .code(0);
+    assert!(
+        line_for(&assert.get_output().stdout, "prim_mdlint_enable").contains("unset"),
+        "a key nothing in the cascade sets is unset"
+    );
+
+    let cleared = tempfile::tempdir().unwrap();
+    std::fs::write(
+        cleared.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_enable = none\n",
+    )
+    .unwrap();
+    std::fs::write(cleared.path().join("a.md"), "# Title\n").unwrap();
+    let assert = prim()
+        .arg("explain")
+        .arg(cleared.path().join("a.md"))
+        .assert()
+        .code(0);
+    assert!(
+        line_for(&assert.get_output().stdout, "prim_mdlint_enable").contains("none"),
+        "a key set to none was cleared on purpose"
+    );
+}
+
+#[test]
+fn only_markdown_reports_the_enable_key() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*]\nprim_mdlint_enable = MD013\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("a.json"), "{}\n").unwrap();
+
+    let assert = prim()
+        .arg("explain")
+        .arg(dir.path().join("a.json"))
+        .assert()
+        .code(0);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(!stdout.contains("prim_mdlint_enable"), "{stdout}");
+}

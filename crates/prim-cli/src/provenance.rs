@@ -14,13 +14,15 @@ use prim_fmt::{FileKind, Indent, LineEnding};
 
 use crate::editorconfig::line;
 use crate::editorconfig::{self, Resolver};
-use crate::mdlint_policy::{self, MDLINT_DISABLE_KEY, MDLINT_STRICT_KEY, MdLintPolicy};
+use crate::mdlint_policy::{
+    self, MDLINT_DISABLE_KEY, MDLINT_ENABLE_KEY, MDLINT_STRICT_KEY, MdLintPolicy,
+};
 
 impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
     /// `kind` at `path`, alongside where its effective value came from.
     /// Settings irrelevant to `kind` (indent and max-line-length for
-    /// [`FileKind::Orphan`], both `prim_mdlint_*` keys outside
+    /// [`FileKind::Orphan`], all three `prim_mdlint_*` keys outside
     /// [`FileKind::Markdown`]) are omitted rather than shown as inapplicable.
     pub fn explain(&mut self, path: &Path, kind: FileKind) -> Explanation {
         let props = self.properties_for(path);
@@ -86,10 +88,16 @@ impl Resolver {
             value: policy.selection.strict.to_string(),
             origin: origin_of(&props, MDLINT_STRICT_KEY),
         });
+        let enable_origin = origin_of(&props, MDLINT_ENABLE_KEY);
+        settings.push(ResolvedSetting {
+            key: MDLINT_ENABLE_KEY,
+            value: rule_list_value(&policy.selection.enabled, &enable_origin),
+            origin: enable_origin,
+        });
         let disable_origin = origin_of(&props, MDLINT_DISABLE_KEY);
         settings.push(ResolvedSetting {
             key: MDLINT_DISABLE_KEY,
-            value: disable_value(&policy, &disable_origin),
+            value: rule_list_value(&policy.selection.disabled, &disable_origin),
             origin: disable_origin,
         });
 
@@ -100,21 +108,21 @@ impl Resolver {
     }
 }
 
-/// What `prim_mdlint_disable` excludes for this file, rendered the way it
-/// would be written back.
+/// What `prim_mdlint_enable` or `prim_mdlint_disable` resolves to for this
+/// file, rendered the way it would be written back.
 ///
-/// An empty exclusion set has two very different origins, and neither may
-/// print an empty value next to a real `.editorconfig` line — a blank value
-/// beside a real origin reads as prim having lost the value:
+/// An empty list has two very different origins, and neither may print an
+/// empty value next to a real `.editorconfig` line — a blank value beside a
+/// real origin reads as prim having lost the value:
 ///
 /// - the key was never set anywhere in the cascade, which is `unset`;
 /// - the key was set and resolved to nothing — a deliberate `= none` or
 ///   `= unset`, or a list whose every id was unrecognised (reported
-///   separately on stderr). prim applies no exclusions in either case, which
-///   is exactly what `none` says.
-fn disable_value(policy: &MdLintPolicy, origin: &SettingOrigin) -> String {
-    if !policy.selection.disabled.is_empty() {
-        return policy.selection.disabled.join(", ");
+///   separately on stderr). prim applies no rules from that key in either
+///   case, which is exactly what `none` says.
+fn rule_list_value(ids: &[String], origin: &SettingOrigin) -> String {
+    if !ids.is_empty() {
+        return ids.join(", ");
     }
     match origin {
         SettingOrigin::Default => "unset".to_string(),
