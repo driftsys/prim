@@ -100,8 +100,8 @@ Chosen.
 3. `generated_by` is consulted at all five places a file reaches the formatter
    or its diagnostics, so the guarantee does not depend on how prim was invoked:
    directory discovery (`prim-cli/src/discover.rs`), `--stdin-filepath` for
-   `fmt`/`fix` (`prim-cli/src/app.rs`), `--stdin-filepath` for `lint`
-   (`prim-cli/src/app.rs`), the LSP formatting request
+   `fmt`/`fix` (`prim-cli/src/app/stdin.rs`), `--stdin-filepath` for `lint`
+   (`prim-cli/src/app/stdin.rs`), the LSP formatting request
    (`prim-cli/src/lsp/server.rs`), and the LSP `didOpen`/`didChange` diagnostics
    notification (`prim-cli/src/lsp/server.rs`). The LSP formatting path is not
    optional: without it, an editor configured to format `package-lock.json` on
@@ -247,5 +247,5 @@ Chosen.
 Satisfies: FR-2.7. Related: AD-0001 (pure-engine crate boundary), AD-0009
 (`.primignore` layering — this list sits inside the same stack), FR-2.4/FR-2.5
 (format surface and name-based matching), `crates/prim-fmt/src/generated.rs`,
-`crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/app.rs`,
-`crates/prim-cli/src/lsp/server.rs`.
+`crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/discover/primignore.rs`,
+`crates/prim-cli/src/app/stdin.rs`, `crates/prim-cli/src/lsp/server.rs`.
