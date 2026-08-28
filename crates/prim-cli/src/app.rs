@@ -21,8 +21,8 @@ use crate::ui;
 
 /// Exit codes (AD-0007 §4): `0` nothing to do / already clean, `1`
 /// actionable — format drift (`fmt`/`fix` `--check`) or a lint finding, `2`
-/// prim could not do its job (parse/IO/usage error). Warnings never raise the
-/// exit code; only errors do.
+/// prim could not do its job (parse/IO/usage error, or a gate that examined
+/// nothing — FR-4.4c). Warnings never raise the exit code; only errors do.
 const EXIT_OK: i32 = 0;
 const EXIT_ACTIONABLE: i32 = 1;
 const EXIT_ERROR: i32 = 2;
@@ -41,7 +41,7 @@ const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run 
 /// (FR-4.4c). `0` there would claim a clean run over files prim never looked
 /// at; the run failed to answer the question, so it is an error, not a
 /// finding.
-const EXAMINED_NOTHING: &str = "nothing was examined: every path prim was pointed at was skipped";
+const EXAMINED_NOTHING: &str = "nothing was examined: .primignore or the built-in generated-file list covered every path prim was pointed at";
 
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {

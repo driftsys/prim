@@ -70,8 +70,9 @@ directly on bare `prim` as deprecated `fmt` sugar (warn once on stderr, removed
 in v2.0); the bare `fmt` alias itself is permanent.
 
 **Exit codes:** `0` nothing to do / clean · `1` actionable (format drift or a
-lint finding) · `2` prim could not do its job (parse/IO/usage error). Warnings
-never raise the exit code.
+lint finding) · `2` prim could not do its job (parse/IO/usage error, or a gate
+mode pointed only at paths it skipped — FR-4.4c). Warnings never raise the exit
+code.
 
 **Key design decisions:**
 

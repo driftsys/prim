@@ -80,12 +80,13 @@ reports "All matched files use Prettier code style!" from `--check` on a file it
 never looked at. The reporter's complaint in #98 was as much about silence as
 about the rewrite, and the fix should not reintroduce it at the other end.
 
-Point 5 finishes that thought at the only place a machine reads (#112). A `0`
-from a gate is the claim "I looked, and there is nothing to do"; where every
-path was skipped it means "I looked at nothing", and a stderr warning does not
-reach a pipeline that only tests the exit code. #110 removed the accidental
-route into that state — an ancestor's `.primignore` covering a whole checkout —
-but not the fail-open default that remained where the matching is deliberate.
+Point 5 applies the same reasoning to the exit code, which is the only signal a
+pipeline reads (#112). A `0` from a gate is the claim "I looked, and there is
+nothing to do"; where every path was skipped it means "I looked at nothing", and
+a stderr warning does not reach a pipeline that only tests the exit code. #110
+removed the accidental route into that state — an ancestor's `.primignore`
+covering a whole checkout — but not the fail-open default that remained where
+the matching is deliberate.
 
 Two boundaries make point 5 safe to adopt. The first is which modes it covers.
 Only the gates assert something about the paths they were given; `fmt` and `fix`
@@ -102,6 +103,26 @@ The code is `2`, not `1`. Exit `1` means an actionable finding, and under
 `--check` it comes with the list of files that would change on stdout; an exit
 `1` with an empty list would contradict that contract. Prim was asked a question
 it could not answer, which is what exit `2` already means.
+
+Only a skip counts. A named path that prim does not own — a `.rs` file in a
+staged list — is reported under FR-4.6 and leaves the exit code alone, and so
+does a directory prim walked into and found nothing in. Both look like "the gate
+examined nothing", and neither raises the exit code, because the common case of
+each is a run that should pass: `prim fmt --check` over a changed-file list from
+a Rust-only commit, or over a `src/` holding no file prim owns. The cost of that
+boundary is that an unowned path in the list masks the rule —
+`prim fmt --check CHANGELOG.md main.rs` exits `0` where
+`prim fmt --check CHANGELOG.md` exits `2`. Accepted: the rule fires on the paths
+prim declined to look at, not on the ones it was never going to report on.
+
+The same reading scopes `--since` and `--staged` out of the rule. Those flags
+narrow what a pointed-at path yields; they are not themselves paths. So
+`prim fmt --check --since <ref> .` was pointed at `.`, which is not skipped, and
+exits `0` however few files the diff leaves — while
+`prim fmt --check --since <ref> <ignored-path>` was pointed at a skipped path
+and exits `2`. What #112 closes is a gate handed a path list, the shape its
+report was about; the changed-file spelling `docs/recipes.md` recommends, which
+points prim at `.`, is unaffected.
 
 Where no path is named, prim is pointed at the working directory. It is judged
 as a named `.` would be — skipped with the same warning, and gated the same way
@@ -168,8 +189,10 @@ a whole nested checkout.
   well, the exit code is the ordinary `0` or `1`.
 - A CI gate over a changed-file list that can legitimately be all-ignored — a
   release commit touching only a `.primignore`d `CHANGELOG.md` — now fails
-  rather than passing silently. Such a pipeline treats `2` as "nothing to
-  check", or runs the gate over the repository instead of over the diff.
+  rather than passing silently. Such a pipeline runs the gate over the
+  repository instead of over the diff. Accepting `2` unconditionally is not the
+  answer: `2` is also how prim reports a file it could not parse, a path it
+  could not read, and a malformed `--exclude` glob.
 - The recipes.md note is inverted, and the recipes it supports now hold: the
   `.primignore` entry for `CHANGELOG.md` protects it from the git-std hook, and
   the fixtures entry protects the correctness harness's golden files.
@@ -210,6 +233,7 @@ For point 5 (#112):
 ---
 
 Satisfies: #98, #110, and #112; reshapes FR-4.4 and adds FR-4.4a, FR-4.4b, and
-FR-4.4c. Related: AD-0007 (verb surface — the rule is per-verb-uniform),
+FR-4.4c. Related: AD-0007 (verb surface — the skip is per-verb-uniform, though
+point 5's exit code separates the gates from the writing modes),
 `crates/prim-cli/src/discover.rs`, `crates/prim-cli/src/cli.rs`,
 `crates/prim-cli/src/app/paths.rs`, `docs/recipes.md`.

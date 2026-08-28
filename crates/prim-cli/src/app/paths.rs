@@ -36,11 +36,6 @@ pub(super) fn run_fmt_paths(
         }
     };
 
-    // AD-0007 §4: `fmt --diff` is always a `0`-exit preview, but `fix
-    // --check`/`--diff` share one gated contract — both report whether a
-    // fixable finding is pending.
-    let gates_on_pending_findings = args.check || (is_fix && args.diff);
-
     let mut any_would_change = false;
     let mut findings = Vec::new();
     for (path, _kind, _style, _markdown_policy, original, formatted) in results {
@@ -70,6 +65,11 @@ pub(super) fn run_fmt_paths(
     {
         emit_report(format, ReportMode::FmtCheck, &findings);
     }
+
+    // AD-0007 §4: `fmt --diff` is always a `0`-exit preview, but `fix
+    // --check`/`--diff` share one gated contract — both report whether a
+    // fixable finding is pending.
+    let gates_on_pending_findings = args.check || (is_fix && args.diff);
 
     if had_error {
         EXIT_ERROR

@@ -289,7 +289,8 @@ default, format-in-place action.
   instead (FR-5.2): it also prints the diff and writes nothing, but exits
   non-zero when a fixable finding is pending, since `fix`'s `--check` and
   `--diff` are both format-drift gates, unlike `fmt --diff`'s preview-only
-  behaviour (AD-0007 §4).
+  behaviour (AD-0007 §4). Being gates, both also exit `2` when the run examined
+  nothing (FR-4.4c); `fmt --diff` does not.
 - **FR-5.3a** `prim fmt --check-idempotence` (also reachable as bare
   `prim --check-idempotence` through the permanent `fmt` alias) shall write
   nothing and verify FR-6.1 across the matched corpus: for each discovered file
@@ -304,7 +305,8 @@ default, format-in-place action.
   stdout. The flag is mutually exclusive with `--check` and `--diff`.
 - **FR-5.5** `prim lint` shall report hygiene and content violations without
   ever rewriting a file; it has neither `--check` nor `--diff` (report-only is
-  its only mode).
+  its only mode). Being report-only makes it a gate throughout: a `lint` run
+  that examined nothing exits `2` (FR-4.4c).
   - **FR-5.5a** _(hygiene diagnostics, story B1)_ For the un-owned-text
     allowlist (the orphan set, shell excluded — same scope as FR-2.4/2.5),
     `prim lint` shall report each whitespace-hygiene violation individually: a
@@ -377,8 +379,8 @@ default, format-in-place action.
     per-rule matrix.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
-  could not do its job (parse/IO/usage error). Warnings never raise the exit
-  code; only errors do.
+  could not do its job (parse/IO/usage error, or a gate that examined nothing —
+  FR-4.4c). Warnings never raise the exit code; only errors do.
 - **FR-5.7** _(deprecated top-level flags)_ The top-level `--check`, `--diff`,
   and `--stdin-filepath` flags remain accepted directly on bare `prim` as
   deprecated sugar for the `fmt` forms; the first use in a run emits a one-line

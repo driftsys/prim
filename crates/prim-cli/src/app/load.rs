@@ -13,7 +13,8 @@ pub(super) type FormattedFile = (PathBuf, FileKind, Style, MdLintPolicy, String,
 pub(super) struct Loaded {
     /// The files prim owns, each paired with its formatted form.
     pub(super) files: Vec<FormattedFile>,
-    /// A named path could not be read, parsed, or written (exit `2`).
+    /// A named path could not be read or parsed (exit `2`). A failed write is
+    /// the caller's to add: it happens after this pass.
     pub(super) had_error: bool,
     /// Every path prim was pointed at was skipped, so nothing was examined
     /// (FR-4.4c). The gate modes report it as an error; the writing modes

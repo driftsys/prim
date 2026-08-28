@@ -225,10 +225,16 @@ and doing nothing is the correct outcome there. A gate is the exception: where
 `prim fmt --check`, `prim fix --check`, `prim fix --diff`,
 `prim fmt --check-idempotence`, or `prim lint` is pointed only at paths it
 skips, it examined nothing and exits `2` rather than reporting a clean run
-(FR-4.4c). Wire a CI gate over changed files with that in mind: a pipeline whose
-changed-file list can legitimately be all-ignored — a release commit touching
-only a `.primignore`d `CHANGELOG.md`, say — should treat `2` as "nothing to
-check" or run the gate over the repository instead.
+(FR-4.4c). The rule counts the paths prim was pointed at, so
+`prim fmt --check --since <ref> .` — the changed-file gate above — is outside
+it: `.` was pointed at and was not skipped. It is a gate handed a path list that
+the rule protects. Wire one with that in mind: a pipeline whose changed-file
+list can legitimately be all-ignored — a release commit touching only a
+`.primignore`d `CHANGELOG.md`, say — should run the gate over the repository
+rather than over the diff. Do not paper over it with `|| [ $? -eq 2 ]` either:
+`2` is also how prim reports a file it could not parse, a path it could not
+read, and a malformed `--exclude` glob, so a pipeline that accepts `2` accepts
+those too.
 
 A `.primignore` governs only the repository that holds it. prim reads the
 `.primignore` files that apply from the path upward, stopping at the root of the

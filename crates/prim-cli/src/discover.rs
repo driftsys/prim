@@ -117,6 +117,9 @@ pub fn collect(
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
     let mut ignored = Vec::new();
+    // Counted here rather than read back off `ignored`, so the rule cannot
+    // drift if that list ever carries an entry from somewhere else.
+    let mut skipped = 0usize;
     // Shared because the walk consults it from a `filter_entry` closure, which
     // the `ignore` crate requires to be `Send + Sync + 'static`.
     let primignore = Arc::new(Mutex::new(PrimignoreCache::default()));
@@ -152,6 +155,7 @@ pub fn collect(
                 path: path.clone(),
                 reason: IgnoreReason::Primignore,
             });
+            skipped += 1;
             continue;
         }
         // The built-in list is the weakest layer: a committed `!name` overrides it,
@@ -170,6 +174,7 @@ pub fn collect(
                 path: path.clone(),
                 reason: IgnoreReason::Generated(tool),
             });
+            skipped += 1;
             continue;
         }
 
@@ -190,11 +195,10 @@ pub fn collect(
         }
     }
 
-    // Each pointed-at path contributes at most one entry to `ignored` — a walk
-    // never adds one — so an entry apiece means every one of them was skipped.
-    // An empty directory is not this case: prim was pointed at something it
-    // looked into and found nothing in.
-    let examined_nothing = ignored.len() == pointed_at.len();
+    // Every pointed-at path was skipped. An empty directory is not this case:
+    // prim was pointed at something it looked into and found nothing in, and a
+    // path prim does not own is reported under FR-4.6 instead (AD-0009).
+    let examined_nothing = skipped == pointed_at.len();
 
     Ok(Discovery {
         files: selected
