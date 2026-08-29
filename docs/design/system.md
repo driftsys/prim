@@ -62,8 +62,15 @@ For every file that prim processes the steps are, in order:
    file) and the file is not written (FR-6.3, FR-6.5).
 3. **Resolve** — `editorconfig::resolve(&path)` walks the `.editorconfig`
    cascade from the file's directory upward. A missing config yields
-   `Style::default()` (FR-3.1). A malformed or unreadable config falls back to
-   `Style::default()` with a warning (AD-0002).
+   `Style::default()` (FR-3.1). A config drops the whole cascade back to
+   `Style::default()` with a warning (AD-0002) when it has a valid first section
+   header and an invalid line after that header. A config prim cannot open, and
+   one whose first invalid line is at or before its first section header, are
+   normally skipped silently: `ec4rs` never constructs the file and continues
+   the walk, so the rest of the cascade still applies — including any
+   `.editorconfig` above a `root = true` prim did not get to read. A byte-order
+   mark before a first-line section header is the exception — the file is
+   constructed and then fails on line 1, so it warns (AD-0002).
 4. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
    hygiene pass (FR-2), and for structured formats the per-format pass followed
    by hygiene: `Json`/`Jsonc` via `dprint-plugin-json` (FR-1.2/1.3, AD-0003),

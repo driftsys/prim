@@ -72,6 +72,43 @@ applies: profile first, cache only if NFR-4 (5,000 files < 2 s) shows pressure.
 This is the fail-safe posture: a bad config file should not silently corrupt
 output or block the tool.
 
+That posture is only partly implemented, and the line it actually falls on is
+not malformed-versus-unreadable. prim reports a file in the cascade only when
+`ec4rs` yields an error while iterating a `ConfigFile`'s sections, which
+requires the file to have parsed far enough to have a valid first section
+header. `ConfigParser::new_with_path` eagerly parses everything up to and
+including that header; an invalid line anywhere in that span fails there,
+`ConfigFile::open` propagates it, and `ConfigFiles::open` discards the error and
+carries on with the walk. So a file whose first invalid line is the section
+header itself — an unclosed `[*.md`, the common `.editorconfig` typo — is
+skipped in silence, as is a file that cannot be opened at all. An unreadable
+file is indistinguishable from one broken at or above its first header.
+
+The split is therefore not "broken line after the first header" but "parsed far
+enough to be constructed, then errored during section iteration". One line can
+satisfy both: a byte-order mark immediately before a first-line section header
+is stripped when `LineReader` classifies that line but not when `read_section`
+re-parses it, so the file is constructed and then reports on line 1. That
+asymmetry is the one described under "Line-level parsing is reimplemented"
+below, and it is the only case where an invalid first header is reported rather
+than passed over.
+
+(The other warning `build_cascade` can emit, `cannot search for .editorconfig`,
+is not about a file in the cascade: it reports the walk failing to start, which
+for a relative probe means the working directory could not be determined.)
+
+Both silent cases also let the walk continue past the skipped file. If that file
+carried `root = true`, prim never sees the boundary and keeps reading
+`.editorconfig` files above it, so resolution can gain settings as well as lose
+them. Measured, for a file under a `root = true` parent: with the parent
+readable, `indent_style` resolves to prim's default; with the same parent
+unreadable, it resolves to `tab` inherited from the grandparent.
+
+Closing this needs prim to notice an `.editorconfig` it can `stat` but cannot
+turn into a `ConfigFile`, on a resolution path that runs per directory during a
+walk. The decision above stands as the intended posture; the gap between it and
+the implementation is tracked as issue #153.
+
 **Line-level parsing is reimplemented, not called, and is pinned to `ec4rs`'s
 `ConfigParser`, not its private `parse_line`.** `.editorconfig`-writing and
 `.editorconfig`-explaining code (`prim init`'s section scan, `prim explain`'s

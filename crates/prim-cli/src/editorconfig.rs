@@ -74,9 +74,13 @@ fn build_cascade(dir: &Path) -> Cascade {
     let probe = dir.join(".editorconfig");
     let files = match ConfigFiles::open(&probe, Option::<&Path>::None) {
         Ok(files) => files,
+        // Not an unreadable `.editorconfig`: `ec4rs` skips a file it cannot
+        // open and carries on, so one never reaches here. This is the walk
+        // itself failing to start, which for a relative probe means the
+        // working directory could not be determined.
         Err(err) => {
             ui::warning(&format!(
-                "{}: ignoring unreadable .editorconfig ({err}); using canonical style",
+                "{}: cannot search for .editorconfig ({err}); using canonical style",
                 dir.display()
             ));
             return Vec::new();
