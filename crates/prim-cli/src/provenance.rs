@@ -22,7 +22,7 @@ impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
     /// `kind` at `path`, alongside where its effective value came from.
     /// Settings irrelevant to `kind` (indent and max-line-length for
-    /// [`FileKind::Orphan`], both `prim_mdlint_*` keys outside
+    /// [`FileKind::Orphan`], every `prim_mdlint_*` key outside
     /// [`FileKind::Markdown`]) are omitted rather than shown as inapplicable.
     pub fn explain(&mut self, path: &Path, kind: FileKind) -> Explanation {
         let props = self.properties_for(path);

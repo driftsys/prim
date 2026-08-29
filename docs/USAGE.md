@@ -161,7 +161,11 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
       — a line break would end the heading and turn the rest into a paragraph —
       but you can shorten the wording. So a long heading is reported when
       `prim_mdlint_strict = true`, and silent otherwise, like every other
-      convention-tier check.
+      convention-tier check. Note that rumdl measures a heading only up to its
+      last whitespace, so the effective slack is the length of the final word:
+      at an 80-column limit an 84-column heading is silent and an 86-column one
+      is reported. Do not adopt this key expecting headings held to exactly
+      `max_line_length`.
 
       The limit is whatever `max_line_length` resolves to for that file, so no
       `.editorconfig` cascade can leave the formatter and the linter disagreeing
@@ -432,10 +436,10 @@ docs/USAGE.md
   prim_mdlint_disable            = MD033, MD041 (/repo/.editorconfig:16 [docs/**.md])
 ```
 
-(prim's own `.editorconfig` sets neither `prim_mdlint_strict` nor
-`prim_mdlint_disable`, so running this against the repository prim ships in
-would instead print `false (prim's default)` and `unset (prim's default)` for
-those two lines — see below.)
+(prim's own `.editorconfig` sets `prim_mdlint_strict` in several sections and
+sets neither `prim_mdlint_disable` nor `prim_mdlint_report_line_length`, so
+running this against the repository prim ships in prints the tier resolved for
+that path and `unset`/`false (prim's default)` for the other two — see below.)
 
 The settings shown depend on the file's kind: un-owned text files (the
 [Orphan allowlist](#what-prim-formats)) only get the three universal hygiene

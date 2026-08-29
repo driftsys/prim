@@ -32,9 +32,7 @@ fn dropped_and_formatter_territory_rules_never_run() {
     // deeper one; 4 flag a genuinely empty section). MD057 was dropped
     // because a file-existence check is the wrong question at this layer
     // (AD-0013). The rest are formatter territory or off.
-    for rule in [
-        "MD082", "MD057", "MD013", "MD060", "MD072", "MD003", "MD047",
-    ] {
+    for rule in ["MD082", "MD057", "MD060", "MD072", "MD003", "MD047"] {
         assert!(!is_active(rule, false, None), "{rule} floor");
         assert!(!is_active(rule, true, None), "{rule} strict");
     }
@@ -331,8 +329,8 @@ fn md013_line_length_is_written_to_both_places_rumdl_reads() {
 }
 
 #[test]
-fn md013_carries_exactly_the_five_options_prim_owns() {
-    // A sixth option leaking in, or one of these silently dropping out, would
+fn md013_carries_exactly_the_options_prim_pins() {
+    // Another option leaking in, or one of these silently dropping out, would
     // change what prim reports without any behavioural test noticing.
     let cfg = prim_config(true, Some(80));
     let values = &cfg.rules["MD013"].values;
@@ -345,12 +343,18 @@ fn md013_carries_exactly_the_five_options_prim_owns() {
             "code-spans",
             "headings",
             "line-length",
+            "stern",
+            "strict",
             "tables"
         ]
     );
     assert_eq!(values["code-blocks"], toml::Value::Boolean(false));
     assert_eq!(values["code-spans"], toml::Value::Boolean(false));
     assert_eq!(values["tables"], toml::Value::Boolean(false));
+    // rumdl gates the three skips above on `!strict`, so these two keep them
+    // in force rather than being decorative.
+    assert_eq!(values["strict"], toml::Value::Boolean(false));
+    assert_eq!(values["stern"], toml::Value::Boolean(false));
     assert_eq!(
         values["headings"],
         toml::Value::Boolean(true),

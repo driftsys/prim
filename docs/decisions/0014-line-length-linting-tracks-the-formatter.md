@@ -4,10 +4,12 @@
 
 Accepted. New behavior: a new `.editorconfig` key,
 `prim_mdlint_report_line_length` (boolean, default `false`), selects MD013 into
-whichever Markdown lint tier the path already runs. prim owns the five MD013
-options that decide what it reports, and exposes none of them. This is the
-second named exception to FR-3.3's "no way for a repository to configure a
-rule's options," after AD-0012's `prim_mdlint_disable`.
+whichever Markdown lint tier the path already runs. prim pins the MD013 options
+that decide what it reports, and exposes none of them. FR-3.3 gains two named
+exceptions from this decision, both feeding MD013 and no other rule:
+`max_line_length` supplies its `line-length`, and `prim_mdlint_strict` supplies
+its `headings`. `prim_mdlint_disable` is not one of them — it changes which
+rules run, never how one behaves.
 
 ## Context
 
@@ -51,13 +53,15 @@ contains, not an assumption about what Markdown documents in general look like.
 
 ### The cost of enabling MD013 at rumdl's defaults
 
-At rumdl's default MD013 options, the same corpus yields roughly 44 findings —
-36 from `code-blocks = true` and 8 from `code-spans = true` — on files prim
-itself formatted. That number is arithmetic over the measured corpus and rumdl's
-documented defaults; MD013 was not executed against the corpus to produce it. It
-is the shape of the failure this decision exists to prevent: a repository
-turning on line-length linting and immediately failing CI on output prim itself
-produced, with no line the author could act on.
+At rumdl's default MD013 options, the same corpus yields **17** findings on
+files prim itself formatted, measured by running MD013 with `code-blocks` and
+`code-spans` restored to those defaults. An earlier draft of this record put the
+figure at roughly 44 by counting overflowing lines instead of running the rule;
+that arithmetic ignored rumdl's trailing-token forgiveness, which exempts a line
+whose excess is its final unbreakable word. Seventeen is still the shape of the
+failure this decision exists to prevent: a repository turning on line-length
+linting and immediately failing CI on output prim itself produced, with no line
+the author could act on.
 
 ### Headings, split by tier
 
@@ -76,15 +80,18 @@ headings, all of them in `docs/archive/plans/`, which resolves to the floor tier
 under AD-0012's `[docs/archive/**.md]` exemption and is excluded from the corpus
 for the same reason: archived material is not maintained prose.
 
-The margin at the strict tier is thin, not absent: `docs/decisions/0002-*.md`'s
-H1 is 78 display columns, and the next longest,
-`0003-json-via-dprint-plugin-json.md`, is 72. Measuring the same titles in bytes
-would put three in that band, which is the unit this record forbids everywhere
-else. Renaming a decision record by three words could fail CI once the key is
-turned on for `docs/decisions/`. That is the rule working as specified, not a
-defect, but it is a real cost for a directory where titles are long by
-convention — recorded here so a future rename knows why the file grew close to
-the limit, not because of it.
+The margin at the strict tier is wider than a column count suggests, because
+rumdl measures a heading only up to its last whitespace. Measured against an
+80-column limit, a heading of 84 columns is silent and one of 86 is reported:
+the slack is the length of the final word. `docs/decisions/0002-*.md`'s H1 is 78
+display columns and the next longest, `0003-json-via-dprint-plugin-json.md`, is
+72, so both sit inside that slack rather than merely under the limit. Two
+consequences follow, and they pull in opposite directions. Renaming a decision
+record is less likely to fail CI than the raw numbers imply. But a team that
+enables this key on `docs/decisions/` expecting titles held to 80 columns will
+not get that — an 84-column title passes. Neither is a defect; both are the rule
+working as rumdl specifies, recorded here so the key is not adopted for a
+guarantee it does not make.
 
 ### Why a heading cannot be wrapped
 

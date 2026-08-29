@@ -119,19 +119,19 @@ source-code formatter and has **no plugin system**.
   without changing the exit code.
 - **FR-3.2d** `prim_mdlint_report_line_length = true` shall select MD013 into
   whichever Markdown lint tier FR-5.5b already resolved for that path, measured
-  against the `max_line_length` resolved for the same file (80 when unset — the
-  formatter's own fallback), so that for every width prim can wrap to, no
-  `.editorconfig` cascade makes `prim fmt`'s wrap width and `prim lint`'s
-  reported width differ. Two values fall outside that range and are documented
-  rather than reconciled: `max_line_length = 0`, which the formatter treats as
-  one word per line while the rule is clamped to 1, and a value above
-  `u32::MAX`, which the formatter truncates. A file carrying rumdl's own
-  `markdownlint-configure-file` directive is the one exception, and the same
-  escape hatch AD-0012 already documents: it can change MD013's options for that
-  file, the width included, but it cannot select MD013 where this key has not.
-  It resolves through the same per-glob cascade as `prim_mdlint_strict`. It
-  shall not change which tier applies, and `prim_mdlint_disable = MD013` shall
-  remove the rule again like any other.
+  against the `max_line_length` resolved for the same file (80 when unset or
+  `off` — the formatter's own fallback, which treats both the same way), so that
+  for every width prim can wrap to, no `.editorconfig` cascade makes
+  `prim fmt`'s wrap width and `prim lint`'s reported width differ. Two values
+  fall outside that range and are documented rather than reconciled:
+  `max_line_length = 0`, which the formatter treats as one word per line while
+  the rule is clamped to 1, and a value above `u32::MAX`, which the formatter
+  truncates. A file carrying rumdl's own `markdownlint-configure-file` directive
+  is the one exception, and the same escape hatch AD-0012 already documents: it
+  can change MD013's options for that file, the width included, but it cannot
+  select MD013 where this key has not. It resolves through the same per-glob
+  cascade as `prim_mdlint_strict`. It shall not change which tier applies, and
+  `prim_mdlint_disable = MD013` shall remove the rule again like any other.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags, and no way for a repository to configure a rule's options),
   with two named exceptions, both feeding MD013 (FR-3.2d) and no other rule:

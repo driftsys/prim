@@ -193,9 +193,11 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
     if let Some(limit) = line_length {
         // `max_line_length` is a repository-supplied `usize`, and two values
         // need bounding before they reach rumdl. Zero means "no limit" to
-        // `LineLength`, which would make the key a silent no-op while the
-        // formatter wraps to one word per line; clamping to 1 keeps both ends
-        // agreeing that every line is too long. A value above `i64::MAX` wraps
+        // `LineLength`, so the key would be a silent no-op; clamping to 1 at
+        // least keeps the rule running. Neither end reports anything at zero —
+        // the formatter emits one word per line and rumdl forgives a line that
+        // is a single unbreakable token — so this is about keeping the config
+        // well-formed, not about the two agreeing. A value above `i64::MAX` wraps
         // negative in the TOML conversion below, and rumdl rejects the whole
         // rule config and falls back to its own defaults — unpinning every
         // option set here, with `code-blocks` and `headings` back on, behind
@@ -211,6 +213,12 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
                         "line-length".to_string(),
                         toml::Value::Integer(limit as i64),
                     ),
+                    // rumdl evaluates every skip below inside `if !strict`, so
+                    // the three pins that follow are only in force while MD013's
+                    // own `strict` is false. Pinning it, and `stern` with it,
+                    // keeps them from becoming no-ops if rumdl's default moves.
+                    ("strict".to_string(), toml::Value::Boolean(false)),
+                    ("stern".to_string(), toml::Value::Boolean(false)),
                     ("code-blocks".to_string(), toml::Value::Boolean(false)),
                     ("code-spans".to_string(), toml::Value::Boolean(false)),
                     ("tables".to_string(), toml::Value::Boolean(false)),

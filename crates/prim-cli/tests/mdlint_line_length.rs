@@ -4,8 +4,8 @@
 // The governing rule is that prim reports only the long lines that can be
 // shortened. Prose is reported — `prim fmt` wraps it to the same limit, so a
 // formatted repository has none left. Table rows, fenced code and an inline
-// code span with no internal space are never reported, because a line break
-// cannot be inserted into them without changing what the document means. A
+// code span are never reported, because a line break cannot be inserted into
+// them without changing what the document means. A
 // heading is reported at the strict tier only: prim cannot wrap one, but an
 // author can shorten it.
 

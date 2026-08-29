@@ -35,9 +35,10 @@ struct LoadMessage {
 }
 
 enum LoadOutcome {
-    /// Boxed because a `FormattedFile` carries two `String`s, a `PathBuf`, a
-    /// `Style` and an `MdLintPolicy`, which makes it far larger than the other
-    /// two variants; every `LoadOutcome` would otherwise be sized for it. The
+    /// Boxed because a `FormattedFile` is a six-tuple carrying a `PathBuf`, a
+    /// `FileKind`, a `Style`, an `MdLintPolicy` and two `String`s, which makes
+    /// it far larger than the other two variants; every `LoadOutcome` would
+    /// otherwise be sized for it. The
     /// tuple already owns several heap allocations, so one more per formatted
     /// file costs nothing measurable next to reading and formatting it.
     Formatted(Box<FormattedFile>),
