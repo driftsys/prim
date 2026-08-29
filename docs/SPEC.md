@@ -152,7 +152,15 @@ source-code formatter and has **no plugin system**.
   be the broader glob and would turn the whole book back off.
 
   When `PATH/.editorconfig` already exists, `prim init` shall merge minimally
-  and never reorder or rewrite unrelated bytes: leave an existing top-level
+  and never reorder or rewrite unrelated bytes, with one exception: it shall
+  write the whole file under one line ending, the `end_of_line` that resolves
+  for `.editorconfig` once the write has been made (FR-2.3). Composing LF
+  additions into a CRLF file would otherwise leave mixed endings, and carrying
+  the existing endings through would leave a uniformly CRLF file that
+  `prim fmt --check` reports. The ending must be resolved after the write and
+  not before, because the `root = true` `prim init` writes stops EditorConfig's
+  upward walk, so an `end_of_line` an ancestor declared before the write no
+  longer reaches the file afterwards. Otherwise: leave an existing top-level
   `root = ...` untouched, otherwise prepend `root = true` plus one blank line;
   for `[*.md]`, the detected strict glob, `[docs/wip/**.md]`, and
   `[**/SUMMARY.md]`, leave any existing explicit `prim_mdlint_strict = ...`

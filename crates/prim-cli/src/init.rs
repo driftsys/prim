@@ -6,8 +6,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use prim_fmt::LineEnding;
 use toml::Value;
 
+use crate::editorconfig;
 use crate::ui;
 use crate::write;
 
@@ -124,7 +126,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
     let ancestry = cascade::from_ancestors(target_dir);
 
     if !editorconfig.exists() {
-        write::atomic(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
+        write_resolved(&editorconfig, &scaffold).map_err(|source| Error::WriteEditorConfig {
             path: editorconfig.clone(),
             source,
         })?;
@@ -177,7 +179,7 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         return Ok(Outcome { message });
     }
 
-    write::atomic(&editorconfig, &merged.contents).map_err(|source| Error::WriteEditorConfig {
+    write_resolved(&editorconfig, &merged.contents).map_err(|source| Error::WriteEditorConfig {
         path: editorconfig.clone(),
         source,
     })?;
@@ -191,6 +193,38 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
             merged.actions.join("; ")
         ),
     })
+}
+
+/// Write `text` to `path` under the `end_of_line` that will apply to `path`
+/// once it is there.
+///
+/// `prim init` composes its output from the existing file's lines plus its own
+/// additions, which carry LF, so in a CRLF file the two mix. FR-2.3 says which
+/// one wins: the `end_of_line` resolved for the file.
+///
+/// That has to be resolved *after* the write, not before. The file prim writes
+/// opens with `root = true`, which stops EditorConfig's upward walk, so a
+/// `end_of_line` an ancestor declared before the write no longer applies to the
+/// file once it exists. Resolving first would write CRLF that the very next
+/// `prim fmt --check` reports. Writing LF first and correcting settles on what
+/// `prim fmt` will see, and costs a second write only where CRLF is asked for.
+fn write_resolved(path: &Path, text: &str) -> io::Result<()> {
+    write::atomic(path, &with_line_endings(text, LineEnding::Lf))?;
+    let ending = editorconfig::resolve(path).end_of_line;
+    if ending != LineEnding::Lf {
+        write::atomic(path, &with_line_endings(text, ending))?;
+    }
+    Ok(())
+}
+
+/// `text` with every line ending — CRLF, LF, or a bare CR — rewritten to
+/// `ending`.
+fn with_line_endings(text: &str, ending: LineEnding) -> String {
+    let lf = text.replace("\r\n", "\n").replace('\r', "\n");
+    match ending {
+        LineEnding::Lf => lf,
+        LineEnding::CrLf => lf.replace('\n', "\r\n"),
+    }
 }
 
 /// Report the cascade `root = true` just cut off, if there is anything to
