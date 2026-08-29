@@ -1,5 +1,113 @@
 # Changelog
 
+## [0.5.0] (2026-08-29)
+
+### Documentation
+
+- **prim:** garden the mdlint tier-model working memory ([#161]) ([6edddd8])
+- **prim:** refresh three stale implementation statuses in AD-0002 ([#157])
+  ([4bebce5]), closes 156.
+- **prim:** correct what prim reports about a broken .editorconfig ([df3ca85])
+- **prim:** garden the generated-file protection working memory ([#145])
+  ([14a9a9d])
+- **prim:** add the incremental adoption recipe for --since ([#139])
+  ([2a88953]), closes [#137]
+- **prim:** track docs/wip and docs/archive in git ([538c4c5])
+
+### Features
+
+- **prim:** report Markdown line length via prim_mdlint_report_line_length
+  ([#160]) ([692a209]), closes [#123]
+- **prim-cli:** fail a gate that was pointed only at skipped paths ([#142])
+  ([63726da]), closes [#112]
+- **prim-cli:** exempt docs/archive from the strict tier and lint prim's own
+  docs ([#136]) ([4fa8dcc])
+
+### Refactoring
+
+- **prim-cli:** split app.rs along its dispatch and pipeline seams ([#141])
+  ([3523ea7])
+
+### Bug Fixes
+
+- **prim-cli:** warn that a --staged write did not update the index ([#162])
+  ([4893639]), closes 159.
+- **prim-cli:** write .editorconfig with one line ending, not two ([#151])
+  ([dc4bc5e])
+- **prim-cli:** climb a symlinked spelling toward the working directory ([#148])
+  ([6084e29]), closes [#113]
+- **prim-fmt:** remove MD057 from the Markdown lint rule set ([#150])
+  ([380f2b2]), closes [#134]
+- **prim-cli:** apply gitignore's re-inclusion rule to a named path ([#143])
+  ([6c5ce51]), closes [#114]
+- **prim-cli:** report a canonical section a later broader one swallows ([#140])
+  ([15adfa2])
+- **prim-cli:** report parent cascade prim init cuts off ([#132]) ([276c058])
+- **prim-cli:** parse editorconfig section headers like ec4rs ([#128])
+  ([3a1c728])
+- **prim:** stop the debug-build panic on a Unicode space after an ASCII space
+  ([#124]) ([b3c38f2])
+
+### BREAKING CHANGES
+
+- `prim_fmt::lint_markdown` takes a fourth parameter, the
+resolved line-length limit. Pass `None` for the previous behaviour.
+- a .primignore at or below the outermost directory holding a
+symlinked spelling that resolves inside the working directory now applies to
+that spelling, where it was silently missed before.
+- a `!` rule under an excluded directory no longer re-includes
+the file it names when that file is named on the command line. A repository
+that has one already gets the excluded result from a walk. This also ends the
+AD-0011 generated-file override for a lockfile whose parent directory the same
+.primignore excludes.
+- prim fmt --check over paths that are all ignored exits 2
+rather than 0, and so do fix --check, fix --diff, --check-idempotence, and
+lint.
+
+[0.5.0]: https://github.com/driftsys/prim/compare/v0.4.0...v0.5.0
+[6edddd8]: https://github.com/driftsys/prim/commit/6edddd8
+[#161]: https://github.com/driftsys/prim/issues/161
+[4bebce5]: https://github.com/driftsys/prim/commit/4bebce5
+[#157]: https://github.com/driftsys/prim/issues/157
+[df3ca85]: https://github.com/driftsys/prim/commit/df3ca85
+[14a9a9d]: https://github.com/driftsys/prim/commit/14a9a9d
+[#145]: https://github.com/driftsys/prim/issues/145
+[2a88953]: https://github.com/driftsys/prim/commit/2a88953
+[#139]: https://github.com/driftsys/prim/issues/139
+[#137]: https://github.com/driftsys/prim/issues/137
+[538c4c5]: https://github.com/driftsys/prim/commit/538c4c5
+[692a209]: https://github.com/driftsys/prim/commit/692a209
+[#160]: https://github.com/driftsys/prim/issues/160
+[#123]: https://github.com/driftsys/prim/issues/123
+[63726da]: https://github.com/driftsys/prim/commit/63726da
+[#142]: https://github.com/driftsys/prim/issues/142
+[#112]: https://github.com/driftsys/prim/issues/112
+[4fa8dcc]: https://github.com/driftsys/prim/commit/4fa8dcc
+[#136]: https://github.com/driftsys/prim/issues/136
+[3523ea7]: https://github.com/driftsys/prim/commit/3523ea7
+[#141]: https://github.com/driftsys/prim/issues/141
+[4893639]: https://github.com/driftsys/prim/commit/4893639
+[#162]: https://github.com/driftsys/prim/issues/162
+[dc4bc5e]: https://github.com/driftsys/prim/commit/dc4bc5e
+[#151]: https://github.com/driftsys/prim/issues/151
+[6084e29]: https://github.com/driftsys/prim/commit/6084e29
+[#148]: https://github.com/driftsys/prim/issues/148
+[#113]: https://github.com/driftsys/prim/issues/113
+[380f2b2]: https://github.com/driftsys/prim/commit/380f2b2
+[#150]: https://github.com/driftsys/prim/issues/150
+[#134]: https://github.com/driftsys/prim/issues/134
+[6c5ce51]: https://github.com/driftsys/prim/commit/6c5ce51
+[#143]: https://github.com/driftsys/prim/issues/143
+[#114]: https://github.com/driftsys/prim/issues/114
+[15adfa2]: https://github.com/driftsys/prim/commit/15adfa2
+[#140]: https://github.com/driftsys/prim/issues/140
+[276c058]: https://github.com/driftsys/prim/commit/276c058
+[#132]: https://github.com/driftsys/prim/issues/132
+[3a1c728]: https://github.com/driftsys/prim/commit/3a1c728
+[#128]: https://github.com/driftsys/prim/issues/128
+[b3c38f2]: https://github.com/driftsys/prim/commit/b3c38f2
+[#124]: https://github.com/driftsys/prim/issues/124
+
 ## [0.4.0] (2026-08-25)
 
 ### Refactoring
