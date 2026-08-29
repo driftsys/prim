@@ -264,6 +264,17 @@ source-code formatter and has **no plugin system**.
   disk, and shall raise a usage error (exit `2`) if git is unavailable, the
   current working directory is not inside a git working tree, or `<REF>` is
   invalid.
+- **FR-4.2c** When `--staged` selects the file set and prim writes at least one
+  file, prim shall emit exactly one warning on stderr, reporting how many files
+  it wrote to the working tree and that `--staged` does not update the index
+  (#159). The warning shall name `git diff`, which shows the unstaged result it
+  just produced, and shall not name `git diff --cached`, which compares the
+  index against `HEAD` and so cannot show that result at all.
+- **FR-4.2d** prim shall not re-stage a file it wrote under `--staged`, and
+  shall not state what the index holds. prim never reads the staged blob: for a
+  partially staged file that blob may already be canonical, and `git add` would
+  also stage the remainder the author kept out of the commit. Re-staging belongs
+  to the hook runner.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax) for
   every path it is given, whether reached by a directory walk or named on the

@@ -37,6 +37,7 @@ pub(super) fn run_fmt_paths(
     };
 
     let mut any_would_change = false;
+    let mut written_to_worktree = 0usize;
     let mut findings = Vec::new();
     for (path, _kind, _style, _markdown_policy, original, formatted) in results {
         if formatted == original {
@@ -57,7 +58,13 @@ pub(super) fn run_fmt_paths(
             // Atomic write (FR-6.4): on failure the original is left intact.
             ui::error(&format!("{}: {err}", path.display()));
             had_error = true;
+        } else {
+            written_to_worktree += 1;
         }
+    }
+
+    if *changed_files_scope == ChangedFilesScope::Staged && written_to_worktree > 0 {
+        ui::warning(&staged_write_warning(written_to_worktree));
     }
 
     if let Some(format) = format
@@ -84,6 +91,40 @@ pub(super) fn run_fmt_paths(
     } else {
         EXIT_OK
     }
+}
+
+/// What `fmt`/`fix` say after writing under `--staged` (issue #159).
+///
+/// `--staged` chooses paths from the index, but the write goes to the working
+/// tree and never touches the index, so a commit made straight afterwards can
+/// still record the pre-format blob.
+///
+/// The message reports only what prim knows without inspecting the index: how
+/// many files it wrote, and that it left the index alone. It does not claim
+/// the index is stale, and it does not tell the user to re-stage. Both would
+/// be wrong for a partially staged file, whose staged blob prim never read and
+/// may already be canonical, and where `git add` would also stage the unstaged
+/// remainder the user deliberately kept out of the commit. That is the same
+/// reason prim declines to re-stage on the user's behalf: re-staging belongs
+/// to the hook runner, which knows what it staged.
+///
+/// The pointer is plain `git diff`, not `git diff --cached`. The gap prim just
+/// opened is working tree versus index, which is what `git diff` shows;
+/// `git diff --cached` is index versus `HEAD` and cannot show it at all, so it
+/// can look clean at the exact moment the commit would record unformatted
+/// bytes.
+///
+/// Warnings never raise the exit code (AD-0007 §4), so the contract is
+/// unchanged.
+fn staged_write_warning(written_to_worktree: usize) -> String {
+    let subject = if written_to_worktree == 1 {
+        "1 file was".to_string()
+    } else {
+        format!("{written_to_worktree} files were")
+    };
+    format!(
+        "{subject} formatted in the working tree, but --staged does not update the index. Run git diff to see what is not staged."
+    )
 }
 
 pub(super) fn run_check_idempotence_paths(

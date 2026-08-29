@@ -55,7 +55,9 @@ pub struct Cli {
     pub since: Option<String>,
 
     /// Limit the file set to paths reported by `git diff --name-only --cached`:
-    /// files staged in the git index relative to `HEAD`.
+    /// files staged in the git index relative to `HEAD`. This selects paths
+    /// only: a write mode still writes the working tree and never updates the
+    /// index, and says so on stderr when it writes.
     #[arg(long, global = true, conflicts_with = "since")]
     pub staged: bool,
 

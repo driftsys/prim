@@ -78,8 +78,12 @@ Do **not** reach for `prim fmt --staged .` as a pre-commit hook on its own.
 `--staged` only chooses which paths prim looks at; prim then writes the
 formatted bytes to the **working-tree** file and never touches the index, so
 `git commit` still records the unformatted blob that was staged before prim ran.
-A hook has to re-stage the result, and for a partially staged file it has to
-deal with the unstaged remainder first. Both existing hook recipes below —
+A run that writes under `--staged` ends with one warning on stderr naming how
+many files it wrote and pointing at `git diff`, which is where the unstaged
+formatting shows up, but a warning never raises the exit code, so it does not
+turn the hook into a gate. A hook has to re-stage the result, and for a
+partially staged file it has to deal with the unstaged remainder first. Both
+existing hook recipes below —
 [git-std](#wiring-prim-into-a-git-std-pre-commit-hook) and
 [pre-commit](#using-prim-with-the-pre-commit-framework) — already do that and
 pass prim the staged list themselves, so a hook needs neither of these flags.
