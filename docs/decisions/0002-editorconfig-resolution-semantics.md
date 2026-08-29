@@ -61,20 +61,23 @@ fields were populated from `.editorconfig` and stored in `Style` while the
 whitespace-hygiene pass, then the only pass, ignored them. They were carried for
 the per-format parsers (FR-1, issues #9–12) on two grounds: adding them to
 `Style` later would have broken its API, and carrying them made resolution
-testable at the unit level immediately. Those parsers have since landed and both
-fields are consumed — `max_line_length` by the JSON, TOML and Markdown passes,
-`indent` by the JSON, TOML and YAML passes and by orphan-file diagnostics.
+testable at the unit level immediately. Those parsers have since landed:
+`max_line_length` is consumed by all four structured passes — JSON, TOML, YAML
+and Markdown — and `indent` by JSON, TOML and YAML, and by orphan-file
+diagnostics.
 
 **Per-file resolution, with a per-directory cache added after measurement.**
 Resolution is requested once per file. Because the `.editorconfig` cascade
 depends only on the file's directory, caching by directory was identified as
 possible but deliberately left out under YAGNI: profile first, and cache only if
 NFR-4 (5,000 files < 2 s) showed pressure. `Resolver` now holds that cache, so a
-repository parses each `.editorconfig` once rather than once per file; the
-change was measured at about 9 % faster on a 5,000-file tree with a root
-`.editorconfig`. Only reading and parsing is cached — per-glob sections still
-resolve per file — so output stays byte-identical, which an equivalence test
-against `ec4rs::properties_of` guards.
+directory's cascade is parsed once per resolver rather than once per file. That
+is not one parse per config file per run: `build_cascade` re-reads the chain for
+each distinct directory, and the parallel loader gives each worker thread its
+own resolver. The change was measured at about 9 % faster in `--check` mode on a
+5,000-file tree with a root `.editorconfig`. Only reading and parsing is cached
+— per-glob sections still resolve per file — so output stays byte-identical,
+which an equivalence test against `ec4rs::properties_of` guards.
 
 **Malformed or unreadable `.editorconfig`** — prim falls back to
 `Style::default()` and emits a `ui::warning`. The file is not left unprocessed.
@@ -153,8 +156,9 @@ Any future change to the EditorConfig handling library is isolated to
 likely a pipeline change (prim would need to detect encoding before the UTF-8
 read step). It is not a drop-in field addition.
 
-A per-directory `Style` cache, if ever implemented, belongs in `prim-cli` (I/O
-side). The engine API (`format(kind, source, &Style)`) does not need to change.
+The per-directory `Style` cache landed in `prim-cli` (I/O side), where this
+record anticipated it belonged. The engine API (`format(kind, source, &Style)`)
+did not change.
 
 ---
 
