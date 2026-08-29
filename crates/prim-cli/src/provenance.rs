@@ -14,7 +14,9 @@ use prim_fmt::{FileKind, Indent, LineEnding};
 
 use crate::editorconfig::line;
 use crate::editorconfig::{self, Resolver};
-use crate::mdlint_policy::{self, MDLINT_DISABLE_KEY, MDLINT_STRICT_KEY, MdLintPolicy};
+use crate::mdlint_policy::{
+    self, MDLINT_DISABLE_KEY, MDLINT_REPORT_LINE_LENGTH_KEY, MDLINT_STRICT_KEY, MdLintPolicy,
+};
 
 impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
@@ -85,6 +87,11 @@ impl Resolver {
             key: MDLINT_STRICT_KEY,
             value: policy.strict.to_string(),
             origin: origin_of(&props, MDLINT_STRICT_KEY),
+        });
+        settings.push(ResolvedSetting {
+            key: MDLINT_REPORT_LINE_LENGTH_KEY,
+            value: policy.report_line_length.is_some().to_string(),
+            origin: origin_of(&props, MDLINT_REPORT_LINE_LENGTH_KEY),
         });
         let disable_origin = origin_of(&props, MDLINT_DISABLE_KEY);
         settings.push(ResolvedSetting {

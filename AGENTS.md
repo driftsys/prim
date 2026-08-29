@@ -77,10 +77,14 @@ code.
 **Key design decisions:**
 
 - One canonical style; honor `.editorconfig` only. No `prim.toml`, no per-rule
-  flags to configure a rule's options or run a rule prim did not select. The one
-  subtract-only exception is `.editorconfig` `prim_mdlint_disable`, which can
-  only remove a rule from the Markdown lint tier prim already selected for a
-  path (AD-0012).
+  flags to configure a rule's options or run a rule prim did not select. Two
+  named exceptions: `prim_mdlint_disable` is subtract-only, removing a rule from
+  the Markdown lint tier prim already selected for a path (AD-0012); and
+  `prim_mdlint_report_line_length` selects MD013 into that tier, with
+  `max_line_length` supplying its limit so no `.editorconfig` cascade can leave
+  the formatter and the linter disagreeing about the width (AD-0014). Only the
+  second reaches a rule's options, and it is the single exception FR-3.3 names —
+  `prim_mdlint_disable` changes which rules run, never how one behaves.
 - Semantics-preserving: never reorder keys, table entries, or array elements.
 - Fail-safe: unparseable or non-UTF-8 files are left byte-for-byte unchanged and
   reported (exit `2`). Writes are atomic (temp file + rename).

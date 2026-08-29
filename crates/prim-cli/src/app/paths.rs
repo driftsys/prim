@@ -191,6 +191,7 @@ pub(super) fn run_lint_paths(
                 &original,
                 markdown_policy.strict,
                 &markdown_policy.disabled,
+                markdown_policy.report_line_length,
             );
             if !diagnostics.is_empty() {
                 any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);

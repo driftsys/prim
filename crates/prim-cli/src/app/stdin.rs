@@ -93,7 +93,12 @@ pub(super) fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         Some(FileKind::Markdown) => {
             let policy = crate::mdlint_policy::resolve(path);
             crate::mdlint_policy::UnknownRuleReporter::new().report(&policy);
-            let diagnostics = prim_fmt::lint_markdown(&input, policy.strict, &policy.disabled);
+            let diagnostics = prim_fmt::lint_markdown(
+                &input,
+                policy.strict,
+                &policy.disabled,
+                policy.report_line_length,
+            );
             let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
                 let findings = diagnostics

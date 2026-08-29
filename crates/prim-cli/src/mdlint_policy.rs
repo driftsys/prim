@@ -15,11 +15,30 @@ use crate::ui;
 
 pub(crate) const MDLINT_STRICT_KEY: &str = "prim_mdlint_strict";
 pub(crate) const MDLINT_DISABLE_KEY: &str = "prim_mdlint_disable";
+pub(crate) const MDLINT_REPORT_LINE_LENGTH_KEY: &str = "prim_mdlint_report_line_length";
 
 /// Read `prim_mdlint_strict` out of already-resolved properties. Unset or
 /// non-`true` values mean the floor tier.
 pub(crate) fn strict_from(props: &Properties) -> bool {
     editorconfig::prim_bool_from(props, MDLINT_STRICT_KEY).unwrap_or(false)
+}
+
+/// Read `prim_mdlint_report_line_length` out of already-resolved properties,
+/// returning the limit MD013 should measure against.
+///
+/// The limit is the same `max_line_length` the formatter wraps prose to, so
+/// enabling the key cannot make prim report a line prim itself produced. The
+/// `unwrap_or(80)` matches the formatter's own fallback for an unset key.
+pub(crate) fn report_line_length_from(props: &Properties) -> Option<usize> {
+    if editorconfig::prim_bool_from(props, MDLINT_REPORT_LINE_LENGTH_KEY).unwrap_or(false) {
+        Some(
+            editorconfig::style_from(props.clone())
+                .max_line_length
+                .unwrap_or(80),
+        )
+    } else {
+        None
+    }
 }
 
 /// The Markdown lint policy for one file: the tier that applies, and the rules
@@ -28,6 +47,12 @@ pub(crate) fn strict_from(props: &Properties) -> bool {
 pub struct MdLintPolicy {
     /// `true` when `prim_mdlint_strict` selected the strict tier.
     pub strict: bool,
+    /// The limit MD013 measures against when
+    /// `prim_mdlint_report_line_length` selected it, and `None` when the key
+    /// is unset or false. Carries the resolved `max_line_length` rather than a
+    /// boolean so the engine cannot disagree with the formatter about the
+    /// width.
+    pub report_line_length: Option<usize>,
     /// Rule ids excluded by `prim_mdlint_disable`, uppercased. Subtract-only:
     /// these are removed from the tier's rule set and can never add to it.
     pub disabled: Vec<String>,
@@ -107,6 +132,7 @@ pub(crate) fn policy_from(props: &Properties) -> MdLintPolicy {
     };
     MdLintPolicy {
         strict: strict_from(props),
+        report_line_length: report_line_length_from(props),
         disabled,
         unknown,
         unknown_origin,

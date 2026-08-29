@@ -32,6 +32,7 @@ use std::collections::BTreeMap;
 
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
+use rumdl_lib::types::LineLength;
 
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
 /// so callers never touch a rumdl type. Positions are 1-indexed.
@@ -75,6 +76,14 @@ const fn convention(rule: &'static str) -> RulePolicy {
     RulePolicy { rule, floor: false }
 }
 
+/// The one rule outside the tier model. `prim_mdlint_report_line_length`
+/// selects MD013 into whichever tier the path already runs, so it is absent
+/// from [`ACTIVE_RULES`] and gated on the resolved line length instead.
+///
+/// prim owns every one of its options (see [`prim_config`]) because MD013 is
+/// the only rule whose behaviour must track the formatter's own line width.
+const LINE_LENGTH_RULE: &str = "MD013";
+
 const ACTIVE_RULES: &[RulePolicy] = &[
     defect("MD042"),
     defect("MD011"),
@@ -104,19 +113,28 @@ const ACTIVE_RULES: &[RulePolicy] = &[
 ];
 
 /// Whether `rule` runs for a file at this tier.
-fn is_active(rule: &str, strict: bool) -> bool {
+///
+/// `line_length` carries the resolved `max_line_length` when
+/// `prim_mdlint_report_line_length` selected [`LINE_LENGTH_RULE`], and `None`
+/// when it did not. That rule is gated on it alone: the tier chooses one of its
+/// options, not whether it runs.
+fn is_active(rule: &str, strict: bool, line_length: Option<usize>) -> bool {
+    if rule.eq_ignore_ascii_case(LINE_LENGTH_RULE) {
+        return line_length.is_some();
+    }
     ACTIVE_RULES
         .iter()
-        .any(|policy| policy.rule == rule && (policy.floor || strict))
+        .any(|policy| policy.rule.eq_ignore_ascii_case(rule) && (policy.floor || strict))
 }
 
 /// Whether `rule` names a rule prim can run in either tier. Callers validating
 /// user-supplied rule ids use this so a typo can be reported rather than
 /// silently matching nothing.
 pub fn is_known_rule(rule: &str) -> bool {
-    ACTIVE_RULES
-        .iter()
-        .any(|policy| policy.rule.eq_ignore_ascii_case(rule))
+    rule.eq_ignore_ascii_case(LINE_LENGTH_RULE)
+        || ACTIVE_RULES
+            .iter()
+            .any(|policy| policy.rule.eq_ignore_ascii_case(rule))
 }
 
 /// Whether `rule` was excluded for this file by `prim_mdlint_disable`.
@@ -135,9 +153,30 @@ fn is_disabled(rule: &str, disabled: &[String]) -> bool {
 /// were that shape and only 16 were two real H1s. An empty `front-matter-title`
 /// stops the rule counting page metadata as a heading.
 ///
+/// When `line_length` is `Some`, MD013 runs, and prim sets all five of its
+/// options. Four are constants that follow from what the formatter does:
+/// `code-blocks` and `code-spans` are off because prim preserves fenced content
+/// verbatim (FR-1.6) and keeps an unbreakable inline span on one line
+/// (FR-1.1a); `tables` is off because a table row cannot carry a line break,
+/// pinned rather than inherited so a future rumdl default cannot change prim's
+/// output. `headings` is the fifth and the only one that varies: prim cannot
+/// wrap a heading — a line break would end it and turn the remainder into a
+/// paragraph — but an author can shorten the wording, which is the strict
+/// tier's definition of a finding.
+///
+/// The limit is written to both `global.line_length` and MD013's own
+/// `line-length`. rumdl decides between them with a sentinel check — it
+/// overwrites the rule value with the global one whenever the rule value still
+/// equals the default 80 — so an explicit 80 beside a different global would
+/// silently resolve to the global. Writing the same value to both makes every
+/// branch of that check produce the same answer, and keeps prim correct if
+/// rumdl's precedence ever changes.
+///
 /// This is prim choosing its canonical defaults, not a user-facing surface:
-/// there is still no way for a repository to configure a rule's options.
-fn prim_config() -> Config {
+/// there is still no way for a repository to configure a rule's options. The
+/// one value a repository supplies is `max_line_length`, which prim already
+/// wraps to, so the formatter and the linter cannot disagree.
+fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
     let mut config = Config::default();
     config.rules.insert(
         "MD025".to_string(),
@@ -149,6 +188,34 @@ fn prim_config() -> Config {
             )]),
         },
     );
+    if let Some(limit) = line_length {
+        // `max_line_length` is a repository-supplied `usize`, and two values
+        // need bounding before they reach rumdl. Zero means "no limit" to
+        // `LineLength`, which would make the key a silent no-op while the
+        // formatter wraps to one word per line; clamping to 1 keeps both ends
+        // agreeing that every line is too long. A value above `i64::MAX` wraps
+        // negative in the TOML conversion below, and rumdl rejects the whole
+        // rule config and falls back to its own defaults — silently unpinning
+        // every option set here, with `code-blocks` and `headings` back on.
+        let limit = limit.clamp(1, i64::MAX as usize);
+        config.global.line_length = LineLength::new(limit);
+        config.rules.insert(
+            LINE_LENGTH_RULE.to_string(),
+            RuleConfig {
+                severity: None,
+                values: BTreeMap::from([
+                    (
+                        "line-length".to_string(),
+                        toml::Value::Integer(limit as i64),
+                    ),
+                    ("code-blocks".to_string(), toml::Value::Boolean(false)),
+                    ("code-spans".to_string(), toml::Value::Boolean(false)),
+                    ("tables".to_string(), toml::Value::Boolean(false)),
+                    ("headings".to_string(), toml::Value::Boolean(strict)),
+                ]),
+            },
+        );
+    }
     config
 }
 
@@ -156,7 +223,13 @@ fn prim_config() -> Config {
 ///
 /// `strict = false` runs the always-on floor tier (defect rules only);
 /// `strict = true` adds the convention tier on top. The tier chooses which
-/// rules run; every rule that runs reports an error. `disabled` subtracts
+/// rules run — except [`LINE_LENGTH_RULE`], where `line_length` decides that
+/// and the tier chooses only whether headings are examined. Every rule that
+/// runs reports an error.
+///
+/// `line_length` carries the resolved `max_line_length` when
+/// `prim_mdlint_report_line_length` selected MD013, and `None` when it did
+/// not. `None` is the previous behaviour: MD013 does not run. `disabled` subtracts
 /// rule ids (case-insensitive) from whichever tier is selected — it can only
 /// narrow the active set, never add to it. A file-level
 /// `<!-- prim-mdlint-strict: true|false -->` directive (story G5, #61)
@@ -167,12 +240,19 @@ fn prim_config() -> Config {
 /// itself, independent of prim's tier table). Lint-only: `source` is
 /// never modified. Rules are filtered from the full rumdl set by name so
 /// off/formatter-territory rules never run.
-pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic> {
+pub fn lint(
+    source: &str,
+    strict: bool,
+    disabled: &[String],
+    line_length: Option<usize>,
+) -> Vec<MdDiagnostic> {
     let strict = file_level_strict_override(source).unwrap_or(strict);
-    let cfg = prim_config();
+    let cfg = prim_config(strict, line_length);
     let rules: Vec<_> = all_rules(&cfg)
         .into_iter()
-        .filter(|rule| is_active(rule.name(), strict) && !is_disabled(rule.name(), disabled))
+        .filter(|rule| {
+            is_active(rule.name(), strict, line_length) && !is_disabled(rule.name(), disabled)
+        })
         .collect();
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
@@ -208,7 +288,7 @@ pub fn lint(source: &str, strict: bool, disabled: &[String]) -> Vec<MdDiagnostic
             // two disagree. The check stays as the guarantee's last line of
             // defence if a future rumdl reports a finding under a related
             // rule's name.
-            if !is_active(&rule, strict) || is_disabled(&rule, disabled) {
+            if !is_active(&rule, strict, line_length) || is_disabled(&rule, disabled) {
                 return None;
             }
             Some(MdDiagnostic {

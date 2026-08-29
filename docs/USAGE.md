@@ -140,18 +140,70 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
     - **Never linted (formatter territory):** MD003-005, MD007, MD009, MD010,
       MD012, MD018-023, MD027-032, MD035, MD037-039, MD046-050, MD055, MD058,
       MD060, MD064, MD065, MD071, MD076, MD077.
-    - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
-      MD069, MD072 (frontmatter key sorting stays off because prim must remain
+    - **Off in both tiers:** MD014, MD043, MD044, MD054, MD061, MD063, MD069,
+      MD072 (frontmatter key sorting stays off because prim must remain
       semantics-preserving), MD074, MD078, MD079, MD081, MD057 (dropped — a
       cross-file link's target depends on the renderer, so prim does not check
       it; see AD-0013), and MD082 (dropped entirely — see AD-0012).
+    - **Line length (`prim_mdlint_report_line_length`):** `max_line_length`
+      (default 80) already controls how prim wraps Markdown prose. Setting
+      `prim_mdlint_report_line_length = true` additionally makes `prim lint`
+      report lines that exceed it.
+
+      prim reports only the long lines that can actually be shortened. A long
+      prose line is reported — `prim fmt` wraps prose to the same limit, so a
+      repository that formats with prim sees no prose findings. Table rows,
+      fenced code, and an inline code span with no internal space are never
+      reported: a line break cannot be inserted into any of them without
+      changing what the document means, so there is nothing to fix.
+
+      Headings are the one case decided by the tier. prim cannot wrap a heading
+      — a line break would end the heading and turn the rest into a paragraph —
+      but you can shorten the wording. So a long heading is reported when
+      `prim_mdlint_strict = true`, and silent otherwise, like every other
+      convention-tier check.
+
+      The limit is whatever `max_line_length` resolves to for that file, so no
+      `.editorconfig` cascade can leave the formatter and the linter disagreeing
+      about the width. If your headings are long by convention — numbered
+      decision records, for example — keep those files at the floor tier.
+
+      | Line content                                 | Floor    | Strict   |
+      | -------------------------------------------- | -------- | -------- |
+      | Prose                                        | reported | reported |
+      | Heading                                      | silent   | reported |
+      | Table row                                    | silent   | silent   |
+      | Fenced or indented code                      | silent   | silent   |
+      | Long only because of unbreakable inline code | silent   | silent   |
+
+      This is MD013, the one rule prim excludes from both tiers by default and
+      lets a repository switch on, because it is the only rule whose options
+      must track the formatter's own line width. prim sets five of MD013's
+      options and exposes none of them: `line-length` from the resolved
+      `max_line_length`, `code-blocks`, `code-spans` and `tables` off, and
+      `headings` on at the strict tier only. Every other MD013 option keeps
+      rumdl's default — including `ignore-link-urls`, which is why a line that
+      is long only because of a link URL is usually not reported; prim does not
+      pin that one, so treat it as rumdl's behaviour rather than prim's
+      guarantee.
+
+      There is no `.editorconfig` key for any of these options. A single file
+      can still override them with rumdl's own `markdownlint-configure-file`
+      directive, the same per-file escape hatch every other rule prim runs
+      already has (AD-0012). It can change the width or re-enable the table and
+      code checks for that one file; it cannot switch MD013 on where
+      `prim_mdlint_report_line_length` has not. `prim_mdlint_disable = MD013`
+      turns the rule off again for a narrower glob, the same way it removes any
+      other rule.
     - Floor-tier and strict-tier findings alike raise `prim lint`'s exit code to
       `1`; no Markdown rule emits a warning.
-    - **A rule option prim sets for itself:** prim configures MD025's
+    - **Rule options prim sets for itself:** prim configures MD025's
       `front-matter-title` option to an empty string, so a page's front-matter
-      `title:` is treated as metadata rather than a heading. This is prim's own
-      canonical default for a rule it already runs, not a configuration surface
-      a repository can reach — see "Configuration" below and AD-0012.
+      `title:` is treated as metadata rather than a heading, and — when
+      `prim_mdlint_report_line_length` selects it — five of MD013's options.
+      These are prim's own canonical defaults for rules it runs, not a
+      configuration surface a repository can reach — see "Configuration" below
+      and AD-0012.
     - **Per-file override (story G5):** a standalone
       `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
       overrides `.editorconfig`'s resolved tier for that file only — an escape
@@ -373,8 +425,9 @@ docs/USAGE.md
   indent_style             = space      (/repo/.editorconfig:8 [*])
   indent_size              = 2          (/repo/.editorconfig:9 [*])
   max_line_length          = 80         (/repo/.editorconfig:12 [*.md])
-  prim_mdlint_strict       = true       (/repo/.editorconfig:15 [docs/**.md])
-  prim_mdlint_disable      = MD033, MD041 (/repo/.editorconfig:16 [docs/**.md])
+  prim_mdlint_strict             = true       (/repo/.editorconfig:15 [docs/**.md])
+  prim_mdlint_report_line_length = false      (prim's default)
+  prim_mdlint_disable            = MD033, MD041 (/repo/.editorconfig:16 [docs/**.md])
 ```
 
 (prim's own `.editorconfig` sets neither `prim_mdlint_strict` nor
@@ -385,7 +438,8 @@ those two lines — see below.)
 The settings shown depend on the file's kind: un-owned text files (the
 [Orphan allowlist](#what-prim-formats)) only get the three universal hygiene
 settings (`end_of_line`, `trim_trailing_whitespace`, `insert_final_newline`);
-Markdown additionally shows `prim_mdlint_strict` and `prim_mdlint_disable`. When
+Markdown additionally shows `prim_mdlint_strict`,
+`prim_mdlint_report_line_length` and `prim_mdlint_disable`. When
 `prim_mdlint_disable` was never set for a path, its value prints `unset` against
 `prim's default`. When it was set but resolves to no rules — a deliberate
 `prim_mdlint_disable = none` or `= unset`, or a list whose every id was
@@ -688,10 +742,14 @@ trailing whitespace stripped, exactly one final newline, two-space indent).
 
 Markdown content lint does not add a second config source: `.editorconfig`
 remains prim's only user-facing configuration file, including the documented
-`prim_*` keys below. `prim_mdlint_disable` is the one subtract-only exception to
-"no per-rule flags": it can remove a rule from the tier prim already selected
-for a path, but it can never add one or change a rule's behaviour — see the
-scope notes below.
+`prim_*` keys below. There are two documented exceptions to "no per-rule flags".
+`prim_mdlint_disable` is subtract-only: it can remove a rule from the tier prim
+already selected for a path, but it can never add one or change a rule's
+behaviour. `prim_mdlint_report_line_length` selects MD013 into that same tier,
+and `max_line_length` — a value the repository already sets for the formatter —
+supplies its limit, so the formatter and the linter cannot disagree about the
+width. Neither key reaches any other option of any rule. See the scope notes
+below.
 
 prim resolves the standard `.editorconfig` cascade for each file: it walks up
 the directory tree, stops at the nearest `root = true`, and applies matching
@@ -700,24 +758,33 @@ resolved relative to that path's directory.
 
 Honored keys (standard EditorConfig keys plus prim's closed custom-key set):
 
-| Key                        | Effect                                                                                                                                                |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `end_of_line`              | `lf` (default) or `crlf`; the emitted line ending.                                                                                                    |
-| `trim_trailing_whitespace` | `true` (default) strips trailing whitespace; `false` preserves it.                                                                                    |
-| `insert_final_newline`     | `true` (default) keeps one final newline; `false` strips it.                                                                                          |
-| `indent_style`             | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                                                        |
-| `indent_size`              | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required.                                       |
-| `max_line_length`          | line width for the structured formatters (default 80).                                                                                                |
-| `prim_mdlint_strict`       | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                                                           |
-| `prim_mdlint_disable`      | comma-separated rule ids to exclude from the tier selected for a matching path (Markdown only, unset by default); `none` or `unset` excludes nothing. |
+| Key                              | Effect                                                                                                                                                |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `end_of_line`                    | `lf` (default) or `crlf`; the emitted line ending.                                                                                                    |
+| `trim_trailing_whitespace`       | `true` (default) strips trailing whitespace; `false` preserves it.                                                                                    |
+| `insert_final_newline`           | `true` (default) keeps one final newline; `false` strips it.                                                                                          |
+| `indent_style`                   | `space`/`tab` — drives JSON/JSONC, TOML, and YAML indentation.                                                                                        |
+| `indent_size`                    | indent width for the JSON/JSONC, TOML, and YAML formatters. Applies on its own; `indent_style` is not required.                                       |
+| `max_line_length`                | line width for the structured formatters (default 80).                                                                                                |
+| `prim_mdlint_strict`             | `false` (default) = floor tier; `true` = add strict tier for Markdown lint.                                                                           |
+| `prim_mdlint_disable`            | comma-separated rule ids to exclude from the tier selected for a matching path (Markdown only, unset by default); `none` or `unset` excludes nothing. |
+| `prim_mdlint_report_line_length` | `false` (default) or `true`; report Markdown lines longer than `max_line_length` (MD013).                                                             |
 
 Scope notes:
 
 - prim treats files as UTF-8; `charset` values other than `utf-8` are not
   supported (a non-UTF-8 file is left unchanged and reported).
 - `end_of_line = cr` (bare carriage return) is treated as `lf`.
-- `prim_mdlint_strict` and `prim_mdlint_disable` are currently the **only**
-  documented `prim_*` keys.
+- `prim_mdlint_strict`, `prim_mdlint_disable` and
+  `prim_mdlint_report_line_length` are currently the **only** documented
+  `prim_*` keys.
+- `prim_mdlint_report_line_length` resolves through the same per-glob cascade as
+  `prim_mdlint_strict`. It selects MD013 into the tier the path already runs; it
+  does not change the tier, and it does not let a repository configure MD013's
+  options — prim sets those itself, and one of them varies by tier. The limit is
+  the same `max_line_length` the formatter wraps to, so enabling the key cannot
+  make prim report a line prim itself produced, except a heading the formatter
+  was never able to wrap.
 - `prim_mdlint_disable` resolves through the same per-glob cascade as
   `prim_mdlint_strict`: EditorConfig's ordinary last-match-wins resolution
   applies per section, so a narrower section's value **replaces** a wider
