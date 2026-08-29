@@ -275,6 +275,19 @@ source-code formatter and has **no plugin system**.
   partially staged file that blob may already be canonical, and `git add` would
   also stage the remainder the author kept out of the commit. Re-staging belongs
   to the hook runner.
+- **FR-4.2e** No git configuration and no path spelling shall change which files
+  `--since` or `--staged` select. prim shall read raw NUL-separated paths, so no
+  quoting form hides a path (#164), and shall pin `diff.relative=false`, so the
+  paths git reports are the ones prim resolves (#165). prim shall raise a usage
+  error (exit `2`), rather than resolve an empty file set, when git reports
+  output that is not NUL-separated. Output that is empty is a legitimately empty
+  selection and shall stay a clean run.
+- **FR-4.2f** No `<REF>` shall reach git as anything but a revision. prim shall
+  exit `2` for a `<REF>` git will not resolve, including one beginning with `-`
+  (#167), one naming an existing file, and `--` itself, and shall never let such
+  a `<REF>` take effect as a git option or as a pathspec. `--since` therefore
+  requires git 2.24 or newer, which is when `--end-of-options` reached the
+  revision parser.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax) for
   every path it is given, whether reached by a directory walk or named on the
