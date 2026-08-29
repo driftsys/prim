@@ -80,8 +80,10 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// selects MD013 into whichever tier the path already runs, so it is absent
 /// from [`ACTIVE_RULES`] and gated on the resolved line length instead.
 ///
-/// prim owns every one of its options (see [`prim_config`]) because MD013 is
-/// the only rule whose behaviour must track the formatter's own line width.
+/// prim pins the five of its options that decide what it reports (see
+/// [`prim_config`]) because MD013 is the only rule whose behaviour must track
+/// the formatter's own line width. MD013 has many more options than that;
+/// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
 
 const ACTIVE_RULES: &[RulePolicy] = &[
@@ -119,12 +121,12 @@ const ACTIVE_RULES: &[RulePolicy] = &[
 /// when it did not. That rule is gated on it alone: the tier chooses one of its
 /// options, not whether it runs.
 fn is_active(rule: &str, strict: bool, line_length: Option<usize>) -> bool {
-    if rule.eq_ignore_ascii_case(LINE_LENGTH_RULE) {
+    if rule == LINE_LENGTH_RULE {
         return line_length.is_some();
     }
     ACTIVE_RULES
         .iter()
-        .any(|policy| policy.rule.eq_ignore_ascii_case(rule) && (policy.floor || strict))
+        .any(|policy| policy.rule == rule && (policy.floor || strict))
 }
 
 /// Whether `rule` names a rule prim can run in either tier. Callers validating
@@ -195,8 +197,9 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
         // formatter wraps to one word per line; clamping to 1 keeps both ends
         // agreeing that every line is too long. A value above `i64::MAX` wraps
         // negative in the TOML conversion below, and rumdl rejects the whole
-        // rule config and falls back to its own defaults — silently unpinning
-        // every option set here, with `code-blocks` and `headings` back on.
+        // rule config and falls back to its own defaults — unpinning every
+        // option set here, with `code-blocks` and `headings` back on, behind
+        // three lines of rumdl's own stderr output, not a prim diagnostic.
         let limit = limit.clamp(1, i64::MAX as usize);
         config.global.line_length = LineLength::new(limit);
         config.rules.insert(

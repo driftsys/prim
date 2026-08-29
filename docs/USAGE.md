@@ -201,9 +201,11 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
       `front-matter-title` option to an empty string, so a page's front-matter
       `title:` is treated as metadata rather than a heading, and — when
       `prim_mdlint_report_line_length` selects it — five of MD013's options.
-      These are prim's own canonical defaults for rules it runs, not a
-      configuration surface a repository can reach — see "Configuration" below
-      and AD-0012.
+      These are prim's own canonical defaults for rules it runs. A repository
+      reaches only two of them, both MD013's and both named by FR-3.3:
+      `max_line_length` supplies `line-length`, and `prim_mdlint_strict`
+      supplies `headings`. No other option of any rule is reachable — see
+      "Configuration" below, AD-0012 and AD-0014.
     - **Per-file override (story G5):** a standalone
       `<!-- prim-mdlint-strict: true|false -->` line anywhere in the file
       overrides `.editorconfig`'s resolved tier for that file only — an escape
@@ -419,12 +421,12 @@ prim_mdlint_disable = MD033, MD041
 ```console
 $ prim explain docs/USAGE.md
 docs/USAGE.md
-  end_of_line              = lf         (/repo/.editorconfig:5 [*])
-  trim_trailing_whitespace = true       (/repo/.editorconfig:7 [*])
-  insert_final_newline     = true       (/repo/.editorconfig:6 [*])
-  indent_style             = space      (/repo/.editorconfig:8 [*])
-  indent_size              = 2          (/repo/.editorconfig:9 [*])
-  max_line_length          = 80         (/repo/.editorconfig:12 [*.md])
+  end_of_line                    = lf         (/repo/.editorconfig:5 [*])
+  trim_trailing_whitespace       = true       (/repo/.editorconfig:7 [*])
+  insert_final_newline           = true       (/repo/.editorconfig:6 [*])
+  indent_style                   = space      (/repo/.editorconfig:8 [*])
+  indent_size                    = 2          (/repo/.editorconfig:9 [*])
+  max_line_length                = 80         (/repo/.editorconfig:12 [*.md])
   prim_mdlint_strict             = true       (/repo/.editorconfig:15 [docs/**.md])
   prim_mdlint_report_line_length = false      (prim's default)
   prim_mdlint_disable            = MD033, MD041 (/repo/.editorconfig:16 [docs/**.md])

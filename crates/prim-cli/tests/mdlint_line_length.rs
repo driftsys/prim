@@ -88,7 +88,7 @@ fn a_long_table_row_is_never_reported() {
 fn a_long_line_inside_fenced_code_is_never_reported() {
     let (_dir, file) = project(
         KEY_ON,
-        "```rust\nlet x = \"a line inside a fenced code block that runs past the eighty column budget\";\n```\n",
+        "```text\nalpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho\n```\n",
     );
 
     prim()
@@ -229,4 +229,132 @@ fn explain_reports_the_key_as_false_when_it_is_unset() {
             "prim_mdlint_report_line_length = false",
         ))
         .stdout(predicates::str::contains("(prim's default)"));
+}
+
+#[test]
+fn a_narrower_glob_can_turn_the_key_off_again() {
+    // FR-3.2d resolves through the same per-glob cascade as
+    // `prim_mdlint_strict`: last match wins, so a narrower section replaces a
+    // wider one rather than merging with it.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nmax_line_length = 80\nprim_mdlint_report_line_length = true\n[quiet/**.md]\nprim_mdlint_report_line_length = false\n",
+    )
+    .unwrap();
+    std::fs::create_dir(dir.path().join("quiet")).unwrap();
+    let loud = dir.path().join("loud.md");
+    let quiet = dir.path().join("quiet").join("doc.md");
+    std::fs::write(&loud, LONG_PROSE).unwrap();
+    std::fs::write(&quiet, LONG_PROSE).unwrap();
+
+    prim().arg("lint").arg(&loud).assert().code(1);
+    prim().arg("lint").arg(&quiet).assert().code(0);
+}
+
+/// Exactly `columns` characters of breakable prose, never ending on a space —
+/// trailing whitespace would be stripped by hygiene and change the width.
+fn prose_of(columns: usize) -> String {
+    let mut line = String::new();
+    while line.len() < columns {
+        line.push(if line.len() % 5 == 4 { ' ' } else { 'w' });
+    }
+    if line.ends_with(' ') {
+        line.pop();
+        line.push('w');
+    }
+    assert_eq!(line.len(), columns);
+    format!("{line}\n")
+}
+
+#[test]
+fn the_limit_is_exactly_max_line_length() {
+    // The boundary is the whole point: prim wraps to `max_line_length`, so a
+    // line of exactly that width is output prim produced and must be clean,
+    // while one character more must be reported. An off-by-one either way
+    // makes the formatter and the linter disagree.
+    let config =
+        "root = true\n[*.md]\nmax_line_length = 80\nprim_mdlint_report_line_length = true\n";
+
+    let (_at, at_limit) = project(config, &prose_of(80));
+    prim().arg("lint").arg(&at_limit).assert().code(0);
+
+    let (_over, over_limit) = project(config, &prose_of(81));
+    prim()
+        .arg("lint")
+        .arg(&over_limit)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD013]"));
+}
+
+#[test]
+fn the_unset_fallback_is_exactly_eighty() {
+    // Pins the documented 80, not merely "some value below the fixture width".
+    let config = "root = true\n[*.md]\nprim_mdlint_report_line_length = true\n";
+
+    let (_at, at_limit) = project(config, &prose_of(80));
+    prim().arg("lint").arg(&at_limit).assert().code(0);
+
+    let (_over, over_limit) = project(config, &prose_of(81));
+    prim()
+        .arg("lint")
+        .arg(&over_limit)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD013]"));
+}
+
+#[test]
+fn the_strict_tier_alone_does_not_select_md013() {
+    // FR-3.2d: the key selects the rule, the tier does not. Opting into
+    // conventions must not silently start reporting line length.
+    let (_dir, file) = project(
+        "root = true\n[*.md]\nmax_line_length = 80\nprim_mdlint_strict = true\n",
+        &format!("# Title\n\n{LONG_PROSE}"),
+    );
+
+    // The strict tier fires its own rules on this file; the assertion is that
+    // MD013 is not among them.
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .stdout(predicates::str::contains("[MD013]").not());
+}
+
+#[test]
+fn the_stdin_path_stays_silent_when_the_key_is_unset() {
+    let (dir, _file) = project(
+        "root = true\n[*.md]\nmax_line_length = 80\n",
+        "placeholder\n",
+    );
+
+    prim()
+        .arg("lint")
+        .arg("--stdin-filepath")
+        .arg(dir.path().join("doc.md"))
+        .write_stdin(LONG_PROSE)
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("[MD013]").not());
+}
+
+#[test]
+fn explain_omits_the_key_for_a_file_that_is_not_markdown() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nprim_mdlint_report_line_length = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("data.json");
+    std::fs::write(&file, "{}\n").unwrap();
+
+    prim()
+        .arg("explain")
+        .arg(&file)
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("prim_mdlint_report_line_length").not());
 }

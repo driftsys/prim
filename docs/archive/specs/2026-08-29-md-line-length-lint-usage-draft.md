@@ -1,5 +1,12 @@
 # `docs/USAGE.md` draft — Markdown line-length linting
 
+> **Superseded.** This is archived working memory, kept verbatim as the record
+> of how the design was reached. Two things in it were later found wrong and are
+> corrected in AD-0014 and `docs/USAGE.md`: prose _is_ reported (that is the
+> feature's purpose — `prim fmt` wraps it, so a formatted repository has none
+> left), and AD-0012's ceiling claim did need amending. Read the durable records
+> for what prim actually does.
+
 Drop-in replacement text for the four places `docs/USAGE.md` must change when
 `prim_mdlint_report_line_length` lands. Companion to
 [the design note](2026-08-29-md-line-length-lint-design.md).

@@ -61,23 +61,26 @@ produced, with no line the author could act on.
 
 ### Headings, split by tier
 
-Over the same 34 non-archive files as the table above:
+Over the same 34 non-archive files as the table above, measured at `4bebce5`,
+the commit this branch starts from:
 
 | Tier   | Headings | Over 80 |
 | ------ | -------: | ------: |
 | Floor  |      111 |       0 |
-| Strict |      189 |       0 |
+| Strict |      176 |       0 |
 
 Not one heading in the corpus exceeds 80 columns, at either tier, so enabling
 this feature on prim's own repository today is a no-op for headings. Widening
-the sweep to all 51 tracked files finds exactly four overflowing headings, all
-of them in `docs/archive/plans/`, which resolves to the floor tier under
-AD-0012's `[docs/archive/**.md]` exemption and is excluded from the corpus for
-the same reason: archived material is not maintained prose.
+the sweep to all 51 tracked files at that commit finds exactly four overflowing
+headings, all of them in `docs/archive/plans/`, which resolves to the floor tier
+under AD-0012's `[docs/archive/**.md]` exemption and is excluded from the corpus
+for the same reason: archived material is not maintained prose.
 
 The margin at the strict tier is thin, not absent: `docs/decisions/0002-*.md`'s
-H1 is 78 characters, and several other decision-record titles sit between 72
-and 77. Renaming a decision record by three words could fail CI once the key is
+H1 is 78 display columns, and the next longest,
+`0003-json-via-dprint-plugin-json.md`, is 72. Measuring the same titles in bytes
+would put three in that band, which is the unit this record forbids everywhere
+else. Renaming a decision record by three words could fail CI once the key is
 turned on for `docs/decisions/`. That is the rule working as specified, not a
 defect, but it is a real cost for a directory where titles are long by
 convention — recorded here so a future rename knows why the file grew close to
@@ -216,13 +219,18 @@ reporting link lines without any decision here changing.
   nobody set, so a key absent from its output would be a defect rather than a
   scope choice; the new key ships in the same change as the feature, not as
   follow-up work.
-- **AD-0012 needs no amendment.** Its subtract-only guarantee for
+- **AD-0012 is amended, in one specific way.** Its subtract-only guarantee for
   `prim_mdlint_disable` — that the key can only remove a rule from the tier prim
-  already selected, never add one — is unchanged by this decision. This key adds
-  a rule prim selected for itself, gated on prim's own resolved
-  `max_line_length`, rather than widening what a repository may select. AD-0012
-  §"Decision" item 4 cross-references this record for the reader who reaches
-  MD013's history from there.
+  already selected, never add one — is untouched, and this decision does not
+  change that key at all. What this decision does break is the wider conclusion
+  AD-0012 drew alongside it: that "a repository cannot invent a stricter dialect
+  of prim, and prim's curated set stays the ceiling." A repository setting
+  `prim_mdlint_report_line_length` now runs MD013, which neither tier selects,
+  so its active set exceeds prim's curated tiers by one rule. Issue #123 said
+  this from the start and it was briefly argued away during design; the ceiling
+  sentence is struck from AD-0012 item 4 and replaced with the narrower property
+  that survives — a repository may select only from rules prim has designed for,
+  one key at a time, configuring none of their options beyond what FR-3.3 names.
 - **rumdl's `markdownlint-configure-file` directive reaches these options.**
   AD-0012 admitted rumdl's inline directives as a per-file escape hatch, and
   they are applied inside `rumdl_lib::lint` after prim builds its config. While
@@ -233,6 +241,9 @@ reporting link lines without any decision here changing.
   this decision makes is therefore about the `.editorconfig` cascade, which no
   repository-wide setting can bend, not about a single file that deliberately
   opts out.
+- **`prim init` does not scaffold the key.** It scaffolds the strict-glob map
+  and nothing else, so a repository opts into line-length reporting deliberately
+  rather than finding it switched on by a tool run.
 - **Enabling this key on prim's own repository today is a no-op**, per the
   headings-by-tier measurement above, but the margin at the strict tier is thin
   enough that a future decision to enable it for `docs/decisions/` should expect

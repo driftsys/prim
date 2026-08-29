@@ -144,11 +144,13 @@ Fail the build when a Markdown file has a content-lint finding:
 ```
 
 `prim lint` never rewrites; it reports findings and exits `1` when any are
-present. For Markdown specifically, every rule prim runs — the always-on floor
-tier, plus the strict tier once a path opts in via `.editorconfig`
-`prim_mdlint_strict = true` — is an error, so there is no silent warn-tier pass
-to worry about: if `prim lint` prints a Markdown finding, the gate fails. See
-[USAGE.md](USAGE.md#operating-modes) for the floor/strict rule lists.
+present. For Markdown specifically, every rule prim runs is an error, so there
+is no silent warn-tier pass to worry about: if `prim lint` prints a Markdown
+finding, the gate fails. Three settings decide which rules run — the always-on
+floor tier, the strict tier once a path opts in via `.editorconfig`
+`prim_mdlint_strict = true`, and MD013 once a path opts in via
+`prim_mdlint_report_line_length = true`. See
+[USAGE.md](USAGE.md#operating-modes) for the rule lists.
 
 ## Excluding a Markdown lint rule for a tree
 

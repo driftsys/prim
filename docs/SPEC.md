@@ -120,20 +120,26 @@ source-code formatter and has **no plugin system**.
 - **FR-3.2d** `prim_mdlint_report_line_length = true` shall select MD013 into
   whichever Markdown lint tier FR-5.5b already resolved for that path, measured
   against the `max_line_length` resolved for the same file (80 when unset — the
-  formatter's own fallback), so that no `.editorconfig` cascade can make
-  `prim fmt`'s wrap width and `prim lint`'s reported width differ. A file
-  carrying rumdl's own `markdownlint-configure-file` directive is the one
-  exception, and the same escape hatch AD-0012 already documents: it can change
-  MD013's options for that file, the width included, but it cannot select MD013
-  where this key has not. It resolves through the same per-glob cascade as
-  `prim_mdlint_strict`. It shall not change which tier applies, and
-  `prim_mdlint_disable = MD013` shall remove the rule again like any other.
+  formatter's own fallback), so that for every width prim can wrap to, no
+  `.editorconfig` cascade makes `prim fmt`'s wrap width and `prim lint`'s
+  reported width differ. Two values fall outside that range and are documented
+  rather than reconciled: `max_line_length = 0`, which the formatter treats as
+  one word per line while the rule is clamped to 1, and a value above
+  `u32::MAX`, which the formatter truncates. A file carrying rumdl's own
+  `markdownlint-configure-file` directive is the one exception, and the same
+  escape hatch AD-0012 already documents: it can change MD013's options for that
+  file, the width included, but it cannot select MD013 where this key has not.
+  It resolves through the same per-glob cascade as `prim_mdlint_strict`. It
+  shall not change which tier applies, and `prim_mdlint_disable = MD013` shall
+  remove the rule again like any other.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
   per-rule flags, and no way for a repository to configure a rule's options),
-  with one named exception: `max_line_length` (FR-3.2d) supplies MD013's
-  `line-length`. That is a value a repository already sets for the formatter,
-  reused so the two cannot disagree — not a per-rule dial, and not a way to
-  reach any other option of any rule. `prim_mdlint_disable` (FR-3.2c) is not an
+  with two named exceptions, both feeding MD013 (FR-3.2d) and no other rule:
+  `max_line_length` supplies its `line-length`, and `prim_mdlint_strict`
+  supplies its `headings`. Each is a value a repository already sets for another
+  purpose — the formatter's wrap width, and the lint tier — reused so that the
+  setting and the rule cannot disagree. Neither is a per-rule dial, and no other
+  option of any rule is reachable. `prim_mdlint_disable` (FR-3.2c) is not an
   exception either: it only ever narrows the rule set prim already selected,
   never widens it or changes a rule's behaviour.
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.

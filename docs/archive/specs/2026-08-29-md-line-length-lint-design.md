@@ -1,5 +1,12 @@
 # Markdown line-length linting — design
 
+> **Superseded.** This is archived working memory, kept verbatim as the record
+> of how the design was reached. Two things in it were later found wrong and are
+> corrected in AD-0014 and `docs/USAGE.md`: prose _is_ reported (that is the
+> feature's purpose — `prim fmt` wraps it, so a formatted repository has none
+> left), and AD-0012's ceiling claim did need amending. Read the durable records
+> for what prim actually does.
+
 Status: design settled, not implemented. Supersedes the `prim_mdlint_enable`
 framing in [#123](https://github.com/driftsys/prim/issues/123).
 

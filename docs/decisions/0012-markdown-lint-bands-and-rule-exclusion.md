@@ -185,16 +185,24 @@ opt-in agrees with dropping it here.
    section's value replaces a wider section's list rather than merging with it.
    Rule ids match case-insensitively. The key can only remove a rule from the
    tier prim already selected for that path — it can never add a rule prim
-   decided not to run, so a repository cannot invent a stricter dialect of prim,
-   and prim's curated set stays the ceiling. An id that names no rule prim runs
-   in either tier disables nothing; prim reports it on stderr — naming the
-   `.editorconfig` file, line and section that set it, once per run for each
-   section that carries it — and the exit code is unaffected. `prim explain`
-   shows the key with its resolved value and its `.editorconfig` file, line, and
-   section, the same provenance every other resolved setting gets. This
-   guarantee is unchanged by AD-0014's `prim_mdlint_report_line_length`: that
-   key selects MD013 into the tier prim already resolved for a path, using a
-   different mechanism from this one, not a second way to widen it.
+   decided not to run. An id that names no rule prim can run in either tier
+   disables nothing; prim reports it on stderr — naming the `.editorconfig`
+   file, line and section that set it, once per run for each section that
+   carries it — and the exit code is unaffected. `prim explain` shows the key
+   with its resolved value and its `.editorconfig` file, line, and section, the
+   same provenance every other resolved setting gets.
+
+   **Amended by AD-0014.** As first written, this item drew a wider conclusion
+   from the subtract-only key than the key supports: that "a repository cannot
+   invent a stricter dialect of prim, and prim's curated set stays the ceiling."
+   The subtract-only property itself still holds exactly as stated —
+   `prim_mdlint_disable` removes and never adds. The ceiling does not: AD-0014's
+   `prim_mdlint_report_line_length` lets a repository run MD013, a rule neither
+   tier selects, so a repository's active set can now exceed prim's curated
+   tiers by that one rule. What replaces the ceiling is narrower and still
+   meaningful: a repository may select only from rules prim has designed for,
+   one key at a time, and it configures none of their options except through the
+   values FR-3.3 names.
 
 5. **Two escapes already existed and needed no new code, only documentation.**
    rumdl's own inline directives pass through `rumdl_lib::lint` untouched:

@@ -113,3 +113,46 @@ fn spec_cases_preserve_yaml_data_model() {
         assert_eq!(before, after, "YAML data model changed: {}", case.name);
     }
 }
+
+#[test]
+fn formatted_markdown_never_reports_its_own_line_length() {
+    // FR-3.2d's load-bearing promise: `prim_mdlint_report_line_length` measures
+    // against the width the formatter wrapped to, so `prim fmt` output cannot
+    // fail `prim lint`. Every other test for this feature uses a hand-written
+    // fixture; this one runs the whole Markdown corpus through the real
+    // formatter and lints the result, so a change in how dprint wraps — a
+    // dependency bump, a new construct — is caught here rather than in a
+    // user's CI.
+    //
+    // At the floor tier nothing prim produced may be reported. At the strict
+    // tier a long heading may be, and only a heading: prim cannot wrap one, so
+    // it is the one construct the formatter knowingly leaves over the limit.
+    for (kind, case) in load_cases() {
+        if kind != FileKind::Markdown {
+            continue;
+        }
+        let formatted = format(kind, &case.input, &case.style).expect("formats");
+        let width = case.style.max_line_length.unwrap_or(80);
+
+        let floor = prim_fmt::lint_markdown(&formatted, false, &[], Some(width));
+        let offenders: Vec<_> = floor.iter().filter(|d| d.rule == "MD013").collect();
+        assert!(
+            offenders.is_empty(),
+            "{}: prim fmt output reports its own line length at width {width}: {offenders:?}",
+            case.name
+        );
+
+        let strict = prim_fmt::lint_markdown(&formatted, true, &[], Some(width));
+        for diagnostic in strict.iter().filter(|d| d.rule == "MD013") {
+            let line = formatted
+                .lines()
+                .nth(diagnostic.line.saturating_sub(1))
+                .unwrap_or_default();
+            assert!(
+                line.trim_start().starts_with('#'),
+                "{}: strict tier reports a non-heading line prim produced: {line:?}",
+                case.name
+            );
+        }
+    }
+}
