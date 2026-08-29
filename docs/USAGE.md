@@ -88,7 +88,10 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
   `git diff --name-only <REF>` reports: files that differ between `<REF>` and
   the current working tree, including both staged and unstaged changes. prim
   uses the plain two-way `git diff <REF>` semantics here — no merge-base (`...`)
-  comparison.
+  comparison. `<REF>` is read only as a revision: one git cannot resolve exits
+  `2` rather than taking effect as a git option or a pathspec (FR-4.2f), and
+  `--` is rejected because it is git's revision separator. This fencing needs
+  git 2.24 or newer.
 - **`--staged`** — limit discovery to the paths `git diff --name-only --cached`
   reports: files staged in the git index relative to `HEAD`. It chooses paths
   only: a write mode still writes the working tree and never touches the index,

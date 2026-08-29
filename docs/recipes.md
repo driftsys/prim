@@ -50,10 +50,13 @@ file. A branch cut from the tip of `main` therefore passes at first and starts
 failing as `main` advances underneath it, and a branch that has already merged
 `main` in does not hit the problem at all. (Only modifications trigger it: a
 file _added_ on `main` is a deletion relative to this branch's working tree, and
-prim drops those silently.) The REF is handed to `git diff` unchanged, so any
-revision expression `git diff` accepts works, a merge-base SHA included — though
-a name that is also a path in the tree, such as a `docs` branch beside a `docs/`
-directory, is ambiguous to `git diff` and exits `2`.
+prim drops those silently.) Any revision expression `git diff` accepts works, a
+merge-base SHA included. prim fences the REF so git reads it only as a revision,
+so a name that is also a path in the tree — a `docs` branch beside a `docs/`
+directory — resolves to the branch rather than being ambiguous, and a REF git
+cannot resolve exits `2` instead of narrowing the file set. The fencing uses
+`--end-of-options`, so `--since` requires git 2.24 or newer; `--staged` carries
+no REF and has no such floor.
 
 Locally the same filter formats rather than checks:
 

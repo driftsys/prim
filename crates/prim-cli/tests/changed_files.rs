@@ -687,3 +687,260 @@ fn since_write_never_warns_about_the_index() {
         .code(0)
         .stderr(predicates::str::contains("does not update the index").not());
 }
+
+/// #164: git C-quotes non-ASCII paths when `core.quotePath` is on, which is
+/// the default and which this test pins explicitly. A line-based reader then
+/// joins a quoted literal onto the repo root, fails to canonicalize it, and
+/// drops the path, so the gate passes over a file it never examined.
+#[test]
+fn a_non_ascii_path_survives_changed_file_selection() {
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        let repo = init_repo();
+        write(&repo.path().join("café.txt"), "x\n");
+        commit_all(repo.path(), "baseline");
+
+        write(&repo.path().join("café.txt"), "x  \n");
+        git(repo.path(), &["add", "."]);
+        // Pin the default rather than inherit it: with core.quotePath false
+        // this test would pass without ever reproducing #164.
+        git(repo.path(), &["config", "core.quotePath", "true"]);
+
+        let mut command = prim();
+        command.current_dir(repo.path()).arg("fmt").arg("--check");
+        command
+            .args(scope)
+            .arg(".")
+            .assert()
+            .code(1)
+            .stdout(predicates::str::contains("café.txt"));
+    }
+}
+
+/// #165: `diff.relative=true` makes git print paths relative to the current
+/// directory, but prim joins them onto the repository root. Run from a
+/// subdirectory the whole selection empties and the gate passes.
+#[test]
+fn diff_relative_does_not_empty_the_selection_from_a_subdirectory() {
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        let repo = init_repo();
+        write(&repo.path().join("sub/a.txt"), "a\n");
+        commit_all(repo.path(), "baseline");
+
+        write(&repo.path().join("sub/a.txt"), "a  \n");
+        git(repo.path(), &["add", "."]);
+        git(repo.path(), &["config", "diff.relative", "true"]);
+
+        let mut command = prim();
+        command
+            .current_dir(repo.path().join("sub"))
+            .arg("fmt")
+            .arg("--check");
+        command
+            .args(scope)
+            .arg(".")
+            .assert()
+            .code(1)
+            .stdout(format!("{}\n", Path::new(".").join("a.txt").display()));
+    }
+}
+
+/// `core.quotePath` governs only the non-ASCII range; git C-quotes a control
+/// character whatever that setting says. So a path holding a newline or a tab
+/// was dropped for the same reason `café.txt` was — a quoted literal that does
+/// not resolve — and it stays dropped for a repository that sets
+/// `core.quotePath false` to work around #164. Reading raw NUL-separated paths
+/// is what makes every quoting form moot, and that is what this pins.
+#[cfg(unix)]
+#[test]
+fn a_path_git_would_quote_survives_changed_file_selection() {
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        let repo = init_repo();
+        // core.quotePath off, so this cannot pass by way of the #164 fix.
+        git(repo.path(), &["config", "core.quotePath", "false"]);
+        let quoted = ["we\nird.txt", "ta\tb.txt"].map(|name| repo.path().join(name));
+        for path in &quoted {
+            write(path, "x\n");
+        }
+        commit_all(repo.path(), "baseline");
+
+        for path in &quoted {
+            write(path, "x  \n");
+        }
+        git(repo.path(), &["add", "."]);
+
+        let mut command = prim();
+        command.current_dir(repo.path()).arg("fmt");
+        command.args(scope).arg(".").assert().code(0);
+
+        for path in &quoted {
+            assert_eq!(
+                std::fs::read_to_string(path).unwrap(),
+                "x\n",
+                "{scope:?}: {path:?} was selected and formatted"
+            );
+        }
+    }
+}
+
+/// A `<REF>` is data. Without `--end-of-options` git reads one beginning with
+/// `-` as its own option: `--since=--output=<path>` made git write the path
+/// list into that file, truncating it, and hand prim an empty selection that
+/// exited 0. Refs routinely come from a variable in CI.
+#[test]
+fn a_since_ref_cannot_smuggle_an_option_into_git() {
+    let repo = init_repo();
+    write(&repo.path().join("a.txt"), "x\n");
+    commit_all(repo.path(), "baseline");
+
+    let victim = repo.path().join("victim.txt");
+    write(&victim, "IMPORTANT\n");
+
+    prim()
+        .current_dir(repo.path())
+        .args([
+            "fmt",
+            "--check",
+            &format!("--since=--output={}", victim.display()),
+            ".",
+        ])
+        .assert()
+        .code(2);
+
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "IMPORTANT\n",
+        "the ref must never be parsed as one of git's own options"
+    );
+
+    // A hostile ref with no file to truncate: exit 2 is the only observable,
+    // so this catches a fix that special-cased `--output=` alone.
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since=--exit-code", "."])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("--since"));
+}
+
+/// `--` is git's revision separator, not a revision. prim's own trailing `--`
+/// would pair with it, leaving git zero revisions and a pathspec matching
+/// nothing — an empty selection reported as a clean run. The `--end-of-options`
+/// guard does not catch it, because `--` is not an option.
+#[test]
+fn a_since_ref_of_the_separator_is_a_usage_error() {
+    let repo = init_repo();
+    write(&repo.path().join("a.txt"), "x\n");
+    commit_all(repo.path(), "baseline");
+    write(&repo.path().join("a.txt"), "x  \n");
+    git(repo.path(), &["add", "."]);
+
+    // Control: the same fixture is a finding under a real ref.
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "HEAD", "."])
+        .assert()
+        .code(1);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since=--", "."])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("--since"))
+        .stdout(predicates::str::is_empty());
+}
+
+/// FR-4.2b requires exit `2` for an invalid `<REF>`. Without the trailing `--`
+/// git reads a ref naming an existing file as a pathspec, so prim reported a
+/// narrowed file set and exited `1` — a gate that silently examined less than
+/// it was asked to.
+#[test]
+fn a_since_ref_naming_a_file_is_a_usage_error_not_a_pathspec() {
+    let repo = init_repo();
+    write(&repo.path().join("a.txt"), "x\n");
+    commit_all(repo.path(), "baseline");
+    write(&repo.path().join("a.txt"), "x  \n");
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "a.txt", "."])
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("--since"));
+}
+
+/// Put a `git` on PATH that ignores `-z` and answers with newline-separated
+/// paths. Splitting that on NUL yields one bogus entry holding every path, so
+/// the selection would empty and the gate would pass. prim must refuse
+/// instead. Nothing else can reach this branch: real git always honours `-z`.
+#[cfg(unix)]
+fn repo_with_a_git_shim(diff_output: &str) -> (tempfile::TempDir, tempfile::TempDir) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = init_repo();
+    write(&repo.path().join("a.txt"), "x\n");
+    commit_all(repo.path(), "baseline");
+    write(&repo.path().join("a.txt"), "x  \n");
+    git(repo.path(), &["add", "."]);
+
+    let bin = tempfile::tempdir().unwrap();
+    let shim = bin.path().join("git");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\n\
+             for a in \"$@\"; do\n\
+             \tif [ \"$a\" = rev-parse ]; then printf '%s\\n' '{root}'; exit 0; fi\n\
+             done\n\
+             printf '%s' '{out}'\n",
+            root = repo.path().display(),
+            out = diff_output
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (repo, bin)
+}
+
+#[cfg(unix)]
+#[test]
+fn git_output_that_is_not_nul_separated_is_a_usage_error() {
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        let (repo, bin) = repo_with_a_git_shim("a.txt\nb.txt\n");
+        let path = format!(
+            "{}:{}",
+            bin.path().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+
+        let mut command = prim();
+        command
+            .current_dir(repo.path())
+            .env("PATH", &path)
+            .arg("fmt")
+            .arg("--check");
+        command.args(scope).arg(".").assert().code(2).stderr(
+            predicates::str::contains("NUL-separated").and(predicates::str::contains(scope[0])),
+        );
+    }
+}
+
+/// The guard's escape: no output at all is a legitimate empty selection, not a
+/// broken git, so it must stay a clean exit rather than an error.
+#[cfg(unix)]
+#[test]
+fn empty_git_output_stays_an_empty_selection() {
+    let (repo, bin) = repo_with_a_git_shim("");
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    prim()
+        .current_dir(repo.path())
+        .env("PATH", &path)
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(0);
+}
