@@ -174,7 +174,7 @@ const RULE_FIXTURES: &[RuleFixture] = &[
 #[test]
 fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
     for fixture in RULE_FIXTURES {
-        let strict_diags = lint(fixture.src, true, &[]);
+        let strict_diags = lint(fixture.src, true, &[], None);
         let diag = strict_diags
             .iter()
             .find(|d| d.rule == fixture.rule)
@@ -200,7 +200,7 @@ fn every_active_rule_fires_its_own_fixture_at_the_tier_its_band_places_it_in() {
             fixture.rule
         );
 
-        let floor_diags = lint(fixture.src, false, &[]);
+        let floor_diags = lint(fixture.src, false, &[], None);
         if fixture.floor {
             assert!(
                 floor_diags.iter().any(|d| d.rule == fixture.rule),
@@ -238,7 +238,7 @@ fn rule_fixtures_cover_every_active_rule_exactly_once() {
 #[test]
 fn md025_front_matter_title_is_metadata_not_a_heading() {
     let page = "---\ntitle: FAQ\n---\n\n# FAQ\n\nText.\n";
-    let diags = lint(page, true, &[]);
+    let diags = lint(page, true, &[], None);
     assert!(
         diags.iter().all(|d| d.rule != "MD025"),
         "front-matter title plus one body H1 is a normal page: {diags:?}"

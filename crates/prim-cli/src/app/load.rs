@@ -35,7 +35,13 @@ struct LoadMessage {
 }
 
 enum LoadOutcome {
-    Formatted(FormattedFile),
+    /// Boxed because a `FormattedFile` is a six-tuple carrying a `PathBuf`, a
+    /// `FileKind`, a `Style`, an `MdLintPolicy` and two `String`s, which makes
+    /// it far larger than the other two variants; every `LoadOutcome` would
+    /// otherwise be sized for it. The
+    /// tuple already owns several heap allocations, so one more per formatted
+    /// file costs nothing measurable next to reading and formatting it.
+    Formatted(Box<FormattedFile>),
     Message(LoadMessage),
     Skipped,
 }
@@ -126,7 +132,14 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
         MdLintPolicy::default()
     };
 
-    LoadOutcome::Formatted((file.path, kind, style, markdown_policy, original, formatted))
+    LoadOutcome::Formatted(Box::new((
+        file.path,
+        kind,
+        style,
+        markdown_policy,
+        original,
+        formatted,
+    )))
 }
 
 fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<LoadMessage>, bool) {
@@ -136,7 +149,7 @@ fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<Lo
 
     for outcome in outcomes {
         match outcome {
-            LoadOutcome::Formatted(file) => results.push(file),
+            LoadOutcome::Formatted(file) => results.push(*file),
             LoadOutcome::Message(message) => {
                 had_error |= message.kind == LoadMessageKind::Error;
                 messages.push(message);

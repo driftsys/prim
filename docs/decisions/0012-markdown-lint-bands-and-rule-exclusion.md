@@ -174,8 +174,10 @@ opt-in agrees with dropping it here.
 3. **One rule option prim sets for itself.** prim passes rumdl a `Config` with
    `MD025`'s `front-matter-title` emptied. This is prim choosing its own
    canonical default for a rule it already runs, not a configuration surface a
-   repository can reach: there is still no way for a repository to configure a
-   rule's options.
+   repository can reach: at the time of this decision there was no way at all
+   for a repository to configure a rule's options. AD-0014 later added the one
+   named path — `max_line_length` supplying MD013's `line-length` — and FR-3.3
+   records it; nothing else about this item changed.
 
 4. **A new, subtract-only `.editorconfig` key, `prim_mdlint_disable`.** Resolved
    through the same per-glob cascade as `prim_mdlint_strict`: EditorConfig's
@@ -183,13 +185,24 @@ opt-in agrees with dropping it here.
    section's value replaces a wider section's list rather than merging with it.
    Rule ids match case-insensitively. The key can only remove a rule from the
    tier prim already selected for that path — it can never add a rule prim
-   decided not to run, so a repository cannot invent a stricter dialect of prim,
-   and prim's curated set stays the ceiling. An id that names no rule prim runs
-   in either tier disables nothing; prim reports it on stderr — naming the
-   `.editorconfig` file, line and section that set it, once per run for each
-   section that carries it — and the exit code is unaffected. `prim explain`
-   shows the key with its resolved value and its `.editorconfig` file, line, and
-   section, the same provenance every other resolved setting gets.
+   decided not to run. An id that names no rule prim can run in either tier
+   disables nothing; prim reports it on stderr — naming the `.editorconfig`
+   file, line and section that set it, once per run for each section that
+   carries it — and the exit code is unaffected. `prim explain` shows the key
+   with its resolved value and its `.editorconfig` file, line, and section, the
+   same provenance every other resolved setting gets.
+
+   **Amended by AD-0014.** As first written, this item drew a wider conclusion
+   from the subtract-only key than the key supports: that "a repository cannot
+   invent a stricter dialect of prim, and prim's curated set stays the ceiling."
+   The subtract-only property itself still holds exactly as stated —
+   `prim_mdlint_disable` removes and never adds. The ceiling does not: AD-0014's
+   `prim_mdlint_report_line_length` lets a repository run MD013, a rule neither
+   tier selects, so a repository's active set can now exceed prim's curated
+   tiers by that one rule. What replaces the ceiling is narrower and still
+   meaningful: a repository may select only from rules prim has designed for,
+   one key at a time, and it configures none of their options except through the
+   values FR-3.3 names.
 
 5. **Two escapes already existed and needed no new code, only documentation.**
    rumdl's own inline directives pass through `rumdl_lib::lint` untouched:

@@ -95,10 +95,12 @@ source-code formatter and has **no plugin system**.
   AD-0002.)
 - **FR-3.2a** prim shall also read a small, closed, documented set of namespaced
   `prim_*` keys from the same `.editorconfig` cascade. The current set contains
-  two keys: `prim_mdlint_strict = true|false` (default `false`) for Markdown
-  lint-tier selection, and `prim_mdlint_disable = <rule ids>` (FR-3.2c) for
+  three keys: `prim_mdlint_strict = true|false` (default `false`) for Markdown
+  lint-tier selection, `prim_mdlint_disable = <rule ids>` (FR-3.2c) for
   excluding named Markdown lint rules from the tier selected for a matching
-  path.
+  path, and `prim_mdlint_report_line_length = true|false` (default `false`,
+  FR-3.2d) for reporting Markdown lines longer than the resolved
+  `max_line_length`.
 - **FR-3.2b** Any other `prim_*` key is ignored silently. Unknown custom keys
   must never error, widen the public configuration surface, or interfere with
   standard EditorConfig-key resolution.
@@ -111,14 +113,35 @@ source-code formatter and has **no plugin system**.
   selected for that path and shall never add a rule prim did not already select
   for that tier. A value of `unset` (EditorConfig's own reserved word) or `none`
   shall clear the list rather than name a rule, and shall not be reported as
-  unrecognised. An id that names no rule prim runs in either tier disables
+  unrecognised. An id that names no rule prim can run in either tier disables
   nothing; prim shall report it on stderr, naming the `.editorconfig` file, line
   and section that set it, once per run for each section that carries it,
   without changing the exit code.
+- **FR-3.2d** `prim_mdlint_report_line_length = true` shall select MD013 into
+  whichever Markdown lint tier FR-5.5b already resolved for that path, measured
+  against the `max_line_length` resolved for the same file (80 when unset or
+  `off` — the formatter's own fallback, which treats both the same way), so that
+  for every width prim can wrap to, no `.editorconfig` cascade makes
+  `prim fmt`'s wrap width and `prim lint`'s reported width differ. Two values
+  fall outside that range and are documented rather than reconciled:
+  `max_line_length = 0`, which the formatter treats as one word per line while
+  the rule is clamped to 1, and a value above `u32::MAX`, which the formatter
+  truncates. A file carrying rumdl's own `markdownlint-configure-file` directive
+  is the one exception, and the same escape hatch AD-0012 already documents: it
+  can change MD013's options for that file, the width included, but it cannot
+  select MD013 where this key has not. It resolves through the same per-glob
+  cascade as `prim_mdlint_strict`. It shall not change which tier applies, and
+  `prim_mdlint_disable = MD013` shall remove the rule again like any other.
 - **FR-3.3** prim shall expose no other style configuration (no `prim.toml`, no
-  per-rule flags, and no way for a repository to configure a rule's options).
-  `prim_mdlint_disable` (FR-3.2c) is not an exception: it only ever narrows the
-  rule set prim already selected, never widens it or changes a rule's behaviour.
+  per-rule flags, and no way for a repository to configure a rule's options),
+  with two named exceptions, both feeding MD013 (FR-3.2d) and no other rule:
+  `max_line_length` supplies its `line-length`, and `prim_mdlint_strict`
+  supplies its `headings`. Each is a value a repository already sets for another
+  purpose — the formatter's wrap width, and the lint tier — reused so that the
+  setting and the rule cannot disagree. Neither is a per-rule dial, and no other
+  option of any rule is reachable. `prim_mdlint_disable` (FR-3.2c) is not an
+  exception either: it only ever narrows the rule set prim already selected,
+  never widens it or changes a rule's behaviour.
 - **FR-3.4** prim shall never reorder keys, table entries, or array elements.
 - **FR-3.5** prim shall provide `prim init [PATH]` as a one-time `.editorconfig`
   scaffolder for Markdown lint-tier placement. With no existing `.editorconfig`,
@@ -366,26 +389,43 @@ default, format-in-place action.
     - **Never linted (formatter territory):** MD003-005, MD007, MD009, MD010,
       MD012, MD018-023, MD027-032, MD035, MD037-039, MD046-050, MD055, MD058,
       MD060, MD064, MD065, MD071, MD076, MD077.
-    - **Off in both tiers:** MD013, MD014, MD043, MD044, MD054, MD061, MD063,
-      MD069, MD072 (frontmatter key sorting would violate prim's
-      semantics-preserving guardrail), MD074, MD078, MD079, MD081, MD057
-      (dropped from `ACTIVE_RULES`: whether a link that leaves the file resolves
-      depends on the renderer, so a file-existence check is the wrong question
-      at this layer; see AD-0013), and MD082 (dropped from `ACTIVE_RULES`
-      entirely: absent from markdownlint, opt-in in rumdl, no fix by design, and
-      — measured across six public documentation sites — 569 of 573 findings
-      flag a parent heading immediately followed by a deeper one, an ordinary
-      outline shape rather than an empty section; see AD-0012).
+    - **Off in both tiers:** MD014, MD043, MD044, MD054, MD061, MD063, MD069,
+      MD072 (frontmatter key sorting would violate prim's semantics-preserving
+      guardrail), MD074, MD078, MD079, MD081, MD057 (dropped from
+      `ACTIVE_RULES`: whether a link that leaves the file resolves depends on
+      the renderer, so a file-existence check is the wrong question at this
+      layer; see AD-0013), and MD082 (dropped from `ACTIVE_RULES` entirely:
+      absent from markdownlint, opt-in in rumdl, no fix by design, and —
+      measured across six public documentation sites — 569 of 573 findings flag
+      a parent heading immediately followed by a deeper one, an ordinary outline
+      shape rather than an empty section; see AD-0012).
+    - **Selected by `prim_mdlint_report_line_length` (FR-3.2d), off otherwise:**
+      MD013. It sits outside the tier model — the key decides whether it runs,
+      and the tier decides only whether it examines headings. prim shall set
+      five of its options and expose none of them: `code-blocks = false` and
+      `code-spans = false`, because prim preserves fenced content verbatim
+      (FR-1.6) and keeps an unbreakable inline span on one line (FR-1.1a);
+      `tables = false`, pinned rather than inherited from rumdl, because a table
+      row cannot carry a line break; `line-length` from the resolved
+      `max_line_length`, written to both rumdl's global and the rule's own key
+      so their precedence rule cannot change the answer; and
+      `headings =
+      false` at the floor tier, `true` at the strict tier. A
+      heading is the one construct prim cannot wrap but an author can shorten,
+      which is the strict tier's definition of a finding. The tier used is the
+      one in force after FR-5.5c's file-level override, so the directive moves
+      the heading check with it.
     - **Exit-code implication:** floor-tier findings and strict-tier findings
       alike raise `prim lint`'s exit code to `1`; no Markdown rule emits a
       warning.
-    - **Rule configuration prim owns:** prim passes rumdl a `Config` with one
-      override — MD025's `front-matter-title` option is emptied, so a page's
-      front-matter `title:` is treated as metadata rather than a heading. This
-      is prim choosing its own canonical default for a rule it already runs, not
-      a configuration surface a repository can reach: there is still no way for
-      a repository to configure a rule's options (FR-3.3). See AD-0012 for the
-      evidence behind the choice.
+    - **Rule configuration prim owns:** prim passes rumdl a `Config` with
+      MD025's `front-matter-title` option emptied, so a page's front-matter
+      `title:` is treated as metadata rather than a heading, and — when FR-3.2d
+      selected it — MD013's five options as listed above. These are prim
+      choosing its own canonical defaults for rules it runs, not a configuration
+      surface a repository can reach: there is still no way for a repository to
+      configure a rule's options, save the one named path FR-3.3 records. See
+      AD-0012 for the evidence behind the MD025 choice.
   - **FR-5.5c** _(override surface, story G5)_ A standalone
     `<!-- prim-mdlint-strict: true|false -->` line anywhere in a Markdown file
     (the whole line, once trimmed) overrides FR-5.5b's `.editorconfig`-resolved

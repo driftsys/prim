@@ -336,3 +336,40 @@ fn formats_markdown_holding_whitespace_inside_a_word() {
         "# Title\n\nalpha bra\u{2009}vo charlie\n"
     );
 }
+
+#[test]
+fn publishes_a_line_length_diagnostic_when_the_key_selects_md013() {
+    // FR-3.2d reaches the LSP through the same resolved policy the CLI uses.
+    // Without this, replacing the server's `report_line_length` with `None`
+    // leaves every other test green.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[*.md]\nmax_line_length = 80\nprim_mdlint_report_line_length = true\n",
+    )
+    .unwrap();
+    let uri = format!("file://{}", dir.path().join("doc.md").display());
+    let long = "This prose line is written past the eighty column budget on purpose so that MD013 reports it.\n";
+
+    let messages = run_session(&[
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "markdown", "version": 1, "text": long
+            }}
+        }),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "shutdown"}),
+        json!({"jsonrpc": "2.0", "method": "exit"}),
+    ])
+    .0;
+
+    let publish = find_notification(&messages, "textDocument/publishDiagnostics");
+    let diagnostics = publish["params"]["diagnostics"]
+        .as_array()
+        .expect("diagnostics array");
+    assert!(
+        diagnostics.iter().any(|d| d["code"] == "MD013"),
+        "expected an MD013 diagnostic: {diagnostics:?}"
+    );
+}
