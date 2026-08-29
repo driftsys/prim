@@ -56,16 +56,30 @@ are already left unchanged and reported (FR-6.5). Supporting `utf-8-bom`,
 `charset` is not carried in `Style` (no consumer, no testable application). This
 is a deliberate scope cut, not an oversight.
 
-**`indent` and `max_line_length` — resolved and carried, not yet consumed.**
-Both fields are populated from `.editorconfig` and stored in `Style`, but the
-whitespace-hygiene pass does not consume them. They are available to the
-per-format parsers (FR-1, issues #9–12) when those land. Carrying them now
-avoids an API break later and makes resolution testable at the unit level today.
+**`indent` and `max_line_length` — carried before there was a consumer.** Both
+fields were populated from `.editorconfig` and stored in `Style` while the
+whitespace-hygiene pass, then the only pass, ignored them. They were carried for
+the per-format parsers (FR-1, issues #9–12) on two grounds: adding them to
+`Style` later would have broken its API, and carrying them made resolution
+testable at the unit level immediately. Those parsers have since landed:
+`max_line_length` is consumed by all four structured passes — JSON, TOML, YAML
+and Markdown — and `indent` by JSON, TOML and YAML, and by orphan-file
+diagnostics.
 
-**Per-file resolution; no per-directory cache.** `editorconfig::resolve` is
-called once per file. The `.editorconfig` cascade depends on the file's
-directory path, so caching by directory is possible but not implemented. YAGNI
-applies: profile first, cache only if NFR-4 (5,000 files < 2 s) shows pressure.
+**Per-file resolution, with a per-directory cache added after measurement.**
+Resolution is requested per file rather than per directory (a Markdown file
+requests it twice, once for `Style` and once for its lint policy). Because the
+`.editorconfig` cascade depends only on the file's directory, caching by
+directory was identified as possible but deliberately left out under YAGNI:
+profile first, and cache only if NFR-4 (5,000 files < 2 s) showed pressure.
+`Resolver` now holds that cache, so a directory's cascade is parsed once per
+resolver rather than once per file. That is not one parse per config file per
+run: `build_cascade` re-reads the chain for each distinct directory, and the
+parallel loader gives each worker thread its own resolver. The change was
+measured at about 9 % faster in `--check` mode on a 5,000-file tree with a root
+`.editorconfig`. Only reading and parsing is cached — per-glob sections still
+resolve per file — so output stays byte-identical, which an equivalence test
+against `ec4rs::properties_of` guards.
 
 **Malformed or unreadable `.editorconfig`** — prim falls back to
 `Style::default()` and emits a `ui::warning`. The file is not left unprocessed.
@@ -144,8 +158,10 @@ Any future change to the EditorConfig handling library is isolated to
 likely a pipeline change (prim would need to detect encoding before the UTF-8
 read step). It is not a drop-in field addition.
 
-A per-directory `Style` cache, if ever implemented, belongs in `prim-cli` (I/O
-side). The engine API (`format(kind, source, &Style)`) does not need to change.
+A per-directory cache landed in `prim-cli` (I/O side), where this record
+anticipated it belonged. It caches the parsed cascade rather than `Style`, which
+is still built per file. The engine API (`format(kind, source, &Style)`) did not
+change.
 
 ---
 
