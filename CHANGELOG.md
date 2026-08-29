@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.6.0] (2026-08-29)
+
+### Bug Fixes
+
+- **prim-cli:** pin git's argument and output handling for changed files
+  ([#170]) ([64bc381]), closes [#165], [#167]
+
+### BREAKING CHANGES
+
+- `prim fmt --check` under `--since` or `--staged` now reports
+files it previously skipped without saying so — any path git would C-quote,
+which is every non-ASCII UTF-8 name and every name holding a control character,
+and every path at all when `diff.relative=true` is set and prim runs from a
+subdirectory. A gate that passed on such a repository will now fail until the
+files are formatted. A `<REF>` git cannot resolve as a revision now exits 2
+instead of taking effect as an option or a pathspec, and a `<REF>` that names
+both a branch and a path now resolves to the branch rather than being
+ambiguous. `--since` therefore requires git 2.24 or newer, for
+`--end-of-options`; `--staged` carries no REF and has no such floor.
+
+A path whose bytes are not valid UTF-8 is still dropped (#168): git's output is
+read through `String::from_utf8_lossy`, which is unchanged here. That leaves
+#164's fail-open reachable on a filesystem permitting such names, so #164 stays
+open until #168 lands.
+
+[0.6.0]: https://github.com/driftsys/prim/compare/v0.5.0...v0.6.0
+[64bc381]: https://github.com/driftsys/prim/commit/64bc381
+[#170]: https://github.com/driftsys/prim/issues/170
+[#165]: https://github.com/driftsys/prim/issues/165
+[#167]: https://github.com/driftsys/prim/issues/167
+
 ## [0.5.0] (2026-08-29)
 
 ### Documentation
