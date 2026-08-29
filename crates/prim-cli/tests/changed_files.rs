@@ -388,3 +388,302 @@ fn changed_file_queries_ignore_inherited_git_repo_env() {
             predicates::str::contains("working tree").or(predicates::str::contains("repository")),
         ));
 }
+
+fn index_content(repo: &Path, path: &str) -> String {
+    let output = git_command(repo, &["show", &format!(":{path}")])
+        .output()
+        .unwrap_or_else(|err| panic!("git show :{path} failed to start: {err}"));
+    assert!(output.status.success(), "git show :{path} failed");
+    String::from_utf8(output.stdout).expect("index blob is UTF-8")
+}
+
+/// One staged file holding trailing whitespace, committed clean first so that
+/// `git diff --cached` reports it.
+fn repo_with_one_drifting_staged_file() -> tempfile::TempDir {
+    let repo = init_repo();
+    write(&repo.path().join("staged.txt"), "staged\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("staged.txt"), "staged  \n");
+    git(repo.path(), &["add", "staged.txt"]);
+    repo
+}
+
+fn stderr_of(assert: assert_cmd::assert::Assert) -> String {
+    String::from_utf8(assert.get_output().stderr.clone()).expect("stderr is UTF-8")
+}
+
+/// Issue #159: `--staged` selects paths from the index, but `fmt` writes the
+/// working tree. Re-staging is deliberately left to the hook runner (prim
+/// cannot do it safely for a partially staged file), so the write mode has to
+/// report what it wrote.
+///
+/// The whole line is asserted, including the `warning:` prefix `ui::warning`
+/// adds. Anything appended to it — a staleness claim, a `git add` suggestion —
+/// violates FR-4.2c, and a `contains` assertion would not see it.
+#[test]
+fn staged_write_reports_what_it_wrote_and_leaves_the_index_alone() {
+    let repo = repo_with_one_drifting_staged_file();
+
+    let assertion = prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--staged", "."])
+        .assert()
+        .code(0)
+        // Human output belongs on stderr; a `--format` pipeline reads stdout.
+        .stdout(predicates::str::is_empty());
+
+    assert_eq!(
+        stderr_of(assertion),
+        "warning: 1 file was formatted in the working tree, but --staged does \
+         not update the index. Run git diff to see what is not staged.\n",
+        "the whole warning, verbatim"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("staged.txt")).unwrap(),
+        "staged\n",
+        "the working tree is formatted"
+    );
+    assert_eq!(
+        index_content(repo.path(), "staged.txt"),
+        "staged  \n",
+        "the index is deliberately left alone"
+    );
+}
+
+#[test]
+fn staged_write_reports_exactly_one_warning_for_the_whole_run() {
+    let repo = init_repo();
+    write(&repo.path().join("one.txt"), "one\n");
+    write(&repo.path().join("two.txt"), "two\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("one.txt"), "one  \n");
+    write(&repo.path().join("two.txt"), "two  \n");
+    git(repo.path(), &["add", "."]);
+
+    let stderr = stderr_of(
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--staged", "."])
+            .assert()
+            .code(0),
+    );
+
+    assert!(
+        stderr.contains("2 files were formatted in the working tree"),
+        "plural phrasing, got: {stderr}"
+    );
+    // Count the prefix, not the sentence: an extra per-file warning line
+    // repeats `warning:` without necessarily repeating the tail.
+    assert_eq!(
+        stderr.matches("warning:").count(),
+        1,
+        "one warning per run, not one per file, got: {stderr}"
+    );
+}
+
+/// The count is files prim wrote, not files `--staged` selected: both files
+/// here are staged, only one of them drifts.
+#[test]
+fn staged_write_counts_only_the_files_it_wrote() {
+    let repo = init_repo();
+    write(&repo.path().join("drifting.txt"), "drifting\n");
+    write(&repo.path().join("clean.txt"), "clean\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("drifting.txt"), "drifting  \n");
+    write(&repo.path().join("clean.txt"), "still clean\n");
+    git(repo.path(), &["add", "."]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--staged", "."])
+        .assert()
+        .code(0)
+        .stderr(predicates::str::contains(
+            "1 file was formatted in the working tree",
+        ));
+}
+
+/// The case the whole design rests on. The index holds canonical content the
+/// user staged; the working tree carries an extra unstaged edit that drifts.
+/// prim formats the working tree, so the warning fires — but the index was
+/// never stale, so the message must not say it was, and must not tell the user
+/// to run `git add`, which would stage the remainder they kept out.
+#[test]
+fn staged_write_says_nothing_about_an_index_it_never_read() {
+    let repo = init_repo();
+    write(&repo.path().join("partial.txt"), "old\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("partial.txt"), "staged\n");
+    git(repo.path(), &["add", "partial.txt"]);
+    write(&repo.path().join("partial.txt"), "staged\nunstaged  \n");
+
+    let stderr = stderr_of(
+        prim()
+            .current_dir(repo.path())
+            .args(["fmt", "--staged", "."])
+            .assert()
+            .code(0),
+    );
+
+    assert!(
+        stderr.contains("1 file was formatted in the working tree"),
+        "the warning fires on the write, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("stale"),
+        "prim never read the staged blob, so it cannot call it stale: {stderr}"
+    );
+    assert!(
+        !stderr.contains("git add"),
+        "git add here would stage the unstaged remainder: {stderr}"
+    );
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("partial.txt")).unwrap(),
+        "staged\nunstaged\n",
+        "the working tree is formatted"
+    );
+    assert_eq!(
+        index_content(repo.path(), "partial.txt"),
+        "staged\n",
+        "the staged blob is untouched, and was canonical all along"
+    );
+}
+
+#[test]
+fn staged_write_stays_silent_when_it_formatted_nothing() {
+    let repo = init_repo();
+    write(&repo.path().join("staged.txt"), "before\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("staged.txt"), "after\n");
+    git(repo.path(), &["add", "staged.txt"]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--staged", "."])
+        .assert()
+        .code(0)
+        .stderr(predicates::str::is_empty());
+}
+
+#[test]
+fn staged_check_never_warns_about_the_index() {
+    let repo = repo_with_one_drifting_staged_file();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("does not update the index").not());
+}
+
+/// `fmt --diff` is a preview: it writes nothing, so there is no stale index to
+/// report. The warning must be gated on the write actually happening, not on
+/// the file having drifted.
+#[test]
+fn staged_diff_never_warns_about_the_index() {
+    let repo = repo_with_one_drifting_staged_file();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--diff", "--staged", "."])
+        .assert()
+        .code(0)
+        .stderr(predicates::str::contains("does not update the index").not())
+        // Positive control: without this, an empty selection would satisfy
+        // every other assertion in this test.
+        .stdout(predicates::str::contains("staged.txt"));
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("staged.txt")).unwrap(),
+        "staged  \n",
+        "--diff wrote nothing, so nothing can be re-staged"
+    );
+}
+
+/// `fix --diff` gates on pending findings (AD-0007 §4) and so exits `1`, but
+/// it writes no more than `fmt --diff` does.
+#[test]
+fn staged_fix_diff_never_warns_about_the_index() {
+    let repo = repo_with_one_drifting_staged_file();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fix", "--diff", "--staged", "."])
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("does not update the index").not());
+
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("staged.txt")).unwrap(),
+        "staged  \n",
+        "--diff wrote nothing, so nothing can be re-staged"
+    );
+}
+
+#[test]
+fn staged_fix_warns_and_leaves_the_index_alone_like_staged_fmt() {
+    let repo = repo_with_one_drifting_staged_file();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fix", "--staged", "."])
+        .assert()
+        .code(0)
+        .stderr(
+            predicates::str::contains("1 file was formatted in the working tree").and(
+                predicates::str::contains("Run git diff to see what is not staged"),
+            ),
+        );
+
+    assert_eq!(
+        index_content(repo.path(), "staged.txt"),
+        "staged  \n",
+        "fix does not re-stage either"
+    );
+}
+
+/// `prim [PATH]...` is the permanent alias for `prim fmt [PATH]...`, so the
+/// warning has to reach the form most hooks are written in.
+#[test]
+fn bare_alias_staged_write_warns_like_fmt_staged() {
+    let repo = repo_with_one_drifting_staged_file();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["--staged", "."])
+        .assert()
+        .code(0)
+        .stderr(predicates::str::contains(
+            "Run git diff to see what is not staged",
+        ));
+}
+
+/// The warning is scoped to `--staged`, the flag whose whole purpose is the
+/// index. `--since` is a two-way diff and does report staged paths as well
+/// (FR-4.2b), so it can leave the index holding unformatted content too, but
+/// it never claims to
+/// describe a pending commit — issue #159 is about the flag that does. This
+/// pins the scoping: an unstaged-only `--since` write says nothing.
+#[test]
+fn since_write_never_warns_about_the_index() {
+    let repo = init_repo();
+    write(&repo.path().join("tracked.txt"), "tracked\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("tracked.txt"), "tracked  \n");
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--since", "HEAD", "."])
+        .assert()
+        .code(0)
+        .stderr(predicates::str::contains("does not update the index").not());
+}

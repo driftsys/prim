@@ -90,7 +90,13 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
   uses the plain two-way `git diff <REF>` semantics here — no merge-base (`...`)
   comparison.
 - **`--staged`** — limit discovery to the paths `git diff --name-only --cached`
-  reports: files staged in the git index relative to `HEAD`.
+  reports: files staged in the git index relative to `HEAD`. It chooses paths
+  only: a write mode still writes the working tree and never touches the index,
+  so prim warns on stderr when it writes under `--staged` and leaves re-staging
+  to the hook runner (FR-4.2c, FR-4.2d). The warning reports what prim wrote,
+  not what the index holds — prim never reads the staged blob — and points at
+  `git diff`, where the unstaged result shows up. It does not raise the exit
+  code.
 - **Changed-file filters** — `--since` and `--staged` are mutually exclusive.
   They compose by intersection with `--check`, `--diff`, `lint`, `fix`, explicit
   path arguments, `.primignore`, `--exclude`, `--no-ignore`, and
