@@ -466,3 +466,29 @@ fn init_reports_an_unreadable_ancestor_editorconfig() {
         .success()
         .stderr(predicates::str::contains(config.display().to_string()));
 }
+
+// `prim init` owns the `.editorconfig` in its target directory — it is the
+// file being written or merged, not one the directory inherits. An unreadable
+// one there is that command's own business (it fails the read it needs), and
+// reporting it as an unreadable *ancestor* would be wrong.
+#[cfg(unix)]
+#[test]
+fn init_does_not_report_its_own_target_as_an_unreadable_ancestor() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let target = tempfile::tempdir().unwrap();
+    let own = target.path().join(".editorconfig");
+    fs::write(&own, "[*]\nindent_size = 4\n").unwrap();
+    fs::set_permissions(&own, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&own).is_ok() {
+        return;
+    }
+
+    let output = prim().arg("init").arg(target.path()).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains(&format!("{}: ignoring unreadable", own.display())),
+        "prim init must not call the file it owns an unreadable ancestor\nstderr:\n{stderr}"
+    );
+}

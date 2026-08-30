@@ -134,7 +134,7 @@ fn an_unreadable_ancestor_editorconfig_is_reported_by_explain() {
     fs::create_dir(&inner).unwrap();
     let doc = inner.join("doc.md");
     fs::write(&doc, "text\n").unwrap();
-    let Some(_config) = unreadable_ancestor(root.path()) else {
+    let Some(config) = unreadable_ancestor(root.path()) else {
         return;
     };
 
@@ -143,7 +143,10 @@ fn an_unreadable_ancestor_editorconfig_is_reported_by_explain() {
         .arg(&doc)
         .assert()
         .success()
-        .stderr(predicates::str::contains(".editorconfig"));
+        .stderr(predicates::str::contains(format!(
+            "{}: ignoring unreadable .editorconfig",
+            config.display()
+        )));
 }
 
 #[cfg(unix)]
@@ -153,7 +156,7 @@ fn an_unreadable_ancestor_editorconfig_is_reported_while_formatting() {
     let inner = root.path().join("inner");
     fs::create_dir(&inner).unwrap();
     fs::write(inner.join("doc.md"), "text\n").unwrap();
-    let Some(_config) = unreadable_ancestor(root.path()) else {
+    let Some(config) = unreadable_ancestor(root.path()) else {
         return;
     };
 
@@ -161,7 +164,10 @@ fn an_unreadable_ancestor_editorconfig_is_reported_while_formatting() {
         .arg(&inner)
         .assert()
         .success()
-        .stderr(predicates::str::contains(".editorconfig"));
+        .stderr(predicates::str::contains(format!(
+            "{}: ignoring unreadable .editorconfig",
+            config.display()
+        )));
 }
 
 #[cfg(unix)]
@@ -270,4 +276,190 @@ fn an_unreadable_ancestor_is_reported_as_unreadable_not_malformed() {
         .stderr(predicates::str::contains(
             "ignoring unreadable .editorconfig",
         ));
+}
+
+// The load-bearing property of #153, and the one the earlier tests all
+// missed: reporting a skipped file must not change what resolves. A file
+// `ec4rs` could not open drops only itself; every readable config in the
+// cascade still applies. That is what separates this from the
+// section-iteration warning beside it, which drops the whole cascade to
+// canonical style (AD-0002).
+#[cfg(unix)]
+#[test]
+fn an_unreadable_ancestor_does_not_discard_the_readable_ones() {
+    let outer = tempfile::tempdir().unwrap();
+    let readable = outer.path().join(".editorconfig");
+    fs::write(&readable, "[*]\nmax_line_length = 120\n").unwrap();
+    let middle = outer.path().join("middle");
+    fs::create_dir(&middle).unwrap();
+    let inner = middle.join("inner");
+    fs::create_dir(&inner).unwrap();
+    let doc = inner.join("doc.md");
+    fs::write(&doc, "text\n").unwrap();
+    let Some(_bad) = unreadable_ancestor(&middle) else {
+        return;
+    };
+
+    prim()
+        .arg("explain")
+        .arg(&doc)
+        .assert()
+        .success()
+        // Still 120, still attributed to the file that set it.
+        .stdout(predicates::str::contains("max_line_length"))
+        .stdout(predicates::str::contains("120"))
+        .stdout(predicates::str::contains(readable.display().to_string()));
+}
+
+// `ec4rs` skips an unopenable file and keeps climbing, so the probe must too:
+// stopping at the first one would leave the second unnamed while it still
+// affects resolution.
+#[cfg(unix)]
+#[test]
+fn every_unreadable_ancestor_in_the_climb_is_named() {
+    let outer = tempfile::tempdir().unwrap();
+    let middle = outer.path().join("middle");
+    fs::create_dir(&middle).unwrap();
+    let inner = middle.join("inner");
+    fs::create_dir(&inner).unwrap();
+    let doc = inner.join("doc.md");
+    fs::write(&doc, "text\n").unwrap();
+    let (Some(high), Some(low)) = (
+        unreadable_ancestor(outer.path()),
+        unreadable_ancestor(&middle),
+    ) else {
+        return;
+    };
+
+    let output = prim().arg("explain").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    for path in [&high, &low] {
+        assert_eq!(
+            stderr.matches(&path.display().to_string()).count(),
+            1,
+            "{} must be named exactly once\nstderr:\n{stderr}",
+            path.display()
+        );
+    }
+}
+
+// The dedup key is the path. A global one-shot would let the first bad file
+// suppress every other one for the whole run.
+#[cfg(unix)]
+#[test]
+fn two_unreadable_ancestors_are_each_named_once_across_many_files() {
+    let outer = tempfile::tempdir().unwrap();
+    let middle = outer.path().join("middle");
+    fs::create_dir(&middle).unwrap();
+    for sub in ["a", "b", "c"] {
+        let dir = middle.join(sub);
+        fs::create_dir(&dir).unwrap();
+        for name in ["one.md", "two.md"] {
+            fs::write(dir.join(name), "text\n").unwrap();
+        }
+    }
+    let (Some(high), Some(low)) = (
+        unreadable_ancestor(outer.path()),
+        unreadable_ancestor(&middle),
+    ) else {
+        return;
+    };
+
+    let output = prim().arg(&middle).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    for path in [&high, &low] {
+        // Count the cascade report specifically: the walk also meets
+        // `middle/.editorconfig` as a file it cannot read, which is a
+        // separate, correct message about the same path.
+        let report = format!("{}: ignoring unreadable", path.display());
+        assert_eq!(
+            stderr.matches(&report).count(),
+            1,
+            "{} must be named once per run, not once per directory or thread\nstderr:\n{stderr}",
+            path.display()
+        );
+    }
+}
+
+// The file's own directory counts for resolution — unlike `prim init`, which
+// owns the file it is about to write.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_editorconfig_beside_the_file_is_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = dir.path().join("doc.md");
+    fs::write(&doc, "text\n").unwrap();
+    let Some(config) = unreadable_ancestor(dir.path()) else {
+        return;
+    };
+
+    prim()
+        .arg("explain")
+        .arg(&doc)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(config.display().to_string()));
+}
+
+// `ec4rs` absolutizes a relative probe against the working directory before
+// it climbs, so the probe has to as well or it walks a different ancestry.
+// `prim` invoked on a relative path is the ordinary case, not an edge one.
+#[cfg(unix)]
+#[test]
+fn a_relative_invocation_still_names_the_unreadable_ancestor() {
+    let outer = tempfile::tempdir().unwrap();
+    let inner = outer.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    fs::write(inner.join("doc.md"), "text\n").unwrap();
+    let Some(config) = unreadable_ancestor(outer.path()) else {
+        return;
+    };
+
+    prim()
+        .current_dir(outer.path())
+        .arg("explain")
+        .arg("inner/doc.md")
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(config.display().to_string()));
+}
+
+// The existence guard: an absent `.editorconfig` is the ordinary case, and
+// every ancestor up to the filesystem root is one. Without the guard prim
+// would warn about `/`, `/var`, and everything between on every run.
+#[test]
+fn a_tree_with_no_editorconfig_says_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("doc.md"), "# hi\n").unwrap();
+
+    prim()
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("ignoring").not());
+}
+
+// AD-0002 names two shapes that fail before the first section header: an
+// invalid header, and an invalid line ahead of one.
+#[test]
+fn an_invalid_line_before_the_first_header_is_reported_as_malformed() {
+    let root = tempfile::tempdir().unwrap();
+    let inner = root.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    let doc = inner.join("doc.md");
+    fs::write(&doc, "text\n").unwrap();
+    let config = root.path().join(".editorconfig");
+    fs::write(&config, "junk line without equals\n[*]\nindent_size = 4\n").unwrap();
+
+    prim()
+        .arg("explain")
+        .arg(&doc)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "{}: ignoring malformed .editorconfig",
+            config.display()
+        )));
 }
