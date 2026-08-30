@@ -55,8 +55,13 @@ merge-base SHA included. prim fences the REF so git reads it only as a revision,
 so a name that is also a path in the tree — a `docs` branch beside a `docs/`
 directory — resolves to the branch rather than being ambiguous, and a REF git
 cannot resolve exits `2` instead of narrowing the file set. The fencing uses
-`--end-of-options`, so `--since` requires git 2.24 or newer; `--staged` carries
-no REF and has no such floor.
+`--end-of-options`, so `--since` requires git 2.24 or newer. Both flags also ask
+git to exclude deletions, which needs git 1.8.5 or newer.
+
+Either flag exits `2` if git reports a changed path that is not on disk and that
+git will still materialise — a file staged as a modification and then removed
+from the working tree, for instance. A sparse checkout, a `skip-worktree` entry
+and a dangling symlink are absent by design and do not raise it.
 
 Locally the same filter formats rather than checks:
 

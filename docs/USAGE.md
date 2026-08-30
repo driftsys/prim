@@ -110,9 +110,10 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 - **Changed-file filters** — `--since` and `--staged` are mutually exclusive.
   They compose by intersection with `--check`, `--diff`, `lint`, `fix`, explicit
   path arguments, `.primignore`, `--exclude`, `--no-ignore`, and
-  `--no-primignore`. Deleted paths reported by git are skipped silently, and
-  both flags require the current working directory to be inside a git working
-  tree.
+  `--no-primignore`. Paths git reports as deletions are skipped silently; any
+  other path git reports that prim cannot find on disk is a usage error (exit
+  `2`), not a silent skip, and both flags require the current working directory
+  to be inside a git working tree.
 - **`fmt --diff`** — preview pending changes without writing; always exits `0`
   (`--check` is the CI gate).
 - **`fmt --check-idempotence`** — a formatter self-check: prim formats each

@@ -267,10 +267,9 @@ source-code formatter and has **no plugin system**.
   staged and unstaged changes, with no merge-base (`...`) comparison. `--staged`
   uses `git diff --name-only --cached` semantics: paths staged in the index
   relative to `HEAD`. Both intersect with FR-4.2/4.2a/4.3/4.4/4.5 filtering
-  rather than replacing it, silently drop deleted paths that no longer exist on
-  disk, and shall raise a usage error (exit `2`) if git is unavailable, the
-  current working directory is not inside a git working tree, or `<REF>` is
-  invalid.
+  rather than replacing it, silently drop paths git reports as deletions, and
+  shall raise a usage error (exit `2`) if git is unavailable, the current
+  working directory is not inside a git working tree, or `<REF>` is invalid.
 - **FR-4.2c** When `--staged` selects the file set and prim writes at least one
   file, prim shall emit exactly one warning on stderr, reporting how many files
   it wrote to the working tree and that `--staged` does not update the index
@@ -296,12 +295,24 @@ source-code formatter and has **no plugin system**.
   `2`), rather than resolve an empty file set, when git reports output that is
   not NUL-separated. Output that is empty is a legitimately empty selection and
   shall stay a clean run.
+
 - **FR-4.2f** No `<REF>` shall reach git as anything but a revision. prim shall
   exit `2` for a `<REF>` git will not resolve, including one beginning with `-`
   (#167), one naming an existing file, and `--` itself, and shall never let such
   a `<REF>` take effect as a git option or as a pathspec. `--since` therefore
   requires git 2.24 or newer, which is when `--end-of-options` reached the
   revision parser.
+- **FR-4.2g** prim shall ask git for the status of each changed path and shall
+  classify every one before passing over any (#169, AD-0015). A path that
+  resolves on disk shall be selected whatever its status, so a staged deletion
+  of a file still present is still formatted. A path that is absent shall be
+  passed over in silence when git reports it as a deletion, when something other
+  than a regular file is at it, or when the index will not materialise it —
+  `skip-worktree`, which is how sparse checkout is implemented, or
+  `assume-unchanged`. A path that is absent, tracked, and of a type prim owns
+  shall raise a usage error (exit `2`) within the paths prim was pointed at. A
+  path git reports but does not track shall raise a usage error wherever prim
+  was pointed, because no repository state produces one.
 - **FR-4.3** prim shall process explicit file/directory path arguments.
 - **FR-4.4** prim shall respect a committed `.primignore` (gitignore syntax) for
   every path it is given, whether reached by a directory walk or named on the

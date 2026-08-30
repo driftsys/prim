@@ -5,6 +5,7 @@
 //! end-to-end test of one runs only on Linux, and the wiring would otherwise
 //! be unguarded on the machines prim is developed on (#168).
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// Rebuild a path from the raw bytes git reported.
@@ -19,7 +20,7 @@ use std::path::PathBuf;
 /// cannot represent. There a path is Unicode, so prim refuses rather than
 /// inventing one.
 #[cfg(unix)]
-fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+pub(super) fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
     use std::os::unix::ffi::OsStrExt;
 
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
@@ -38,29 +39,6 @@ fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
 #[cfg_attr(unix, allow(dead_code, reason = "unix reaches this only from tests"))]
 fn utf8_path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
     std::str::from_utf8(bytes).ok().map(PathBuf::from)
-}
-
-/// The paths in one `git diff --name-only -z` answer.
-///
-/// Separate from [`ChangedFiles::resolve`] so the decoding is reachable from a
-/// unit test: a filename that is not valid UTF-8 cannot be created on APFS or
-/// HFS+, so an end-to-end test of one only runs on Linux, and the wiring would
-/// otherwise be unguarded on the machines this is developed on.
-///
-/// `Err` holds the offending entry, rendered lossily, when one cannot be
-/// represented as a path on this platform — the user needs to know which file
-/// to rename.
-pub(super) fn relative_paths(output: &[u8]) -> Result<Vec<PathBuf>, String> {
-    output
-        // `-z` terminates every entry, so the split leaves a trailing empty
-        // one. Joining that onto the repository root would put the root itself
-        // into the selection.
-        .split(|byte| *byte == 0)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| {
-            path_from_bytes(entry).ok_or_else(|| String::from_utf8_lossy(entry).into_owned())
-        })
-        .collect()
 }
 
 /// The repository root `git rev-parse --show-toplevel` reported. It is a path
@@ -89,10 +67,92 @@ pub(super) fn trim_line_terminator(bytes: &[u8]) -> &[u8] {
     rest
 }
 
+/// One record of `git diff --name-status --no-renames -z`: the status letter
+/// git gave the path, and the path itself.
+///
+/// Asking for the status rather than filtering deletions out is what lets the
+/// caller classify every reported path before excusing any. `--diff-filter=d`
+/// hid deletions instead, which both dropped a staged deletion of a file that
+/// still exists and drifts, and left every other absence indistinguishable
+/// (#169).
+#[derive(Debug)]
+pub(super) struct DiffEntry {
+    /// git reported the path as deleted, which FR-4.2b has always allowed prim
+    /// to pass over in silence when it is really gone.
+    pub(super) is_deletion: bool,
+    pub(super) path: PathBuf,
+}
+
+/// `Err` holds the offending field, rendered lossily, when a path cannot be
+/// represented on this platform, or when git's records do not pair up.
+pub(super) fn diff_entries(output: &[u8]) -> Result<Vec<DiffEntry>, String> {
+    let mut fields = output.split(|byte| *byte == 0).filter(|f| !f.is_empty());
+    let mut entries = Vec::new();
+
+    while let Some(status) = fields.next() {
+        let Some(path) = fields.next() else {
+            return Err(format!(
+                "a status with no path: {}",
+                String::from_utf8_lossy(status)
+            ));
+        };
+        let path =
+            path_from_bytes(path).ok_or_else(|| String::from_utf8_lossy(path).into_owned())?;
+
+        entries.push(DiffEntry {
+            // `--no-renames` decomposes a rename into a delete plus an add, so
+            // a status is one letter, optionally followed by a similarity
+            // score prim does not read.
+            is_deletion: status.first() == Some(&b'D'),
+            path,
+        });
+    }
+
+    Ok(entries)
+}
+
+pub(super) struct IndexEntries {
+    /// Every path the index tracks. A reported path missing from this set is
+    /// not a repository state at all — git named something it does not have,
+    /// which means prim misread git's output.
+    pub(super) tracked: HashSet<PathBuf>,
+    /// The subset git will not put in the working tree, so absent on purpose.
+    pub(super) not_materialised: HashSet<PathBuf>,
+}
+
+/// Both answers from one `git ls-files -v -z --full-name -- :/`.
+///
+/// `S` is skip-worktree, which is how sparse checkout is implemented, and a
+/// lowercase tag is assume-unchanged. Either means the path is absent by
+/// design rather than because prim failed to resolve it (#169).
+pub(super) fn index_entries(output: &[u8]) -> IndexEntries {
+    let mut tracked = HashSet::new();
+    let mut not_materialised = HashSet::new();
+
+    for entry in output.split(|byte| *byte == 0) {
+        if entry.len() < 3 || entry[1] != b' ' {
+            continue;
+        }
+        let Some(path) = path_from_bytes(&entry[2..]) else {
+            continue;
+        };
+
+        if entry[0] == b'S' || entry[0].is_ascii_lowercase() {
+            not_materialised.insert(path.clone());
+        }
+        tracked.insert(path);
+    }
+
+    IndexEntries {
+        tracked,
+        not_materialised,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        path_from_bytes, relative_paths, repo_root_from_bytes, trim_line_terminator,
+        diff_entries, index_entries, path_from_bytes, repo_root_from_bytes, trim_line_terminator,
         utf8_path_from_bytes,
     };
     use std::path::{Path, PathBuf};
@@ -153,27 +213,8 @@ mod tests {
     /// The wiring, not just the leaf: this is the step that decodes what git
     /// reported, and on APFS no end-to-end test can reach it.
     #[cfg(unix)]
-    #[test]
-    fn every_diff_entry_keeps_its_bytes() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let paths = relative_paths(b"caf\xe9.txt\0plain.txt\0").expect("unix paths decode");
-
-        assert_eq!(paths.len(), 2, "the trailing NUL must not add an entry");
-        assert_eq!(paths[0].as_os_str().as_bytes(), b"caf\xe9.txt");
-        assert_eq!(paths[1].as_os_str().as_bytes(), b"plain.txt");
-    }
-
     /// An empty entry would join to the repository root and select the whole
     /// tree's root directory.
-    #[test]
-    fn empty_entries_never_become_paths() {
-        assert!(relative_paths(b"").expect("no entries").is_empty());
-
-        let paths = relative_paths(b"a.txt\0\0").expect("one entry");
-        assert_eq!(paths, vec![PathBuf::from("a.txt")]);
-    }
-
     /// Where filenames are Unicode, output prim cannot decode is output it
     /// cannot trust — FR-4.2e requires a usage error rather than a dropped
     /// path, and this is the decode that decides it.
@@ -194,5 +235,60 @@ mod tests {
         let root = repo_root_from_bytes(b"/tmp/caf\xe9\n").expect("unix paths decode");
 
         assert_eq!(root.as_os_str().as_bytes(), b"/tmp/caf\xe9");
+    }
+
+    /// `git ls-files -v -z` records are `<tag><space><path>`, NUL-terminated.
+    /// `S` is skip-worktree, which is how sparse checkout is implemented, and
+    /// a lowercase tag is assume-unchanged. `H` is materialised and must not
+    /// `S` is skip-worktree, a lowercase tag is assume-unchanged, and `H` is
+    /// materialised. Every record is tracked either way.
+    #[test]
+    fn the_index_answer_separates_tracked_from_not_materialised() {
+        let index = index_entries(b"S drop/b.txt\0H keep/a.txt\0h assumed.txt\0");
+
+        assert!(index.not_materialised.contains(Path::new("drop/b.txt")));
+        assert!(index.not_materialised.contains(Path::new("assumed.txt")));
+        assert!(!index.not_materialised.contains(Path::new("keep/a.txt")));
+        assert_eq!(index.not_materialised.len(), 2);
+        assert_eq!(index.tracked.len(), 3);
+    }
+
+    /// The status is what lets the caller tell a deletion from every other
+    /// absence, so it has to survive parsing.
+    #[test]
+    fn a_diff_record_carries_its_status_and_its_path() {
+        let entries = diff_entries(b"M\0kept.md\0D\0gone.md\0").expect("well-formed");
+
+        assert_eq!(entries.len(), 2);
+        assert!(!entries[0].is_deletion);
+        assert_eq!(entries[0].path, PathBuf::from("kept.md"));
+        assert!(entries[1].is_deletion);
+        assert_eq!(entries[1].path, PathBuf::from("gone.md"));
+    }
+
+    #[test]
+    fn a_diff_record_missing_its_path_is_refused() {
+        assert!(diff_entries(b"M\0kept.md\0D\0").is_err());
+        assert!(diff_entries(b"").expect("no records").is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_diff_record_keeps_a_path_that_is_not_valid_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let entries = diff_entries(b"M\0caf\xe9.txt\0").expect("unix paths decode");
+
+        assert_eq!(entries[0].path.as_os_str().as_bytes(), b"caf\xe9.txt");
+    }
+
+    #[test]
+    fn a_malformed_ls_files_record_is_ignored_rather_than_trusted() {
+        assert!(index_entries(b"").tracked.is_empty());
+        assert!(index_entries(b"S\0").tracked.is_empty(), "no separator");
+        assert!(
+            index_entries(b"SX path\0").tracked.is_empty(),
+            "wrong separator"
+        );
     }
 }
