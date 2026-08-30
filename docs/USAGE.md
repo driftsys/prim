@@ -62,6 +62,13 @@ for removal in v2.0 — the bare `fmt` alias itself is not deprecated.
 Warnings never raise the exit code; only errors do. A gate that was pointed only
 at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 
+These three are the whole contract. An argument that is not valid UTF-8 is
+carried rather than fatal, and a panic inside the formatter is caught per file:
+that file is reported, left byte-for-byte unchanged, and the run carries on to
+the next one, ending at `2`. Under `--stdin-filepath` your buffer is echoed back
+unchanged rather than lost, and the LSP returns no edits and keeps the session.
+A panic also prints its own message, which is what to include in a bug report.
+
 ## Operating modes
 
 - **`fmt` (default)** — format the given files in place.

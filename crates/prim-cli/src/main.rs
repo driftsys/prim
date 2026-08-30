@@ -10,6 +10,7 @@ mod diff;
 mod discover;
 mod editorconfig;
 mod explain;
+mod formatting;
 mod init;
 mod lsp;
 mod mdlint_policy;
@@ -22,7 +23,9 @@ mod write;
 use cli::{Cli, Verb};
 
 fn main() {
-    let (args, verb_injected) = argv::inject_default_verb(std::env::args().collect());
+    // `args_os`, not `args`: the latter panics on an argument that is not
+    // valid UTF-8, which took prim to exit 101 (#173).
+    let (args, verb_injected) = argv::inject_default_verb(std::env::args_os().collect());
     let cli = Cli::parse_from(args);
 
     // Colour policy (clig.dev): --color wins; auto honors NO_COLOR and keys

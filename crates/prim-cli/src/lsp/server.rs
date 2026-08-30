@@ -171,16 +171,19 @@ impl Server {
         };
 
         let style = self.resolver.resolve(&path);
-        match prim_fmt::format(kind, text, &style) {
-            Ok(formatted) if &formatted == text => json!([]),
-            Ok(formatted) => {
+        match crate::formatting::contained(|| prim_fmt::format(kind, text, &style)) {
+            // No edits, and the session survives: an editor holding the
+            // buffer is the last place a panic should take the process down.
+            Err(_) => json!([]),
+            Ok(Ok(formatted)) if &formatted == text => json!([]),
+            Ok(Ok(formatted)) => {
                 let edit = TextEdit {
                     range: full_document_range(text),
                     new_text: formatted,
                 };
                 serde_json::to_value([edit]).unwrap_or_else(|_| json!([]))
             }
-            Err(_) => json!([]),
+            Ok(Err(_)) => json!([]),
         }
     }
 }

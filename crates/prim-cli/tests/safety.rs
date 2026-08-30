@@ -249,3 +249,57 @@ fn init_declines_a_symlinked_editorconfig() {
         "and must not write through it either"
     );
 }
+
+// #173: `std::env::args()` panics on an argument that is not valid UTF-8, so
+// every entry point carrying a path exited 101 — outside FR-5.6's 0/1/2
+// contract. A hook of the shape `prim fmt "$@"`, which both shipped recipes
+// use, hit it. The exit code matters more than which of 0/1/2 it is: 101 is
+// not an answer any caller can interpret.
+#[cfg(unix)]
+#[test]
+fn an_undecodable_argument_does_not_panic_on_any_entry_point() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let undecodable = || OsString::from_vec(vec![0xE9, b'b', b'a', b'd', b'.', b't', b'x', b't']);
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("doc.md"), "# hi\n").unwrap();
+
+    let cases: Vec<(Vec<&str>, Vec<OsString>)> = vec![
+        (vec!["fmt", "--check"], vec![undecodable()]),
+        (vec!["explain"], vec![undecodable()]),
+        (vec!["lint"], vec![undecodable()]),
+        (
+            vec!["fmt", "--exclude"],
+            vec![undecodable(), dir.path().into()],
+        ),
+        (
+            vec!["fmt", "--stdin-filepath"],
+            vec![OsString::from_vec(vec![0xE9, b'a', b'.', b'm', b'd'])],
+        ),
+        // No verb in front of it: the argv preprocessor has to decide whether
+        // this token is a verb without being able to decode it.
+        (vec![], vec![undecodable()]),
+    ];
+
+    for (flags, tail) in cases {
+        let assert = prim()
+            .args(&flags)
+            .args(&tail)
+            .write_stdin("x  \n")
+            .assert();
+        let output = assert.get_output();
+        let code = output.status.code().expect("prim exited normally");
+
+        assert!(
+            (0..=2).contains(&code),
+            "`prim {flags:?} {tail:?}` exited {code}, outside the 0/1/2 contract\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !String::from_utf8_lossy(&output.stderr).contains("panicked"),
+            "`prim {flags:?} {tail:?}` panicked\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

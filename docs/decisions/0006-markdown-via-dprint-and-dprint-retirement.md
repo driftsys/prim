@@ -74,7 +74,13 @@ debug-assertions = false
 
 prim's own assertions are unaffected; only these dependencies' over-aggressive
 debug checks are silenced, so prim is robust on such input in every build.
-Regression tests pin both:
+
+This stays per-package, and it is no longer the only protection: AD-0017
+contains a panic inside the formatter per file, so a dependency prim has not met
+yet costs one reported file rather than the whole run and an exit code outside
+the contract. The overrides remain worth keeping — a contained panic is still a
+file prim declined to format, and silencing an assertion that misfires on valid
+input means prim formats it. Regression tests pin both:
 
 - `crates/prim-fmt/src/markdown.rs::inline_code_spanning_a_newline_does_not_panic`
   (`dprint-core`).
