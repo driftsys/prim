@@ -131,6 +131,14 @@ impl ChangedFiles {
         for entry in entries {
             let joined = repo_root.join(&entry.path);
 
+            // A symlink git reported is a path prim does not own (AD-0016).
+            // Resolving it would put its *target's* identity in the changed
+            // set, so staging only the link would make prim format a file git
+            // never staged — the same question answered two ways again.
+            // Tested before `canonicalize`, which is what resolves it away.
+            if crate::symlink::is_symlink(&joined) {
+                continue;
+            }
             // On disk is on disk. A staged deletion of a file still present —
             // `git rm --cached` — is a file prim must still format.
             if let Ok(canonical) = std::fs::canonicalize(&joined) {

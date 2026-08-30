@@ -54,13 +54,18 @@ prim-cli (binary "prim")
 
 For every file that prim processes the steps are, in order:
 
-1. **Classify** — `classify(&path)` returns the `FileKind`, or `None` if prim
-   does not own the file. Files that are not owned are left byte-for-byte
-   unchanged and not reported.
-2. **Read** — `fs::read_to_string` loads the file as UTF-8. A failure is
+1. **Decline a symlink** — a path named on the command line that is itself a
+   symbolic link is reported and skipped before anything else, because the
+   atomic write in step 6 would replace the link with a regular file (AD-0016,
+   `symlink.rs`). A walked path is not tested: the walk never offers a symlink.
+2. **Classify** — `classify(&path)` returns the `FileKind`, or `None` if prim
+   does not own the file. A file that is not owned is left byte-for-byte
+   unchanged; a named one is reported, a walked one is skipped silently
+   (FR-4.6).
+3. **Read** — `fs::read_to_string` loads the file as UTF-8. A failure is
    reported (exit 2 for an explicitly named file; warning and skip for a walked
    file) and the file is not written (FR-6.3, FR-6.5).
-3. **Resolve** — `editorconfig::resolve(&path)` walks the `.editorconfig`
+4. **Resolve** — `editorconfig::resolve(&path)` walks the `.editorconfig`
    cascade from the file's directory upward. A missing config yields
    `Style::default()` (FR-3.1). A config drops the whole cascade back to
    `Style::default()` with a warning (AD-0002) when it has a valid first section
@@ -71,15 +76,15 @@ For every file that prim processes the steps are, in order:
    `.editorconfig` above a `root = true` prim did not get to read. A byte-order
    mark before a first-line section header is the exception — the file is
    constructed and then fails on line 1, so it warns (AD-0002).
-4. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
+5. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
    hygiene pass (FR-2), and for structured formats the per-format pass followed
    by hygiene: `Json`/`Jsonc` via `dprint-plugin-json` (FR-1.2/1.3, AD-0003),
    `Toml` via `taplo` (FR-1.5, AD-0004), `Yaml` via `pretty_yaml` (FR-1.4,
    AD-0005), `Markdown` via `dprint-plugin-markdown` (FR-1.1/1.1a/1.6, AD-0006).
    It returns `Result<String, FormatError>`; a parse error leaves the file
-   unchanged and is reported as in step 2 (explicit → exit 2, discovered →
+   unchanged and is reported as in step 3 (explicit → exit 2, discovered →
    warning). All per-format passes are now implemented.
-5. **Write** — if the formatted text differs from the original, `write::atomic`
+6. **Write** — if the formatted text differs from the original, `write::atomic`
    replaces the file via a same-directory temp file and rename, preserving
    permission bits (FR-6.4). In `--check` mode, the path is printed to stdout
    instead (FR-5.2). In `--diff` mode, a unified diff is printed to stdout via

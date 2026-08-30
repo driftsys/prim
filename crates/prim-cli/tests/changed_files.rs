@@ -1434,3 +1434,33 @@ fn staged_named_symlink_is_left_intact_and_the_target_is_untouched() {
         "prim was pointed only at the link, so the target must be untouched"
     );
 }
+
+// A symlink git reports is a path prim does not own (AD-0016). Resolving it
+// put its *target's* identity in the changed set, so staging only the link
+// made prim format a file git never staged — the same question answered two
+// ways, which is what AD-0009 exists to prevent.
+#[cfg(unix)]
+#[test]
+fn staging_only_a_symlink_does_not_drag_its_target_into_scope() {
+    let repo = init_repo();
+    let target = repo.path().join("target.md");
+    write(&target, "title\n");
+    commit_all(repo.path(), "base");
+
+    std::os::unix::fs::symlink("target.md", repo.path().join("link.md")).unwrap();
+    git(repo.path(), &["add", "link.md"]); // only the link is staged
+    write(&target, "title  \n"); // the target drifts, unstaged
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("target.md").not());
+
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "title  \n",
+        "git staged only the link, so the target is out of scope"
+    );
+}

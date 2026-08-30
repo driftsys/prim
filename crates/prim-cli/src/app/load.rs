@@ -4,7 +4,7 @@ use rayon::prelude::*;
 
 use crate::changed_files::ChangedFilesScope;
 use crate::mdlint_policy::MdLintPolicy;
-use crate::{discover, editorconfig, ui};
+use crate::{discover, editorconfig, symlink, ui};
 use prim_fmt::{FileKind, Style};
 
 pub(super) type FormattedFile = (PathBuf, FileKind, Style, MdLintPolicy, String, String);
@@ -97,11 +97,8 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
     // it too, or `prim fmt --check .` and `prim fmt --check <link>` answer the
     // same question differently (AD-0009). Testing only the named route keeps
     // the extra `lstat` off the per-file walk path.
-    if file.explicit && std::fs::symlink_metadata(&file.path).is_ok_and(|meta| meta.is_symlink()) {
-        return warning(format!(
-            "{}: is a symbolic link; skipped (prim does not follow symlinks)",
-            file.path.display()
-        ));
+    if file.explicit && symlink::is_symlink(&file.path) {
+        return warning(symlink::skipped(&file.path));
     }
 
     let Some(kind) = prim_fmt::classify(&file.path) else {

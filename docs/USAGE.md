@@ -259,11 +259,21 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
   (`fmt`/`fix`), or a report (`lint`).
 - Naming a path explicitly is strict: a missing file is an error (exit `2`); an
   existing file prim does not own is skipped with a warning.
+- A **symbolic link** is a path prim does not own, so naming one skips it with a
+  warning and leaves both the link and the file it points at untouched — a
+  dangling link included, which is skipped for its type rather than reported as
+  missing. Writes are a temporary file plus a rename, so following a link would
+  replace it with a regular file. Name the file the link points at to format it.
+  A path that merely goes _through_ a symlinked directory is formatted as usual;
+  only a link at the end of the path is skipped.
 
 ## `prim init`
 
 `prim init [PATH]` scaffolds or minimally merges `.editorconfig` in `PATH`
-(default `.`). It writes no other file.
+(default `.`). It writes no other file. Where that `.editorconfig` is a symbolic
+link, prim writes nothing and exits `2`: the write is a temporary file plus a
+rename, so it would replace the link and leave the shared config it points at
+without the merge. Run `prim init` on the directory holding that file instead.
 
 With no existing `.editorconfig`, prim writes this exact placement map when no
 mdBook is detected:
@@ -471,7 +481,8 @@ unrecognised (which also warns on stderr) — the value prints `none` against th
 path prim does not format at all reports a warning
 (`not a file type prim formats;
 skipped`) and prints no settings, but still
-exits `0` — `explain` never gates a build.
+exits `0` — `explain` never gates a build. A symbolic link is reported the same
+way, for the same reason: prim would never apply those settings to it.
 
 ## `prim lsp`
 

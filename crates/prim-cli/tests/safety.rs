@@ -3,6 +3,7 @@
 // dropped or fatal when merely discovered.
 
 use assert_cmd::Command;
+#[cfg(unix)]
 use predicates::prelude::PredicateBooleanExt;
 
 fn prim() -> Command {
@@ -61,7 +62,7 @@ fn named_symlink_is_left_intact_and_reported() {
         .arg(&link)
         .assert()
         .success()
-        .stderr(predicates::str::contains("link.md"));
+        .stderr(predicates::str::contains("is a symbolic link"));
 
     assert!(
         std::fs::symlink_metadata(&link).unwrap().is_symlink(),
@@ -126,5 +127,125 @@ fn a_path_through_a_symlinked_directory_is_formatted_normally() {
     assert!(
         std::fs::symlink_metadata(&link_dir).unwrap().is_symlink(),
         "the traversed directory link must survive"
+    );
+}
+
+/// A drifting file plus a symlink to it, in a fresh directory.
+#[cfg(unix)]
+fn link_to_drifting_file(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    let target = dir.join("target.md");
+    let link = dir.join("link.md");
+    std::fs::write(&target, "title  \n").unwrap();
+    std::os::unix::fs::symlink("target.md", &link).unwrap();
+    (target, link)
+}
+
+// AD-0016 point 4: the rule holds in every verb, not only `fmt`. `fix` is the
+// one that also writes, so a guard that missed it would still destroy a link.
+#[cfg(unix)]
+#[test]
+fn every_verb_declines_a_named_symlink() {
+    for args in [
+        vec!["fix"],
+        vec!["lint"],
+        vec!["fmt", "--diff"],
+        vec!["fmt", "--check-idempotence"],
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let (target, link) = link_to_drifting_file(dir.path());
+
+        prim()
+            .args(&args)
+            .arg(&link)
+            .assert()
+            .success()
+            .stdout(predicates::str::contains("link.md").not())
+            .stderr(predicates::str::contains("is a symbolic link"));
+
+        assert!(
+            std::fs::symlink_metadata(&link).unwrap().is_symlink(),
+            "`prim {args:?}` must not replace the symlink"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "title  \n",
+            "`prim {args:?}` must not write through the symlink"
+        );
+    }
+}
+
+// AD-0016 Consequences: a dangling link is declined for its type, not for the
+// far end. Before, it reached `classify` and then the read, and was reported
+// as a missing file with exit 2.
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_is_declined_as_a_symlink_not_as_a_missing_file() {
+    for args in [vec!["fmt"], vec!["fmt", "--check"], vec!["lint"]] {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link.md");
+        std::os::unix::fs::symlink("nowhere.md", &link).unwrap();
+
+        prim()
+            .args(&args)
+            .arg(&link)
+            .assert()
+            .code(0)
+            .stderr(predicates::str::contains("is a symbolic link"))
+            .stderr(predicates::str::contains("No such file").not());
+
+        assert!(
+            std::fs::symlink_metadata(&link).unwrap().is_symlink(),
+            "the dangling link must survive `prim {args:?}`"
+        );
+    }
+}
+
+// `prim explain` already declines a type prim does not format; a symlink is
+// such a type, and answering for one would describe settings prim will never
+// apply to it.
+#[cfg(unix)]
+#[test]
+fn explain_declines_a_named_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_target, link) = link_to_drifting_file(dir.path());
+
+    prim()
+        .arg("explain")
+        .arg(&link)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("end_of_line").not())
+        .stderr(predicates::str::contains("is a symbolic link"));
+}
+
+// `prim init` never reaches the formatting path, so the same rename destroyed
+// a symlinked `.editorconfig` — the shared config it pointed at was left
+// unchanged while the link became a regular file.
+#[cfg(unix)]
+#[test]
+fn init_declines_a_symlinked_editorconfig() {
+    let dir = tempfile::tempdir().unwrap();
+    let real_dir = dir.path().join("real");
+    std::fs::create_dir(&real_dir).unwrap();
+    let real = real_dir.join(".editorconfig");
+    std::fs::write(&real, "root = true\n[*]\nindent_size = 4\n").unwrap();
+    let link = dir.path().join(".editorconfig");
+    std::os::unix::fs::symlink("real/.editorconfig", &link).unwrap();
+
+    prim()
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("is a symbolic link"));
+
+    assert!(
+        std::fs::symlink_metadata(&link).unwrap().is_symlink(),
+        "prim init must not replace a symlinked .editorconfig"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&real).unwrap(),
+        "root = true\n[*]\nindent_size = 4\n",
+        "and must not write through it either"
     );
 }

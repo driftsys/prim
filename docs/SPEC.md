@@ -362,15 +362,25 @@ source-code formatter and has **no plugin system**.
   whose type prim does not own shall be reported as a warning and left unchanged
   (exit `0`). An unowned path reached only by directory walking shall be skipped
   silently (FR-2.4).
-- **FR-4.6a** A path whose final component is a symbolic link is a path type
-  prim does not own (AD-0016). prim shall not follow it: the link shall be left
-  byte-for-byte unchanged and the file it points at shall be neither read nor
-  written, in every verb and gate, so that naming the link and walking to it
-  give the same answer. Naming one shall be reported under FR-4.6 and shall not
-  count toward FR-4.4c. A path that merely passes **through** a symlinked
-  directory shall be processed normally: it ends at a regular file, so no link
-  is destroyed, and the `.primignore` reach limit that follows from FR-4.4b's
-  lexical matching stands as decided.
+- **FR-4.6a** A symbolic link is a path type prim does not own (AD-0016). prim
+  shall not write to one. Where a link is itself the file prim would read or
+  write — a path named on the command line in any verb or gate, a path a
+  changed-file scope reports, or the `.editorconfig` `prim init` would write —
+  the link shall be left byte-for-byte unchanged and the file it points at shall
+  be neither read nor written. Naming one shall be reported (FR-4.6) and shall
+  not count toward FR-4.4c. This overrides FR-4.6's missing-path rule for a
+  **dangling** link: it is declined for its type, so it exits `0` rather than
+  `2`. `prim init` is the one route that exits `2`, because it was asked to
+  write one named file and did not.
+- **FR-4.6b** Two shapes are outside FR-4.6a, both because they end at a regular
+  file and so destroy no link. A path that passes **through** a symlinked
+  directory shall be processed normally, and the `.primignore` reach limit that
+  follows from FR-4.4b's lexical matching stands as decided. A **symlinked
+  directory named directly** shall likewise be walked: refusing it would refuse
+  `prim fmt /tmp/...` on a platform where `/tmp` is itself a link. A walk shall
+  not descend into a symlinked directory in either case (FR-2.4), so naming one
+  and walking past it answer about different trees. The answer follows what prim
+  was pointed at — the same rule FR-4.4b applies to a nested checkout.
 
 ## FR-5 — Operating modes (CLI)
 

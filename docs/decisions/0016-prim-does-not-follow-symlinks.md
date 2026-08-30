@@ -3,8 +3,9 @@
 ## Status
 
 Accepted. Answers the question AD-0009 deferred (#152) and fixes the data loss
-it left open (#166). Breaking: `prim fmt <symlink>` no longer rewrites the file
-the link points at, and `prim fmt --check <symlink>` no longer reports it.
+it left open (#166). Breaking: `prim fmt <symlink>` no longer replaces the link
+with a regular file, `prim fmt --check <symlink>` no longer reports it, and
+`prim init` refuses a symlinked `.editorconfig` rather than replacing it.
 
 ## Context
 
@@ -65,10 +66,9 @@ and `$TMPDIR` resolves under `/var/folders/...`. Refusing traversal would refuse
 every `/tmp/...` and every `$TMPDIR/...` path on that platform. prim is also
 handed paths by hooks and editors that do not choose their spelling —
 `.githooks/pre-commit.hooks` passes git's staged-file list, and format-on-save
-passes whatever the buffer's path happens to be. It would additionally need four
-sub-decisions AD-0009 already listed: which verbs refuse, what exit code,
-whether a flag opts back in, and whether the LSP and `--stdin-filepath` are in
-scope.
+passes whatever the buffer's path happens to be. It would additionally need the
+four sub-decisions #152 listed: which verbs refuse, what exit code, whether a
+flag opts back in, and whether the LSP and `--stdin-filepath` are in scope.
 
 **B. Refuse traversal only in the verbs that write.** Narrows the blast radius
 of option A. Rejected: `fmt --check` would then report drift that `fmt` refuses
@@ -88,23 +88,41 @@ Chosen.
 
 ## Decision
 
-1. prim does not follow symlinks. A path whose **final component** is a symlink
-   is a path type prim does not own: it is left byte-for-byte unchanged, and the
-   file it points at is not read or written.
+1. prim never writes **to** a symlink. Where a link is itself the file prim
+   would read or write, it is a path type prim does not own: the link is left
+   byte-for-byte unchanged, and the file it points at is neither read nor
+   written. "The file prim would write" is the whole of the rule — a link prim
+   only passes through or walks into is a different shape, and points 5 and 6
+   say why it is left alone.
 2. Naming one is reported on stderr and leaves the exit code alone. This is
    FR-4.6's existing rule for an existing path whose type prim does not own, not
    a new one — prim was simply not applying it to symlinks.
 3. The skip does **not** count toward FR-4.4c's "every pointed-at path was
-   skipped" gate. AD-0009 already draws that line: only a `.primignore` skip
-   counts, while a path prim does not own is reported under FR-4.6 and leaves
-   the exit code alone. A pre-commit hook whose staged list happens to contain a
-   symlink must not fail the commit.
-4. This holds for every verb — `fmt`, `lint`, `fix`, and the `--check` and
-   `--diff` gates — so the named route and the walk cannot disagree.
+   skipped" gate. AD-0009 already draws that line: the skips that count are the
+   ones `.primignore` and the built-in generated-file list cause, while a path
+   prim does not own is reported under FR-4.6 and leaves the exit code alone. A
+   pre-commit hook whose staged list happens to contain a symlink must not fail
+   the commit. `prim init` is the exception, and exits `2`: the file it was
+   asked to write is the whole of what it was asked to do, not one path in a
+   list.
+4. This holds wherever a link can be the file in question: every verb — `fmt`,
+   `lint`, `fix`, and the `--check` and `--diff` gates — plus the paths a
+   changed-file scope reports, the `.editorconfig` `prim init` writes, and the
+   path `prim explain` answers about. `--stdin-filepath` and the LSP are outside
+   it by construction: both work on a buffer and write no file. One module
+   carries the predicate and the wording so those routes cannot drift apart.
 5. A path that merely **goes through** a symlinked directory is processed
    normally. #152 is decided in the negative: prim does not refuse it, and the
    `.primignore` reach limit AD-0009 records stands as decided rather than as a
    defect awaiting a fix.
+6. A **symlinked directory named directly** is walked, not declined. It is point
+   5 seen one component earlier: prim writes to the regular files inside it and
+   destroys no link. Declining it would refuse `prim fmt /tmp/...` on any
+   platform where `/tmp` is itself a link, which is the cost that decided point
+   5. A walk still never descends into a symlinked directory it merely passes,
+   so naming one and walking past it answer about different trees. That is the
+   exception AD-0009 already makes for a nested checkout: the answer follows
+   what prim was pointed at.
 
 Points 1 and 5 look inconsistent until the failure modes are compared, and the
 difference is what makes them one decision rather than two.
@@ -145,17 +163,40 @@ reaches it, which is why the named route had to be the one brought into line.
 - A **dangling** symlink is now reported as an unowned path (exit `0`) rather
   than as a missing file (exit `2`). Its type is what prim declines, and whether
   the far end exists does not change that.
-- `ChangedFiles::contains` still canonicalizes before testing membership. That
-  resolution is what lets a path spelled through `/tmp` match one git reported
-  under `/private/tmp`, and with point 1 in place it can no longer admit a
-  symlink to a staged file.
+- `ChangedFiles::contains` still canonicalizes before testing membership, and
+  still admits a named symlink: what declines that path is `load_one`, further
+  down. The resolution has to stay, because it is what lets a path spelled
+  through `/tmp` match one git reported under `/private/tmp`.
+- The same resolution ran the other way in `ChangedFiles::resolve`, where a
+  symlink git reported was canonicalized into the changed set under its
+  **target's** identity. Staging only a link therefore pulled its target into
+  scope: `prim fmt --check --staged .` reported a file git never staged, while
+  `prim fmt --check --staged <link>` reported nothing. A symlink git reports is
+  now passed over there, for the same reason a named one is.
+- `prim init` never reaches the formatting path, so the same rename destroyed a
+  symlinked `.editorconfig`: the link became a regular file holding prim's map,
+  and the shared config it pointed at never received the merge. It now refuses.
+- `prim explain` answered for a symlink with a full settings table while already
+  declining a type prim does not format. It now declines both alike; describing
+  settings prim will never apply to that path was the less useful answer.
 - #152 closes. AD-0009's "Alternatives considered for #113" is amended to record
   the rejection as final, with the platform cost that decided it.
 
+## A limit this record does not close
+
+Points 5 and 6 rest on "the rename replaces a regular file, so nothing is
+destroyed". That premise holds for a file with one name. It does not hold for a
+**hard link**: the rename gives the formatted content a new inode, so a second
+name for the same file silently keeps the pre-format bytes. That is the same
+family as #166 and is not addressed here, because it is a property of every
+write prim makes rather than of the paths this decision is about. It is recorded
+so the premise above is not read as wider than it is.
+
 ---
 
-Satisfies: #152 and #166; scopes FR-4.6 to name symlinks explicitly. Related:
-AD-0009 (`.primignore` covers explicit paths — the limit this decision declines
-to close, and the one-answer-per-question rule it applies), FR-4.4c, FR-6.4,
-`crates/prim-cli/src/app/load.rs`, `crates/prim-cli/src/discover.rs`,
-`crates/prim-cli/src/changed_files.rs`.
+Satisfies: #152 and #166; scopes FR-4.6 to name symlinks explicitly and adds
+FR-4.6b. Related: AD-0009 (`.primignore` covers explicit paths — the limit this
+decision declines to close, and the one-answer-per-question rule it applies),
+FR-4.4c, FR-6.4, `crates/prim-cli/src/symlink.rs`,
+`crates/prim-cli/src/app/load.rs`, `crates/prim-cli/src/changed_files.rs`,
+`crates/prim-cli/src/init.rs`, `crates/prim-cli/src/app.rs`.

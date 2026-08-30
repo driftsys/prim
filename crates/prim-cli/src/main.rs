@@ -15,6 +15,7 @@ mod lsp;
 mod mdlint_policy;
 mod provenance;
 mod report;
+mod symlink;
 mod ui;
 mod write;
 
