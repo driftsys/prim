@@ -4,7 +4,7 @@ use rayon::prelude::*;
 
 use crate::changed_files::ChangedFilesScope;
 use crate::mdlint_policy::MdLintPolicy;
-use crate::{discover, editorconfig, symlink, ui};
+use crate::{discover, editorconfig, formatting, symlink, ui};
 use prim_fmt::{FileKind, Style};
 
 pub(super) type FormattedFile = (PathBuf, FileKind, Style, MdLintPolicy, String, String);
@@ -129,17 +129,22 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
     };
 
     let style = resolver.resolve(&file.path);
-    let formatted = match prim_fmt::format(kind, &original, &style) {
-        Ok(text) => text,
-        Err(err) => {
-            let message = format!("{}: {err}", file.path.display());
-            return if file.explicit {
-                error(message)
-            } else {
-                warning(message)
-            };
-        }
-    };
+    let formatted =
+        match formatting::contained(&file.path, || prim_fmt::format(kind, &original, &style)) {
+            Ok(Ok(text)) => text,
+            Ok(Err(err)) => {
+                let message = format!("{}: {err}", file.path.display());
+                return if file.explicit {
+                    error(message)
+                } else {
+                    warning(message)
+                };
+            }
+            // A dependency panicked. Always an error, walked or named: unlike an
+            // unparseable file, this is prim's bug and never the caller's, so it
+            // is not something a walk should pass over quietly (AD-0017).
+            Err(_) => return error(formatting::panic_message(&file.path)),
+        };
 
     let markdown_policy = if kind == FileKind::Markdown {
         resolver.resolve_mdlint_policy(&file.path)

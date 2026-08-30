@@ -2,6 +2,8 @@
 //! and `lint`: load and format every discovered file, then differ only in
 //! what each verb does with the (original, formatted) pair.
 
+use std::path::Path;
+
 use super::load::{Loaded, load_and_format};
 use super::{
     EXAMINED_NOTHING, EXIT_ACTIONABLE, EXIT_ERROR, EXIT_OK, FORMAT_CHECK_FINDING,
@@ -147,13 +149,10 @@ pub(super) fn run_check_idempotence_paths(
 
     let mut any_non_idempotent = false;
     for (path, kind, style, _markdown_policy, _original, formatted) in results {
-        let stable = match is_idempotent_second_pass(kind, &formatted, &style) {
+        let stable = match is_idempotent_second_pass(&path, kind, &formatted, &style) {
             Ok(stable) => stable,
-            Err(err) => {
-                ui::error(&format!(
-                    "{}: second formatting pass failed: {err}",
-                    path.display()
-                ));
+            Err(message) => {
+                ui::error(&message);
                 had_error = true;
                 continue;
             }
@@ -177,13 +176,26 @@ pub(super) fn run_check_idempotence_paths(
     }
 }
 
+/// Whether formatting `formatted` again leaves it alone (FR-6.1).
+///
+/// Returns the message to report rather than a typed error: the two failures
+/// have nothing in common past "prim could not answer" — one is a file the
+/// formatter rejected on its own second pass, the other is a panic, which is
+/// prim's bug and carries its own wording (AD-0017).
 fn is_idempotent_second_pass(
+    path: &Path,
     kind: FileKind,
     formatted: &str,
     style: &Style,
-) -> Result<bool, prim_fmt::FormatError> {
-    let reformatted = prim_fmt::format(kind, formatted, style)?;
-    Ok(second_pass_matches_first(formatted, &reformatted))
+) -> Result<bool, String> {
+    match crate::formatting::contained(path, || prim_fmt::format(kind, formatted, style)) {
+        Ok(Ok(reformatted)) => Ok(second_pass_matches_first(formatted, &reformatted)),
+        Ok(Err(err)) => Err(format!(
+            "{}: second formatting pass failed: {err}",
+            path.display()
+        )),
+        Err(_) => Err(crate::formatting::panic_message(path)),
+    }
 }
 
 fn second_pass_matches_first(formatted: &str, reformatted: &str) -> bool {
@@ -198,7 +210,7 @@ pub(super) fn run_lint_paths(
 ) -> i32 {
     let Loaded {
         files: results,
-        had_error,
+        mut had_error,
         examined_nothing,
     } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
         Ok(outcome) => outcome,
@@ -215,7 +227,13 @@ pub(super) fn run_lint_paths(
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
             // un-owned-text allowlist — the same set A1's BOM strip covers.
-            let diagnostics = prim_fmt::hygiene_diagnostics(&original, &style);
+            let Ok(diagnostics) = crate::formatting::contained(&path, || {
+                prim_fmt::hygiene_diagnostics(&original, &style)
+            }) else {
+                ui::error(&crate::formatting::panic_message(&path));
+                had_error = true;
+                continue;
+            };
             if !diagnostics.is_empty() {
                 any_error_finding = true;
                 for diagnostic in &diagnostics {
@@ -228,12 +246,18 @@ pub(super) fn run_lint_paths(
             }
         } else if kind == FileKind::Markdown {
             unknown_rule_reporter.report(&markdown_policy);
-            let diagnostics = prim_fmt::lint_markdown(
-                &original,
-                markdown_policy.strict,
-                &markdown_policy.disabled,
-                markdown_policy.report_line_length,
-            );
+            let Ok(diagnostics) = crate::formatting::contained(&path, || {
+                prim_fmt::lint_markdown(
+                    &original,
+                    markdown_policy.strict,
+                    &markdown_policy.disabled,
+                    markdown_policy.report_line_length,
+                )
+            }) else {
+                ui::error(&crate::formatting::panic_message(&path));
+                had_error = true;
+                continue;
+            };
             if !diagnostics.is_empty() {
                 any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);
                 for diagnostic in &diagnostics {
@@ -277,6 +301,8 @@ pub(super) fn run_lint_paths(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{is_idempotent_second_pass, second_pass_matches_first};
     use prim_fmt::{FileKind, Style};
 
@@ -290,6 +316,9 @@ mod tests {
         let style = Style::default();
         let formatted = prim_fmt::format(FileKind::Json, "{\"a\":1}\n", &style).unwrap();
 
-        assert!(is_idempotent_second_pass(FileKind::Json, &formatted, &style).unwrap());
+        assert!(
+            is_idempotent_second_pass(Path::new("a.json"), FileKind::Json, &formatted, &style)
+                .unwrap()
+        );
     }
 }

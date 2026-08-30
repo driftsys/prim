@@ -62,6 +62,16 @@ for removal in v2.0 — the bare `fmt` alias itself is not deprecated.
 Warnings never raise the exit code; only errors do. A gate that was pointed only
 at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 
+These three are the whole contract. A **path** that is not valid UTF-8 reaches
+the filesystem as the bytes you gave, so naming one formats it like any other
+file; a non-UTF-8 `--exclude` glob or `--since` ref is still a usage error,
+because those are matched as text. A panic inside a formatter or the Markdown
+linter is caught per file: that file is reported, left byte-for-byte unchanged,
+and the run carries on to the next one, ending at `2`. Under `--stdin-filepath`
+your buffer is echoed back unchanged rather than lost, and the LSP returns no
+edits and keeps the session. A `--format` run still emits its document. The
+panic also prints its own message, which is what to include in a bug report.
+
 ## Operating modes
 
 - **`fmt` (default)** — format the given files in place.
@@ -103,10 +113,9 @@ at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
 - **Undecodable paths** — prim reads the paths git reports as bytes, so a
   filename that is not valid UTF-8 is selected and formatted like any other
   where the platform permits one. Where it does not, prim exits `2` naming the
-  path rather than skipping it silently. Two limits remain: prim prints such a
-  path lossily, so the machine-readable list on stdout may name a file that
-  cannot be opened, and naming one directly on the command line is not yet
-  supported.
+  path rather than skipping it silently. Naming one directly on the command line
+  works the same way. One limit remains: prim prints such a path lossily, so the
+  machine-readable list on stdout may name a file that cannot be opened.
 - **Changed-file filters** — `--since` and `--staged` are mutually exclusive.
   They compose by intersection with `--check`, `--diff`, `lint`, `fix`, explicit
   path arguments, `.primignore`, `--exclude`, `--no-ignore`, and

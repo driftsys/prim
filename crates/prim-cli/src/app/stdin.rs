@@ -33,9 +33,16 @@ pub(super) fn run_fmt_stdin(path: &Path) -> i32 {
     match prim_fmt::classify(path) {
         Some(kind) => {
             let style = editorconfig::resolve(path);
-            match prim_fmt::format(kind, &input, &style) {
-                Ok(text) => print!("{text}"),
-                Err(err) => {
+            match crate::formatting::contained(path, || prim_fmt::format(kind, &input, &style)) {
+                Ok(Ok(text)) => print!("{text}"),
+                // The editor's buffer outlives prim, so a panic must return
+                // it unchanged rather than emptying it (AD-0017).
+                Err(_) => {
+                    ui::error(&crate::formatting::panic_message(path));
+                    print!("{input}");
+                    return EXIT_ERROR;
+                }
+                Ok(Err(err)) => {
                     // Preserve the editor buffer on a parse failure: echo the
                     // original to stdout and report on stderr (FR-6.3).
                     ui::error(&format!("{}: {err}", path.display()));
@@ -69,7 +76,11 @@ pub(super) fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         Some(FileKind::Orphan) => {
             // Story B1: itemized, coded, positioned findings.
             let style = editorconfig::resolve(path);
-            let diagnostics = prim_fmt::hygiene_diagnostics(&input, &style);
+            let Ok(diagnostics) = crate::formatting::contained(path, || {
+                prim_fmt::hygiene_diagnostics(&input, &style)
+            }) else {
+                return panicked_stdin_lint(path, format);
+            };
             if let Some(format) = format {
                 let findings = diagnostics
                     .iter()
@@ -93,12 +104,16 @@ pub(super) fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         Some(FileKind::Markdown) => {
             let policy = crate::mdlint_policy::resolve(path);
             crate::mdlint_policy::UnknownRuleReporter::new().report(&policy);
-            let diagnostics = prim_fmt::lint_markdown(
-                &input,
-                policy.strict,
-                &policy.disabled,
-                policy.report_line_length,
-            );
+            let Ok(diagnostics) = crate::formatting::contained(path, || {
+                prim_fmt::lint_markdown(
+                    &input,
+                    policy.strict,
+                    &policy.disabled,
+                    policy.report_line_length,
+                )
+            }) else {
+                return panicked_stdin_lint(path, format);
+            };
             let has_error = diagnostics.iter().any(|diagnostic| diagnostic.is_error);
             if let Some(format) = format {
                 let findings = diagnostics
@@ -118,14 +133,15 @@ pub(super) fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
         }
         Some(kind) => {
             let style = editorconfig::resolve(path);
-            match prim_fmt::format(kind, &input, &style) {
-                Ok(text) if text == input => {
+            match crate::formatting::contained(path, || prim_fmt::format(kind, &input, &style)) {
+                Err(_) => panicked_stdin_lint(path, format),
+                Ok(Ok(text)) if text == input => {
                     if let Some(format) = format {
                         emit_report(format, ReportMode::Lint, &[]);
                     }
                     EXIT_OK
                 }
-                Ok(_) => {
+                Ok(Ok(_)) => {
                     if let Some(format) = format {
                         let findings =
                             vec![Finding::new(path, FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING)];
@@ -135,7 +151,7 @@ pub(super) fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
                     }
                     EXIT_ACTIONABLE
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     ui::error(&format!("{}: {err}", path.display()));
                     if let Some(format) = format {
                         emit_report(format, ReportMode::Lint, &[]);
@@ -151,4 +167,16 @@ pub(super) fn run_lint_stdin(path: &Path, format: Option<OutputFormat>) -> i32 {
             EXIT_OK
         }
     }
+}
+
+/// Report a panic on the stdin lint route, emitting the machine-readable
+/// document a `--format` run is owed. Every other terminal arm here emits one,
+/// and a pipeline reading stdout should get a well-formed empty report with
+/// the failure carried by the exit code, not an empty stream.
+fn panicked_stdin_lint(path: &Path, format: Option<OutputFormat>) -> i32 {
+    ui::error(&crate::formatting::panic_message(path));
+    if let Some(format) = format {
+        emit_report(format, ReportMode::Lint, &[]);
+    }
+    EXIT_ERROR
 }

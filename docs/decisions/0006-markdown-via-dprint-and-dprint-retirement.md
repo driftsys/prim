@@ -74,7 +74,13 @@ debug-assertions = false
 
 prim's own assertions are unaffected; only these dependencies' over-aggressive
 debug checks are silenced, so prim is robust on such input in every build.
-Regression tests pin both:
+
+This stays per-package, and it is no longer the only protection: AD-0017
+contains a panic inside the formatter per file, so a dependency prim has not met
+yet costs one reported file rather than the whole run and an exit code outside
+the contract. The overrides remain worth keeping — a contained panic is still a
+file prim declined to format, and silencing an assertion that misfires on valid
+input means prim formats it. Regression tests pin both:
 
 - `crates/prim-fmt/src/markdown.rs::inline_code_spanning_a_newline_does_not_panic`
   (`dprint-core`).
@@ -96,14 +102,19 @@ Regression tests pin both:
   and end the per-package additions. Rejected for now as broader than the
   evidence justifies: it would also silence assertions in dependencies that have
   never misfired, including ones prim might want to hear from.
-  `dprint-plugin-json` carries three live position assertions that no reported
+  `dprint-plugin-json` carries two live position assertions that no reported
   input has yet reached, so the choice is not yet forced.
 - **A panic barrier.** prim formats through a rayon pool, so one panicking
   worker takes the whole process to exit `101`, which is outside prim's
   documented `0`/`1`/`2` contract. Catching the unwind around the per-file
   `prim_fmt::format` call and mapping a panic to exit `2` would honour the
   contract for every future dependency panic rather than one at a time. Rejected
-  here as a larger change than a targeted fix warrants; tracked separately.
+  here as a larger change than a targeted fix warrants, and tracked separately
+  as #125 — **since built**, and widened past that one call site: AD-0017
+  contains every call prim makes into a third-party formatter or linter. The
+  overrides above are still worth keeping, because a contained panic is a file
+  prim declined to format, while silencing an assertion that misfires on valid
+  input means prim formats it.
 
 Each override should be removed once its upstream release fixes the assertion it
 silences. Neither has an upstream issue filed, so the trigger for revisiting

@@ -14,6 +14,8 @@
 //! `--completions`/`--no-ignore`/`--no-primignore`/`--since`/`--staged`
 //! (declared `global = true` on `Cli`) appear relative to the verb.
 
+use std::ffi::OsString;
+
 use crate::cli::FmtArgs;
 
 const VERBS: &[&str] = &["fmt", "lint", "fix", "init", "explain", "lsp"];
@@ -27,12 +29,26 @@ const GLOBAL_VALUE_FLAGS: &[&str] = &["--exclude", "--color", "--completions", "
 /// Insert an implicit `fmt` verb into `args` (a full argv, including the
 /// program name at index 0) when the caller did not name a verb. Returns the
 /// (possibly adjusted) argv and whether `fmt` was injected.
-pub fn inject_default_verb(args: Vec<String>) -> (Vec<String>, bool) {
+///
+/// Takes `OsString`, not `String`: `std::env::args()` panics on an argument
+/// that is not valid UTF-8, which put prim's exit code at `101` — outside the
+/// `0`/`1`/`2` contract of FR-5.6 — for every entry point that carries a path.
+/// A hook of the shape `prim fmt "$@"`, which both shipped recipes use, hit it
+/// (#173). `args_os` cannot fail, so the decoding question moves here, where a
+/// token that will not decode has an obvious answer.
+pub fn inject_default_verb(args: Vec<OsString>) -> (Vec<OsString>, bool) {
     let mut index = 1;
     let mut leave_unchanged = false;
 
     while index < args.len() {
-        let token = args[index].as_str();
+        // Every verb prim scans for is ASCII, so a token that is not valid
+        // UTF-8 is not one — most often a path, and possibly an attached
+        // `--flag=<undecodable>`, which clap then rejects on its own. Either
+        // way no verb precedes it, so the scan stops here, exactly as it does
+        // for an unrecognized flag below.
+        let Some(token) = args[index].to_str() else {
+            break;
+        };
 
         if VERBS.contains(&token) || GLOBAL_ONLY_FLAGS.contains(&token) {
             leave_unchanged = true;
@@ -62,7 +78,7 @@ pub fn inject_default_verb(args: Vec<String>) -> (Vec<String>, bool) {
     }
 
     let mut adjusted = args;
-    adjusted.insert(1, "fmt".to_string());
+    adjusted.insert(1, OsString::from("fmt"));
     (adjusted, true)
 }
 
@@ -88,10 +104,10 @@ mod tests {
 
     use super::*;
 
-    fn argv(rest: &[&str]) -> Vec<String> {
+    fn argv(rest: &[&str]) -> Vec<OsString> {
         std::iter::once("prim")
             .chain(rest.iter().copied())
-            .map(String::from)
+            .map(OsString::from)
             .collect()
     }
 
@@ -122,7 +138,7 @@ mod tests {
     fn known_verbs_are_left_alone() {
         for verb in VERBS {
             let (adjusted, injected) = inject_default_verb(argv(&[verb]));
-            assert_eq!(adjusted, vec!["prim".to_string(), verb.to_string()]);
+            assert_eq!(adjusted, argv(&[verb]));
             assert!(!injected, "verb: {verb}");
         }
     }
@@ -143,10 +159,7 @@ mod tests {
         ];
         for rest in cases {
             let (adjusted, injected) = inject_default_verb(argv(rest));
-            let expected: Vec<String> = std::iter::once("prim".to_string())
-                .chain(rest.iter().map(|s| s.to_string()))
-                .collect();
-            assert_eq!(adjusted, expected, "rest: {rest:?}");
+            assert_eq!(adjusted, argv(rest), "rest: {rest:?}");
             assert!(!injected, "rest: {rest:?}");
         }
     }
@@ -214,7 +227,7 @@ mod tests {
     fn global_help_and_version_flags_are_left_alone() {
         for flag in GLOBAL_ONLY_FLAGS {
             let (adjusted, injected) = inject_default_verb(argv(&[flag]));
-            assert_eq!(adjusted, vec!["prim".to_string(), flag.to_string()]);
+            assert_eq!(adjusted, argv(&[flag]));
             assert!(!injected, "flag: {flag}");
         }
     }
@@ -226,6 +239,104 @@ mod tests {
         let (adjusted, injected) = inject_default_verb(argv(&["fmt"]));
         assert_eq!(adjusted, vec!["prim", "fmt"]);
         assert!(!injected);
+    }
+
+    /// An argv token that is not valid UTF-8, as a filesystem can hand one
+    /// over. `std::env::args()` panicked on this; the scan must carry it
+    /// through untouched instead (#173, FR-2.5).
+    #[cfg(unix)]
+    fn undecodable() -> OsString {
+        use std::os::unix::ffi::OsStringExt;
+
+        OsString::from_vec(vec![0xE9, b'b', b'a', b'd', b'.', b't', b'x', b't'])
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undecodable_path_injects_fmt_and_survives_unchanged() {
+        let bad = undecodable();
+        let args = vec![OsString::from("prim"), bad.clone()];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(injected);
+        assert_eq!(adjusted, vec![OsString::from("prim"), "fmt".into(), bad]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undecodable_path_after_an_explicit_verb_does_not_shadow_it() {
+        let bad = undecodable();
+        let args = vec![OsString::from("prim"), "lint".into(), bad.clone()];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(!injected);
+        assert_eq!(adjusted, vec![OsString::from("prim"), "lint".into(), bad]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undecodable_token_ends_the_scan_rather_than_being_skipped_over() {
+        // The token is a path, so everything after it is a path too. Were the
+        // scan to step over it and keep looking, `lint` would be taken for
+        // the verb and the run would report instead of formatting.
+        let bad = undecodable();
+        let args = vec![OsString::from("prim"), bad.clone(), "lint".into()];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(injected, "no verb precedes an undecodable first token");
+        assert_eq!(
+            adjusted,
+            vec![OsString::from("prim"), "fmt".into(), bad, "lint".into()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undecodable_token_before_a_help_flag_does_not_reach_the_flag() {
+        // Same rule seen from the other side: `-h` after a path is a path's
+        // neighbour, not a request for help.
+        let bad = undecodable();
+        let args = vec![OsString::from("prim"), bad.clone(), "-h".into()];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(injected);
+        assert_eq!(
+            adjusted,
+            vec![OsString::from("prim"), "fmt".into(), bad, "-h".into()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undecodable_value_for_a_global_flag_still_injects_fmt() {
+        // A separate-token value is stepped over by index arithmetic and
+        // never decoded, so this pins that the undecodable bytes survive that
+        // path rather than the decoding branch itself.
+        let bad = undecodable();
+        let args = vec![
+            OsString::from("prim"),
+            "--exclude".into(),
+            bad.clone(),
+            "doc.md".into(),
+        ];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(injected);
+        assert_eq!(
+            adjusted,
+            vec![
+                OsString::from("prim"),
+                "fmt".into(),
+                "--exclude".into(),
+                bad,
+                "doc.md".into()
+            ]
+        );
     }
 
     #[test]
