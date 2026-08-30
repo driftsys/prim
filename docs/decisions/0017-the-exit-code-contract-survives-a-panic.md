@@ -41,7 +41,7 @@ the whole process to `101` — and the files beside it produced no output either
 Two dependency `debug_assert!` panics had already been found and silenced one at
 a time with `[profile.dev.package.*] debug-assertions = false` entries
 (AD-0006), which is per-package maintenance with no general protection. The next
-round is already visible: `dprint-plugin-json` 0.22.0 carries three live
+round is already visible: `dprint-plugin-json` 0.22.0 carries two live
 `#[cfg(debug_assertions)]` position assertions.
 
 ## Decision
@@ -64,13 +64,15 @@ round is already visible: `dprint-plugin-json` 0.22.0 carries three live
    while a panic is prim's own bug, and a walk passing over prim's bugs quietly
    is how the next one goes unnoticed.
 5. The routes that hold a buffer prim does not own return it unchanged.
-   `--stdin-filepath` echoes the editor's buffer back to stdout and exits `2`;
-   the LSP returns no edits, no diagnostics, and the session survives. Emptying
-   an editor buffer because a formatter panicked would be a worse outcome than
-   the panic. A `--format` run still emits its document, because `--format`
-   changes stdout alone: a pipeline should read a well-formed empty report with
-   the failure carried by the exit code, not an empty stream that parses as a
-   failure of its own.
+   `fmt`/`fix --stdin-filepath` echo the editor's buffer back to stdout and exit
+   `2`; the LSP returns no edits, no diagnostics, and the session survives.
+   `lint --stdin-filepath` writes a report to stdout rather than a buffer, so it
+   echoes nothing and emits its document instead. Emptying an editor buffer
+   because a formatter panicked would be a worse outcome than the panic. A
+   `--format` run still emits its document, because `--format` changes stdout
+   alone: a pipeline should read a well-formed empty report with the failure
+   carried by the exit code, not an empty stream that parses as a failure of its
+   own.
 6. Containment is written once, generic over the operation, and used at every
    call prim makes into a third-party formatter or linter: the per-file walk,
    the idempotence second pass, the two `--stdin-filepath` routes, the LSP
@@ -119,8 +121,10 @@ single thing a bug report needs for a tidier terminal.
 
 ## Consequences
 
-- `prim fmt "$@"` in a hook survives a filename that is not valid UTF-8, on
-  every entry point rather than only through discovery.
+- `prim fmt "$@"` in a hook survives a filename that is not valid UTF-8, through
+  naming it as well as through discovery. An `--exclude` glob or a `--since` ref
+  that is not valid UTF-8 stays a usage error, which is FR-4.5's answer and
+  inside the contract.
 - FR-2.5's guarantee is now delivered through naming a path as well, so its
   "#173 does not yet work" caveat goes. The caveat about lossy _reporting_
   (#172) stays: that is untouched here.

@@ -524,10 +524,11 @@ default, format-in-place action.
   continue to the next file, and the process shall exit `2`. A panic shall be an
   error whether the file was named or walked, because it is a fault in prim
   rather than in the input. Where prim holds a buffer it does not own it shall
-  return that buffer unchanged: `--stdin-filepath` shall echo stdin to stdout
-  and exit `2`, and the LSP shall return no edits, no diagnostics, and keep the
-  session. A `--format` run shall still emit its report document, since
-  `--format` governs stdout alone.
+  return that buffer unchanged: `fmt`/`fix --stdin-filepath` shall echo stdin to
+  stdout and exit `2`, and the LSP shall return no edits, no diagnostics, and
+  keep the session. `lint --stdin-filepath` writes a report to stdout rather
+  than a buffer, so it echoes nothing. A `--format` run shall still emit its
+  report document, since `--format` governs stdout alone.
 - **FR-5.7** _(deprecated top-level flags)_ The top-level `--check`, `--diff`,
   and `--stdin-filepath` flags remain accepted directly on bare `prim` as
   deprecated sugar for the `fmt` forms; the first use in a run emits a one-line

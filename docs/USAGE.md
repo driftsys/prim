@@ -113,10 +113,9 @@ panic also prints its own message, which is what to include in a bug report.
 - **Undecodable paths** — prim reads the paths git reports as bytes, so a
   filename that is not valid UTF-8 is selected and formatted like any other
   where the platform permits one. Where it does not, prim exits `2` naming the
-  path rather than skipping it silently. Two limits remain: prim prints such a
-  path lossily, so the machine-readable list on stdout may name a file that
-  cannot be opened, and naming one directly on the command line is not yet
-  supported.
+  path rather than skipping it silently. Naming one directly on the command line
+  works the same way. One limit remains: prim prints such a path lossily, so the
+  machine-readable list on stdout may name a file that cannot be opened.
 - **Changed-file filters** — `--since` and `--staged` are mutually exclusive.
   They compose by intersection with `--check`, `--diff`, `lint`, `fix`, explicit
   path arguments, `.primignore`, `--exclude`, `--no-ignore`, and

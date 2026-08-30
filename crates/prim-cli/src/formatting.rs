@@ -2,10 +2,10 @@
 //! exit-code contract (AD-0017).
 //!
 //! FR-5.6 defines three exit codes and `101` is not one of them. prim works
-//! through a rayon pool with no `catch_unwind` anywhere, so one panicking
-//! worker took the whole process to `101` — and the files beside it produced
-//! no output at all, neither the file that panicked nor the ones that would
-//! have been fine (#125).
+//! through a rayon pool, and before this module there was no `catch_unwind`
+//! anywhere in it, so one panicking worker took the whole process to `101` —
+//! and the files beside it produced no output at all, neither the file that
+//! panicked nor the ones that would have been fine (#125).
 //!
 //! The panics that have actually reached prim came from dependencies'
 //! `debug_assert!`s, and each was silenced one at a time with a
