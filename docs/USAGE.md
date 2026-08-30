@@ -845,7 +845,9 @@ Scope notes:
   named on stderr and then skipped, and the walk continues past them. Only that
   one file drops out; the rest of the cascade still applies. prim says
   `unreadable` when it could not read the bytes and `malformed` when it read
-  them and they were not `.editorconfig`. Each file is named once per run.
+  them and they were not `.editorconfig`. A directory prim cannot search is
+  reported the same way, because whatever config it holds has stopped applying.
+  Each file is named once per run — and in `prim lsp`, once per session.
 - The exception is a byte-order mark immediately before a first-line `[section]`
   header, which is reported rather than skipped. `ec4rs` strips the mark when it
   first classifies that line but not when it re-reads it, so the file is

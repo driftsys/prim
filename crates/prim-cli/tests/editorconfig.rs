@@ -352,11 +352,13 @@ fn two_unreadable_ancestors_are_each_named_once_across_many_files() {
     let outer = tempfile::tempdir().unwrap();
     let middle = outer.path().join("middle");
     fs::create_dir(&middle).unwrap();
-    for sub in ["a", "b", "c"] {
-        let dir = middle.join(sub);
+    for sub in 0..12 {
+        let dir = middle.join(format!("sub{sub}"));
         fs::create_dir(&dir).unwrap();
-        for name in ["one.md", "two.md"] {
-            fs::write(dir.join(name), "text\n").unwrap();
+        // Enough files to make rayon actually use several threads: the claim
+        // is "once per run", and one resolver is built per thread.
+        for name in 0..24 {
+            fs::write(dir.join(format!("doc{name}.md")), "text\n").unwrap();
         }
     }
     let (Some(high), Some(low)) = (
@@ -462,4 +464,115 @@ fn an_invalid_line_before_the_first_header_is_reported_as_malformed() {
             "{}: ignoring malformed .editorconfig",
             config.display()
         )));
+}
+
+// `ec4rs` reports a file that is not valid UTF-8 as an I/O error, but prim
+// read those bytes fine — they were not `.editorconfig`. Calling that
+// "unreadable" contradicted the classification's own rule, and the same fault
+// was already called "malformed" when the bad bytes sat after the first
+// section header, so the position of the bytes decided the noun.
+#[test]
+fn a_non_utf8_editorconfig_is_malformed_not_unreadable() {
+    let root = tempfile::tempdir().unwrap();
+    let inner = root.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    let doc = inner.join("doc.md");
+    fs::write(&doc, "text\n").unwrap();
+    let config = root.path().join(".editorconfig");
+    fs::write(&config, b"# caf\xe9\n[*]\nindent_size = 4\n").unwrap();
+
+    prim()
+        .arg("explain")
+        .arg(&doc)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(format!(
+            "{}: ignoring malformed .editorconfig",
+            config.display()
+        )));
+}
+
+// #153 one level up: an ancestor *directory* prim cannot search hides whatever
+// `.editorconfig` it holds. Resolution changes and, with a guard that stats
+// the candidate, nothing is said — the stat fails for the same reason the
+// open does.
+#[cfg(unix)]
+#[test]
+fn an_unsearchable_ancestor_directory_is_reported() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let outer = tempfile::tempdir().unwrap();
+    let middle = outer.path().join("middle");
+    fs::create_dir(&middle).unwrap();
+    fs::write(
+        middle.join(".editorconfig"),
+        "root = true\n[*]\nmax_line_length = 77\n",
+    )
+    .unwrap();
+    let inner = middle.join("inner");
+    fs::create_dir(&inner).unwrap();
+    let doc = inner.join("doc.md");
+    fs::write(&doc, "text\n").unwrap();
+
+    fs::set_permissions(&middle, fs::Permissions::from_mode(0o000)).unwrap();
+    let searchable = fs::read_to_string(middle.join(".editorconfig")).is_ok();
+    let assertion = prim().arg("explain").arg(&doc).assert();
+    fs::set_permissions(&middle, fs::Permissions::from_mode(0o755)).unwrap();
+    if searchable {
+        return; // running as root, or a filesystem without permission bits.
+    }
+
+    assertion
+        .success()
+        .stderr(predicates::str::contains(".editorconfig"))
+        .stderr(predicates::str::contains("Permission denied"));
+}
+
+// A dangling `.editorconfig` symlink comes back `NotFound`, and there is no
+// config there to have applied — so it stays silent, unlike the two faults
+// above.
+#[cfg(unix)]
+#[test]
+fn a_dangling_editorconfig_symlink_says_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let inner = root.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    fs::write(inner.join("doc.md"), "# hi\n").unwrap();
+    std::os::unix::fs::symlink("nowhere", root.path().join(".editorconfig")).unwrap();
+
+    prim()
+        .arg(&inner)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains("ignoring").not());
+}
+
+// The reported path must not depend on how the caller spelled the argument.
+#[cfg(unix)]
+#[test]
+fn the_reported_path_does_not_carry_a_dot_component() {
+    let root = tempfile::tempdir().unwrap();
+    let inner = root.path().join("inner");
+    fs::create_dir(&inner).unwrap();
+    fs::write(inner.join("doc.md"), "text\n").unwrap();
+    let Some(config) = unreadable_ancestor(root.path()) else {
+        return;
+    };
+
+    let output = prim()
+        .current_dir(root.path())
+        .arg("explain")
+        .arg("./inner/doc.md")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains(&config.display().to_string()),
+        "the ancestor must be named by its plain path\nstderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("/./"),
+        "a `.` component must not reach the message\nstderr:\n{stderr}"
+    );
 }

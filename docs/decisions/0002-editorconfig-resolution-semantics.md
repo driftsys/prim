@@ -138,11 +138,32 @@ for a file under a `root = true` parent: with the parent readable,
 resolves to `tab` inherited from the grandparent. That is still what happens —
 the report says which file was skipped, and does not put its settings back.
 
-The report costs one extra `ConfigFile::open` per `.editorconfig` in the
-ancestry. That is affordable because the cascade is cached per directory, so the
-walk runs once per directory rather than once per file. It is deduplicated per
-run: one resolver is built per rayon thread, so a single bad ancestor is
-otherwise met once per directory per thread.
+The report costs one extra `open` attempt per **ancestor directory**, not per
+`.editorconfig` — most ancestors hold no config, and the attempt is what
+establishes that. Measured on 1944 files across 367 directories, warm cache,
+release build: 99.6 ms before, 106.3 ms after, about 6 %. A `root = true`
+boundary does not reduce it, because the cost sits in the directories below the
+boundary rather than above it. It is affordable because the cascade is cached
+per directory, so the walk runs once per directory rather than once per file.
+
+The report is deduplicated per run: one resolver is built per rayon thread, so a
+single bad ancestor is otherwise met once per directory per thread. In
+`prim lsp` "per run" means per process — the server holds one resolver for its
+lifetime — so a bad `.editorconfig` is announced once for the session, on
+stderr, which most LSP clients discard.
+
+Absent is told from unopenable by the error rather than by a `stat` of the
+candidate. That is cheaper, and wider: an ancestor **directory** prim cannot
+search fails the open with `EACCES`, and a `stat` of the candidate inside it
+fails for the same reason, so a stat-based guard hid the very case this closes,
+one level up. A dangling symlink comes back `NotFound` and stays silent, which
+is right — there is no config there to have applied.
+
+`ec4rs` reports a file that is not valid UTF-8 as an I/O error. prim classifies
+that as `malformed`: it read those bytes, and they were not `.editorconfig`.
+Without the exception the same fault was called `unreadable` here and
+`malformed` from the section loop, and the position of the bad bytes decided
+which word the reader got.
 
 **Line-level parsing is reimplemented, not called, and is pinned to `ec4rs`'s
 `ConfigParser`, not its private `parse_line`.** `.editorconfig`-writing and

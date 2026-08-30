@@ -21,6 +21,9 @@ fn inheritance(dir: &Path) -> Option<Inheritance> {
         Ancestry::Malformed { path, .. } => {
             panic!("unexpected malformed ancestor: {}", path.display())
         }
+        Ancestry::Unopenable { path } => {
+            panic!("unexpected unopenable ancestor: {}", path.display())
+        }
     }
 }
 

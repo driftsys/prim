@@ -13,6 +13,7 @@
 //! that prim now names the file instead of leaving the reader to guess.
 
 use std::collections::HashSet;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -35,12 +36,17 @@ pub(crate) fn report_unopenable_in_cascade(dir: &Path) {
 /// there is that command's business rather than an ancestor to report. The
 /// walk still starts at `dir`, because a readable `root = true` there bounds
 /// what lies above it.
-pub(crate) fn report_unopenable_above(dir: &Path) {
-    report(dir, false);
+///
+/// Returns every path it found, reported or already reported, so `prim init`
+/// can also say what its own `root = true` just cut the directory off from.
+pub(crate) fn report_unopenable_above(dir: &Path) -> Vec<PathBuf> {
+    report(dir, false)
 }
 
-fn report(dir: &Path, include_own: bool) {
-    for (path, fault) in unopenable_in_ancestry(dir, include_own) {
+fn report(dir: &Path, include_own: bool) -> Vec<PathBuf> {
+    let found = unopenable_in_ancestry(dir, include_own);
+    let paths = found.iter().map(|(path, _)| path.clone()).collect();
+    for (path, fault) in found {
         if is_first_report(&path) {
             // The two faults read very differently to whoever has to fix
             // them, and prim already spells the second one this way when it
@@ -57,6 +63,7 @@ fn report(dir: &Path, include_own: bool) {
             ));
         }
     }
+    paths
 }
 
 /// Why `ec4rs` passed a file over: it could not read the bytes, or it read
@@ -78,7 +85,14 @@ impl From<ParseError> for Fault {
     fn from(error: ParseError) -> Self {
         let detail = error.to_string();
         match error {
-            ParseError::Io(_) => Self::Unreadable(detail),
+            // `ec4rs` reports a file that is not valid UTF-8 as an I/O error
+            // (`ErrorKind::InvalidData`), but prim read those bytes fine —
+            // they were not `.editorconfig`. Without this, the same fault got
+            // called `unreadable` here and `malformed` from the section loop,
+            // and the position of the bad bytes decided which.
+            ParseError::Io(ref io) if io.kind() != ErrorKind::InvalidData => {
+                Self::Unreadable(detail)
+            }
             _ => Self::Malformed(detail),
         }
     }
@@ -106,6 +120,11 @@ fn unopenable_in_ancestry(dir: &Path, include_own: bool) -> Vec<(PathBuf, Fault)
         cwd.join(dir)
     };
 
+    // Drop `.` components, so the reported path does not depend on how the
+    // caller spelled it: `prim explain ./doc.md` and `prim explain doc.md`
+    // resolve the same ancestry and must name it the same way.
+    let absolute: PathBuf = absolute.components().collect();
+
     let mut found = Vec::new();
     let mut current = Some(absolute.as_path());
     let mut is_own = true;
@@ -119,10 +138,23 @@ fn unopenable_in_ancestry(dir: &Path, include_own: bool) -> Vec<(PathBuf, Fault)
                 }
             }
             Err(error) => {
-                // Absent is the ordinary case, and silence is right for it.
-                // Present but unopenable is the case `ec4rs` cannot tell the
-                // caller about.
-                if (include_own || !is_own) && candidate.symlink_metadata().is_ok() {
+                // Absent is the ordinary case — every ancestor up to the
+                // filesystem root is one — and silence is right for it.
+                // Everything else is a file `ec4rs` passed over without being
+                // able to say so.
+                //
+                // Testing the error rather than stat-ing the candidate is
+                // both cheaper and wider: an ancestor *directory* prim cannot
+                // search fails here with `EACCES` while a `stat` of the
+                // candidate fails too, so the stat-based guard hid the very
+                // case #153 is about, one level up. A dangling symlink comes
+                // back `NotFound` and stays silent, which is right — there is
+                // no config there to have applied.
+                let is_absent = matches!(
+                    &error,
+                    ParseError::Io(io) if io.kind() == ErrorKind::NotFound
+                );
+                if (include_own || !is_own) && !is_absent {
                     found.push((candidate, error.into()));
                 }
             }

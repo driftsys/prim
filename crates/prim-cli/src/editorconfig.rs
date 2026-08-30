@@ -88,10 +88,6 @@ fn build_cascade(dir: &Path) -> Cascade {
         }
     };
 
-    // `ec4rs` skipped any `.editorconfig` in this ancestry that it could not
-    // open, which silently changes what resolves here (#153). Name them.
-    ancestors::report_unopenable_in_cascade(dir);
-
     let mut cascade = Vec::new();
     for mut file in files {
         let config_dir = file.path.parent().unwrap_or(Path::new("")).to_path_buf();
@@ -115,6 +111,15 @@ fn build_cascade(dir: &Path) -> Cascade {
             sections,
         });
     }
+
+    // `ec4rs` skipped any `.editorconfig` in this ancestry it could not open,
+    // which silently changes what resolves here (#153). Named last, after the
+    // section loop has had its chance to return: where a malformed section
+    // drops the whole cascade, that outcome supersedes this one, and saying
+    // "resolving as if it were absent" about one file while every file has
+    // just stopped applying would be the more misleading of the two.
+    ancestors::report_unopenable_in_cascade(dir);
+
     cascade
 }
 

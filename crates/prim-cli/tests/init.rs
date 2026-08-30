@@ -492,3 +492,34 @@ fn init_does_not_report_its_own_target_as_an_unreadable_ancestor() {
         "prim init must not call the file it owns an unreadable ancestor\nstderr:\n{stderr}"
     );
 }
+
+// The #153 case used to get the weakest of init's three severing messages:
+// the file named, and nothing about the `root = true` init had just written
+// above it. An ancestor init cannot read is one it cannot describe, which is
+// exactly what the severing report exists to say.
+#[cfg(unix)]
+#[test]
+fn init_says_what_its_root_true_cuts_off_from_an_unreadable_ancestor() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let outer = tempfile::tempdir().unwrap();
+    let config = outer.path().join(".editorconfig");
+    fs::write(&config, "[*]\nmax_line_length = 120\n").unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&config).is_ok() {
+        return;
+    }
+    let target = outer.path().join("project");
+    fs::create_dir(&target).unwrap();
+
+    prim()
+        .arg("init")
+        .arg(&target)
+        .assert()
+        .success()
+        // Named, as before.
+        .stderr(predicates::str::contains(config.display().to_string()))
+        // And now told what init just did to it.
+        .stderr(predicates::str::contains("prim wrote root = true"))
+        .stderr(predicates::str::contains("cannot say what that cuts off"));
+}
