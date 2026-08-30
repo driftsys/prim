@@ -455,6 +455,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dprint-core"
+version = "0.68.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ace8a07022e292c498f9568c6859f73e40721fa18c4c0760cdc56220f4b99040"
+dependencies = [
+ "bumpalo",
+ "hashbrown 0.15.5",
+ "indexmap",
+ "rustc-hash 2.1.2",
+ "serde",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
 name = "dprint-core-macros"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -466,16 +480,16 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-json"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cf806e8748f4942c79f7e3bfd24724d2042408908a429379f8bdf704768afc9"
+checksum = "1d6ea7c6e725594aef11d5c74e3c20a253b06cd2384c652aadf8baf09c276e97"
 dependencies = [
- "anyhow",
- "dprint-core",
+ "dprint-core 0.68.5",
  "dprint-core-macros",
- "jsonc-parser",
+ "jsonc-parser 0.33.1",
  "serde",
  "text_lines",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -485,7 +499,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a049a298ecf0d4579d1cc8875bd5c5861633006e0106c99a7c366b12c331b3d0"
 dependencies = [
  "anyhow",
- "dprint-core",
+ "dprint-core 0.67.4",
  "dprint-core-macros",
  "pulldown-cmark 0.11.3",
  "regex",
@@ -1148,6 +1162,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840785e1a8b4fdb27be18440a35a81af64820dc185c3973ff8b012d4c6282512"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
+dependencies = [
  "unicode-width 0.2.2",
 ]
 
@@ -1625,7 +1647,7 @@ dependencies = [
  "criterion",
  "dprint-plugin-json",
  "dprint-plugin-markdown",
- "jsonc-parser",
+ "jsonc-parser 0.32.4",
  "pretty_yaml",
  "rumdl",
  "serde_json",
