@@ -68,7 +68,14 @@ source-code formatter and has **no plugin system**.
   files. Every other file — recognized source code, unknown types, binaries — is
   left byte-for-byte unchanged.
 - **FR-2.5** prim shall identify allowlisted files by filename/extension, not
-  content sniffing.
+  content sniffing. Neither test shall require the filename to be valid UTF-8:
+  prim shall read the extension before it needs the whole name, and shall match
+  the orphan allowlist on the filename's bytes. A file whose name is not valid
+  UTF-8 is therefore owned, and formatted, exactly as the same name would be
+  were it decodable (#168), whether prim reached it by directory walk or through
+  `--since`/`--staged`. Naming such a path on the command line is a separate
+  route and does not yet work (#173), and prim reports such a path lossily
+  (#172).
 - **FR-2.6** prim shall strip a leading UTF-8 BOM (`U+FEFF`), unconditionally,
   from every file it processes.
 - **FR-2.7** prim shall leave a tool-generated file byte-for-byte unchanged,
@@ -278,10 +285,17 @@ source-code formatter and has **no plugin system**.
 - **FR-4.2e** No git configuration and no path spelling shall change which files
   `--since` or `--staged` select. prim shall read raw NUL-separated paths, so no
   quoting form hides a path (#164), and shall pin `diff.relative=false`, so the
-  paths git reports are the ones prim resolves (#165). prim shall raise a usage
-  error (exit `2`), rather than resolve an empty file set, when git reports
-  output that is not NUL-separated. Output that is empty is a legitimately empty
-  selection and shall stay a clean run.
+  paths git reports are the ones prim resolves (#165). prim shall treat those
+  paths as bytes rather than as text, so on a platform whose filenames are byte
+  strings a name that is not valid UTF-8 selects, classifies and formats like
+  any other (#168). prim reports such a path lossily, so the machine-readable
+  list on stdout may name a file that cannot be opened (#172). Where a path
+  cannot be represented at all — a platform whose filenames are Unicode, given
+  output that is not valid UTF-8 — prim shall raise a usage error (exit `2`)
+  naming that path, rather than drop it. prim shall raise a usage error (exit
+  `2`), rather than resolve an empty file set, when git reports output that is
+  not NUL-separated. Output that is empty is a legitimately empty selection and
+  shall stay a clean run.
 - **FR-4.2f** No `<REF>` shall reach git as anything but a revision. prim shall
   exit `2` for a `<REF>` git will not resolve, including one beginning with `-`
   (#167), one naming an existing file, and `--` itself, and shall never let such

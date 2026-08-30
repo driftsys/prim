@@ -1,9 +1,13 @@
 //! Git-backed changed-file selection for `--since` / `--staged`.
 
+mod decode;
+
 use std::collections::HashSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use self::decode::{relative_paths, repo_root_from_bytes, trim_line_terminator};
 
 /// Which git-derived changed-file scope, if any, restricts discovery.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +46,11 @@ pub(crate) enum Error {
     SeparatorAsReference {
         flag: &'static str,
     },
+    UndecodablePath {
+        flag: &'static str,
+        command: &'static str,
+        path: String,
+    },
 }
 
 impl ChangedFiles {
@@ -71,7 +80,11 @@ impl ChangedFiles {
             "git rev-parse --show-toplevel",
             &["rev-parse", "--show-toplevel"],
         )?;
-        let repo_root = repo_root.trim_end_matches(['\n', '\r']);
+        let repo_root = repo_root_from_bytes(&repo_root).ok_or_else(|| Error::UndecodablePath {
+            flag,
+            command: "git rev-parse --show-toplevel",
+            path: String::from_utf8_lossy(trim_line_terminator(&repo_root)).into_owned(),
+        })?;
         let repo_root =
             std::fs::canonicalize(repo_root).map_err(|err| Error::GitCommandFailed {
                 flag,
@@ -87,7 +100,7 @@ impl ChangedFiles {
         // bogus entry holding every path joined by newlines, which would fail
         // to canonicalize and empty the selection — the silent pass this whole
         // requirement exists to prevent. Refuse instead.
-        if !output.is_empty() && !output.contains('\0') {
+        if !output.is_empty() && !output.contains(&0) {
             return Err(Error::GitCommandFailed {
                 flag,
                 command: diff_command,
@@ -95,11 +108,21 @@ impl ChangedFiles {
             });
         }
 
-        let paths = output
-            .split('\0')
-            .filter(|entry| !entry.is_empty())
-            .filter_map(|relative| std::fs::canonicalize(repo_root.join(relative)).ok())
-            .collect();
+        let relatives = relative_paths(&output).map_err(|path| Error::UndecodablePath {
+            flag,
+            command: diff_command,
+            path,
+        })?;
+
+        let mut paths = HashSet::new();
+        for relative in relatives {
+            // A path git reports that does not resolve is still dropped here.
+            // Telling a deletion apart from a path prim could not resolve is
+            // #169, and needs a rule rather than a patch.
+            if let Ok(canonical) = std::fs::canonicalize(repo_root.join(relative)) {
+                paths.insert(canonical);
+            }
+        }
 
         Ok(Self {
             current_dir,
@@ -226,21 +249,30 @@ impl fmt::Display for Error {
                 f,
                 "{flag} requires a revision, and `--` is git's revision separator, not one"
             ),
+            Self::UndecodablePath {
+                flag,
+                command,
+                path,
+            } => write!(
+                f,
+                "{flag}: {command} reported a path this platform cannot represent, because it is not valid UTF-8: {path}"
+            ),
         }
     }
 }
 
+/// Git's raw stdout. Paths are bytes, so decoding is the caller's decision.
 fn run_git(
     cwd: &Path,
     flag: &'static str,
     command: &'static str,
     args: &[&str],
-) -> Result<String, Error> {
+) -> Result<Vec<u8>, Error> {
     let output = git_command(cwd, args)
         .output()
         .map_err(|source| Error::GitUnavailable { flag, source })?;
     if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        return Ok(output.stdout);
     }
 
     let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -272,7 +304,25 @@ fn git_command(cwd: &Path, args: &[&str]) -> Command {
 
 #[cfg(test)]
 mod tests {
-    use super::ChangedFilesScope;
+    use super::{ChangedFilesScope, Error};
+
+    /// The message has to name the file, or the user cannot act on it.
+    #[test]
+    fn an_undecodable_path_error_names_the_flag_the_command_and_the_path() {
+        let rendered = Error::UndecodablePath {
+            flag: "--staged",
+            command: "git diff --name-only --cached",
+            path: "caf\u{FFFD}.txt".to_string(),
+        }
+        .to_string();
+
+        assert!(rendered.contains("--staged"), "{rendered}");
+        assert!(
+            rendered.contains("git diff --name-only --cached"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("caf\u{FFFD}.txt"), "{rendered}");
+    }
 
     /// `-c` is only honoured before the subcommand: after it, git reads `-c`
     /// as combined-diff. Nothing end-to-end pins that ordering.
