@@ -27,6 +27,11 @@ pub(super) enum Ancestry {
     /// An ancestor `.editorconfig` could not be parsed, so prim cannot say
     /// what `root = true` cuts this directory off from.
     Malformed { path: PathBuf, error: String },
+    /// An ancestor `.editorconfig` could not be opened at all, so `ec4rs`
+    /// passed over it and prim resolved as though it were not there. Same
+    /// consequence as `Malformed` for what `init` can promise, and a
+    /// different cause (#153).
+    Unopenable { path: PathBuf },
 }
 
 /// What a directory currently inherits from `.editorconfig` files above it.
@@ -72,6 +77,9 @@ pub(super) fn from_ancestors(dir: &Path) -> Ancestry {
     let Ok(config_files) = ConfigFiles::open(&probe, Option::<&Path>::None) else {
         return Ancestry::Nothing;
     };
+    // `prim init` never builds a resolver, so an ancestor `ec4rs` could not
+    // open would otherwise go unmentioned by this command entirely (#153).
+    let unopenable = crate::editorconfig::ancestors::report_unopenable_above(&own_dir);
     let mut files = Vec::new();
     let mut keys = BTreeSet::new();
 
@@ -107,7 +115,14 @@ pub(super) fn from_ancestors(dir: &Path) -> Ancestry {
     }
 
     if files.is_empty() {
-        Ancestry::Nothing
+        // Where prim can name concrete keys it says those instead: the
+        // unopenable file already has its own line, and "these keys stop
+        // reaching here" is the more useful of the two. It is only where the
+        // readable walk found nothing that this would otherwise be silent.
+        match unopenable.into_iter().next() {
+            Some(path) => Ancestry::Unopenable { path },
+            None => Ancestry::Nothing,
+        }
     } else {
         Ancestry::Inherits(Inheritance { files, keys })
     }
@@ -120,7 +135,24 @@ pub(super) fn severing_warning(dir: &Path, ancestry: &Ancestry) -> Option<String
         Ancestry::Nothing => None,
         Ancestry::Inherits(inherited) => Some(severed_cascade(dir, inherited)),
         Ancestry::Malformed { path, error } => Some(unreadable_ancestor(dir, path, error)),
+        Ancestry::Unopenable { path } => Some(unopenable_ancestor(dir, path)),
     }
+}
+
+/// The text for an ancestor prim could not open. The file has already been
+/// named on its own line, so this says only the part that line cannot: what
+/// `init` just did to it. Without this the `#153` case got the weakest of
+/// `init`'s three severing messages — the file named, and nothing about the
+/// `root = true` that had just been written above it.
+fn unopenable_ancestor(dir: &Path, path: &Path) -> String {
+    format!(
+        "prim wrote root = true in {}, so files under that directory no longer inherit from {}, \
+         and prim cannot say what that cuts off, because it could not open it. prim resolves \
+         this file as absent either way, but another EditorConfig reader running as a user who \
+         can read it may still be applying it.",
+        dir.display(),
+        path.display()
+    )
 }
 
 /// The text for an ancestor prim could not parse. It opens with the same

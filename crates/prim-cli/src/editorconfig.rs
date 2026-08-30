@@ -16,6 +16,7 @@ use prim_fmt::{Indent, LineEnding, Style};
 
 use crate::ui;
 
+pub(crate) mod ancestors;
 pub(crate) mod line;
 
 /// One parsed `.editorconfig` in a cascade: the directory that contains it
@@ -110,6 +111,15 @@ fn build_cascade(dir: &Path) -> Cascade {
             sections,
         });
     }
+
+    // `ec4rs` skipped any `.editorconfig` in this ancestry it could not open,
+    // which silently changes what resolves here (#153). Named last, after the
+    // section loop has had its chance to return: where a malformed section
+    // drops the whole cascade, that outcome supersedes this one, and saying
+    // "resolving as if it were absent" about one file while every file has
+    // just stopped applying would be the more misleading of the two.
+    ancestors::report_unopenable_in_cascade(dir);
+
     cascade
 }
 
