@@ -171,7 +171,7 @@ impl Server {
         };
 
         let style = self.resolver.resolve(&path);
-        match crate::formatting::contained(|| prim_fmt::format(kind, text, &style)) {
+        match crate::formatting::contained(&path, || prim_fmt::format(kind, text, &style)) {
             // No edits, and the session survives: an editor holding the
             // buffer is the last place a panic should take the process down.
             Err(_) => json!([]),

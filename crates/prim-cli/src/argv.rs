@@ -41,10 +41,11 @@ pub fn inject_default_verb(args: Vec<OsString>) -> (Vec<OsString>, bool) {
     let mut leave_unchanged = false;
 
     while index < args.len() {
-        // Every verb and every flag prim scans for is ASCII, so a token that
-        // is not valid UTF-8 is none of them. It is a path, and the first
-        // path is where the scan stops anyway — the same `break` an
-        // unrecognized flag takes below.
+        // Every verb prim scans for is ASCII, so a token that is not valid
+        // UTF-8 is not one — most often a path, and possibly an attached
+        // `--flag=<undecodable>`, which clap then rejects on its own. Either
+        // way no verb precedes it, so the scan stops here, exactly as it does
+        // for an unrecognized flag below.
         let Some(token) = args[index].to_str() else {
             break;
         };
@@ -276,9 +277,45 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn an_undecodable_token_ends_the_scan_rather_than_being_skipped_over() {
+        // The token is a path, so everything after it is a path too. Were the
+        // scan to step over it and keep looking, `lint` would be taken for
+        // the verb and the run would report instead of formatting.
+        let bad = undecodable();
+        let args = vec![OsString::from("prim"), bad.clone(), "lint".into()];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(injected, "no verb precedes an undecodable first token");
+        assert_eq!(
+            adjusted,
+            vec![OsString::from("prim"), "fmt".into(), bad, "lint".into()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_undecodable_token_before_a_help_flag_does_not_reach_the_flag() {
+        // Same rule seen from the other side: `-h` after a path is a path's
+        // neighbour, not a request for help.
+        let bad = undecodable();
+        let args = vec![OsString::from("prim"), bad.clone(), "-h".into()];
+
+        let (adjusted, injected) = inject_default_verb(args);
+
+        assert!(injected);
+        assert_eq!(
+            adjusted,
+            vec![OsString::from("prim"), "fmt".into(), bad, "-h".into()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn an_undecodable_value_for_a_global_flag_still_injects_fmt() {
-        // `--exclude <undecodable>` is a value, not a verb: the scan must
-        // step over it rather than stopping short and mistaking it for a path.
+        // A separate-token value is stepped over by index arithmetic and
+        // never decoded, so this pins that the undecodable bytes survive that
+        // path rather than the decoding branch itself.
         let bad = undecodable();
         let args = vec![
             OsString::from("prim"),

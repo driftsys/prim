@@ -30,7 +30,15 @@ pub fn compute(
     match kind {
         prim_fmt::FileKind::Orphan => {
             let style = resolver.resolve(path);
-            prim_fmt::hygiene_diagnostics(text, &style)
+            // A panic here would take the server down mid-session, which is
+            // the last place prim should end a process (AD-0017). No
+            // diagnostics for this document; the next request still works.
+            let Ok(diagnostics) =
+                crate::formatting::contained(path, || prim_fmt::hygiene_diagnostics(text, &style))
+            else {
+                return Vec::new();
+            };
+            diagnostics
                 .iter()
                 .map(|diagnostic| Diagnostic {
                     range: protocol::point_range(text, diagnostic.line, diagnostic.column),
@@ -46,29 +54,34 @@ pub fn compute(
             // FR-3.2c has no editor carve-out: a typo'd rule id is silently
             // ignored, so the only sign of it is this line on stderr.
             unknown_rules.report(&policy);
-            prim_fmt::lint_markdown(
-                text,
-                policy.strict,
-                &policy.disabled,
-                policy.report_line_length,
-            )
-            .iter()
-            .map(|diagnostic| Diagnostic {
-                range: protocol::point_range(text, diagnostic.line, diagnostic.column),
-                // The `else` arm is unreachable today:
-                // `MdDiagnostic::is_error` is always `true` (see
-                // AD-0012). Kept for a future non-Markdown content rule
-                // that might legitimately want a warning.
-                severity: if diagnostic.is_error {
-                    protocol::SEVERITY_ERROR
-                } else {
-                    protocol::SEVERITY_WARNING
-                },
-                code: diagnostic.rule.clone(),
-                source: "prim",
-                message: diagnostic.message.clone(),
-            })
-            .collect()
+            let Ok(diagnostics) = crate::formatting::contained(path, || {
+                prim_fmt::lint_markdown(
+                    text,
+                    policy.strict,
+                    &policy.disabled,
+                    policy.report_line_length,
+                )
+            }) else {
+                return Vec::new();
+            };
+            diagnostics
+                .iter()
+                .map(|diagnostic| Diagnostic {
+                    range: protocol::point_range(text, diagnostic.line, diagnostic.column),
+                    // The `else` arm is unreachable today:
+                    // `MdDiagnostic::is_error` is always `true` (see
+                    // AD-0012). Kept for a future non-Markdown content rule
+                    // that might legitimately want a warning.
+                    severity: if diagnostic.is_error {
+                        protocol::SEVERITY_ERROR
+                    } else {
+                        protocol::SEVERITY_WARNING
+                    },
+                    code: diagnostic.rule.clone(),
+                    source: "prim",
+                    message: diagnostic.message.clone(),
+                })
+                .collect()
         }
         _ => Vec::new(),
     }

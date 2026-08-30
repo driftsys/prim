@@ -303,3 +303,174 @@ fn an_undecodable_argument_does_not_panic_on_any_entry_point() {
         );
     }
 }
+
+// #125: prim formats through a rayon pool with no `catch_unwind`, so one
+// panicking dependency took the whole process to exit 101 and the files beside
+// it produced no output either. The two inputs known to panic are pinned in
+// `prim-fmt` and stay quiet only because of the `[profile.dev.package.*]`
+// overrides AD-0006 records, so these drive the debug-build fault injector
+// instead: `PRIM_PANIC_INJECT` panics inside the contained region for any path
+// containing its value. That is what lets one file panic while its neighbours
+// do not.
+
+fn tree_with_a_panicking_file() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("boom.md"), "# Doc  \n").unwrap();
+    std::fs::write(dir.path().join("ok.md"), "# Fine  \n").unwrap();
+    std::fs::write(dir.path().join("note.txt"), "text  \n").unwrap();
+    dir
+}
+
+#[test]
+fn a_panic_exits_two_leaves_the_file_alone_and_still_formats_its_neighbours() {
+    let dir = tree_with_a_panicking_file();
+
+    prim()
+        .env("PRIM_PANIC_INJECT", "boom.md")
+        .arg(dir.path())
+        .assert()
+        .code(2)
+        .stderr(predicates::str::contains("boom.md"))
+        .stderr(predicates::str::contains("please report it"));
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("boom.md")).unwrap(),
+        "# Doc  \n",
+        "the panicking file must be left byte-for-byte unchanged (FR-6.3)"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("ok.md")).unwrap(),
+        "# Fine\n",
+        "the files beside it must still be formatted — the second half of #125"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("note.txt")).unwrap(),
+        "text\n"
+    );
+}
+
+#[test]
+fn every_verb_and_gate_holds_the_contract_through_a_panic() {
+    // `lint` is the one that stayed at 101 after the formatter was contained:
+    // it reaches rumdl without ever calling `prim_fmt::format`.
+    for args in [
+        vec!["fmt"],
+        vec!["fmt", "--check"],
+        vec!["fmt", "--diff"],
+        vec!["fmt", "--check-idempotence"],
+        vec!["lint"],
+        vec!["fix"],
+    ] {
+        let dir = tree_with_a_panicking_file();
+        let output = prim()
+            .env("PRIM_PANIC_INJECT", "boom.md")
+            .args(&args)
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        let code = output.status.code().expect("prim exited normally");
+
+        assert_eq!(
+            code,
+            2,
+            "`prim {args:?}` exited {code}, not 2\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("boom.md")).unwrap(),
+            "# Doc  \n",
+            "`prim {args:?}` must leave the panicking file unchanged"
+        );
+    }
+}
+
+#[test]
+fn a_machine_readable_lint_still_emits_its_document_through_a_panic() {
+    // `--format` changes stdout alone: a pipeline should get a well-formed
+    // document with the failure carried by the exit code, not an empty stream
+    // that reads as a parse failure.
+    for format in ["json", "sarif"] {
+        let dir = tree_with_a_panicking_file();
+        let output = prim()
+            .env("PRIM_PANIC_INJECT", "boom.md")
+            .args(["lint", "--format", format])
+            .arg(dir.path())
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(2), "format: {format}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&stdout).is_ok(),
+            "`lint --format {format}` must still emit a parseable document\nstdout:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn a_panic_under_stdin_filepath_returns_the_buffer_rather_than_emptying_it() {
+    // An editor replaces its buffer with prim's stdout, so printing nothing
+    // would empty the document (AD-0017 point 5).
+    for args in [vec!["fmt"], vec!["fix"]] {
+        let output = prim()
+            .env("PRIM_PANIC_INJECT", "buffer.md")
+            .args(&args)
+            .args(["--stdin-filepath", "buffer.md"])
+            .write_stdin("# Draft  \n")
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(2), "args: {args:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "# Draft  \n",
+            "`prim {args:?} --stdin-filepath` must echo the buffer back unchanged"
+        );
+    }
+
+    // The lint route writes nothing to stdout without `--format`, but must
+    // still not exit outside the contract.
+    prim()
+        .env("PRIM_PANIC_INJECT", "buffer.md")
+        .args(["lint", "--stdin-filepath", "buffer.md"])
+        .write_stdin("# Draft  \n")
+        .assert()
+        .code(2);
+}
+
+/// FR-2.5 end to end through the route #173 opened: a filename that is not
+/// valid UTF-8, **named on the command line**, is formatted exactly as a
+/// decodable name would be. Such a name is legal on Linux and cannot exist on
+/// APFS or HFS+, so this runs only where it is reachable — CI's ubuntu runner,
+/// matching `changed_files.rs::a_path_that_is_not_valid_utf8_is_selected`.
+///
+/// Without it, decoding argv lossily passes every other test here: the six
+/// entry points in `an_undecodable_argument_does_not_panic_on_any_entry_point`
+/// all name a path that does not exist, so nothing observes that the bytes
+/// prim was given are the bytes it used.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_path_that_is_not_valid_utf8_is_formatted_when_named() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let odd = dir.path().join(OsStr::from_bytes(b"caf\xe9.md"));
+    let odd_txt = dir.path().join(OsStr::from_bytes(b"caf\xe9.txt"));
+    std::fs::write(&odd, "# Title  \n").unwrap();
+    std::fs::write(&odd_txt, "x  \n").unwrap();
+
+    prim().arg(&odd).arg(&odd_txt).assert().success();
+
+    assert_eq!(
+        std::fs::read(&odd).unwrap(),
+        b"# Title\n",
+        "a named path that is not valid UTF-8 must be formatted, not mangled in transit"
+    );
+    assert_eq!(std::fs::read(&odd_txt).unwrap(), b"x\n");
+
+    // And the gate agrees about it, rather than reporting a clean run over a
+    // file it could not name.
+    std::fs::write(&odd, "# Title  \n").unwrap();
+    prim().args(["fmt", "--check"]).arg(&odd).assert().code(1);
+}

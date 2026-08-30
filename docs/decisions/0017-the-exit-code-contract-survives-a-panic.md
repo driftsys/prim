@@ -52,9 +52,12 @@ round is already visible: `dprint-plugin-json` 0.22.0 carries three live
    an unrecognised flag does. Every verb and every flag prim scans for is ASCII,
    so a token that will not decode is none of them — it is a path, and the first
    path is where the scan stops anyway.
-3. A panic inside the formatter is caught per file, reported with the path
-   named, and the file is left byte-for-byte unchanged. The run continues to the
-   next file, and the process exits `2`.
+3. A panic inside a third-party formatter **or linter** is caught per file,
+   reported with the path named, and the file is left byte-for-byte unchanged.
+   The run continues to the next file, and the process exits `2`. The linter is
+   not an afterthought: `rumdl` is a larger body of code than the dprint
+   formatters, and containing only the formatters left `prim lint` exiting `101`
+   while `prim fmt` was safe.
 4. A panic is always an **error**, never a warning, whether the file was named
    or reached by a walk. This is where it departs from an unparseable file,
    which is a warning when walked: an unparseable file is the caller's input,
@@ -62,11 +65,17 @@ round is already visible: `dprint-plugin-json` 0.22.0 carries three live
    is how the next one goes unnoticed.
 5. The routes that hold a buffer prim does not own return it unchanged.
    `--stdin-filepath` echoes the editor's buffer back to stdout and exits `2`;
-   the LSP returns no edits and the session survives. Emptying an editor buffer
-   because a formatter panicked would be a worse outcome than the panic.
-6. Containment is written once, generic over the operation, and used at all five
-   formatter call sites — the per-file walk, the idempotence second pass, both
-   `--stdin-filepath` routes, and the LSP.
+   the LSP returns no edits, no diagnostics, and the session survives. Emptying
+   an editor buffer because a formatter panicked would be a worse outcome than
+   the panic. A `--format` run still emits its document, because `--format`
+   changes stdout alone: a pipeline should read a well-formed empty report with
+   the failure carried by the exit code, not an empty stream that parses as a
+   failure of its own.
+6. Containment is written once, generic over the operation, and used at every
+   call prim makes into a third-party formatter or linter: the per-file walk,
+   the idempotence second pass, the two `--stdin-filepath` routes, the LSP
+   formatting handler, the hygiene and Markdown lint calls on the path route,
+   the same two on the stdin route, and the same two in the LSP's diagnostics.
 
 Point 3 is what #125 asked to have settled before any code: whether a panicking
 file is reported and skipped while the walk continues. The fail-safe rule
@@ -75,8 +84,12 @@ unchanged and reported as an error, and a file prim panicked on is a file prim
 could not process — the cause differs, the disposition does not.
 
 Point 6 is what makes the contract hold rather than the one call site #125
-named. A guarantee about exit codes that covers four of five entry points is not
-a guarantee, and the fifth is always the one a user finds.
+named. A guarantee about exit codes that covers most entry points is not a
+guarantee, and the one left out is always the one a user finds — as the first
+round of this change showed. It contained `prim_fmt::format` and left
+`prim_fmt::lint_markdown` bare, so `prim lint`, `prim lint --format json`,
+`prim lint --stdin-filepath` and an LSP `didOpen` on a Markdown document all
+still exited `101`, the last of them killing the editor's server outright.
 
 The default panic hook is left in place, so the panic's own message and any
 backtrace still reach stderr. That output is alarming, and it is also the only
@@ -116,14 +129,34 @@ single thing a bug report needs for a tidier terminal.
 - Exit `101` remains reachable in principle — a panic outside the contained
   region, an abort, a stack overflow. What changed is that the two routes anyone
   has actually reached it through no longer lead there.
-- No test drives a real dependency panic, because no input is known that causes
-  one; an input that did would be a bug to fix rather than a fixture to keep.
-  The containment is unit-tested directly instead, including that a panic does
-  not stop the call after it.
+- Inputs that panic **are** known: AD-0006 records two, pinned by
+  `crates/prim-fmt/src/markdown.rs`, and they stay quiet only because of the
+  `[profile.dev.package.*] debug-assertions = false` overrides that record
+  describes. Reaching them from a test would mean building without those
+  overrides, which is a build prim does not otherwise make, so the containment
+  carries a fault injector instead: `PRIM_PANIC_INJECT` panics inside the
+  contained region for any path containing its value, and it is compiled out of
+  every release binary (`#[cfg(debug_assertions)]`). Matching a substring rather
+  than a flag is what lets a test say "this file panics, its neighbours do not",
+  which is the half of #125 about the run continuing.
+- `AssertUnwindSafe` asserts only that nothing **prim** observes afterwards is
+  inconsistent. Inside the dependencies it is not true: `dprint-core`'s `format`
+  increments a thread-local count and decrements it only on the success path,
+  with no drop guard, so an unwind leaves that thread's count above zero and its
+  bump allocator never reset again. That is a leak in the worker, not wrong
+  output and not undefined behaviour — the count can only be left too high, and
+  too high suppresses the reset. It is bounded by the process for `prim fmt`,
+  and by the session for `prim lsp`, which point 5 deliberately keeps alive.
+  Accepted: a leaked arena in a worker that has already hit a dependency bug
+  costs less than the exit code did.
+- Building the workspace with `-C panic=abort` turns the containment into a
+  no-op and produces a SIGABRT, again outside the contract. prim sets no such
+  profile and ships none; a downstream packager who does gives up this
+  guarantee.
 
 ---
 
-Satisfies: #125 and #173; removes FR-2.5's #173 caveat and adds FR-5.6a.
-Related: AD-0006 (the per-package debug-assertion overrides this generalises),
-FR-5.6, FR-6.3, `crates/prim-cli/src/formatting.rs`,
+Satisfies: #125 and #173; removes FR-2.5's #173 caveat and adds FR-5.6a and
+FR-5.6b. Related: AD-0006 (the per-package debug-assertion overrides this
+generalises), FR-5.6, FR-6.3, `crates/prim-cli/src/formatting.rs`,
 `crates/prim-cli/src/argv.rs`, `crates/prim-cli/src/main.rs`.

@@ -188,7 +188,7 @@ fn is_idempotent_second_pass(
     formatted: &str,
     style: &Style,
 ) -> Result<bool, String> {
-    match crate::formatting::contained(|| prim_fmt::format(kind, formatted, style)) {
+    match crate::formatting::contained(path, || prim_fmt::format(kind, formatted, style)) {
         Ok(Ok(reformatted)) => Ok(second_pass_matches_first(formatted, &reformatted)),
         Ok(Err(err)) => Err(format!(
             "{}: second formatting pass failed: {err}",
@@ -210,7 +210,7 @@ pub(super) fn run_lint_paths(
 ) -> i32 {
     let Loaded {
         files: results,
-        had_error,
+        mut had_error,
         examined_nothing,
     } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
         Ok(outcome) => outcome,
@@ -227,7 +227,13 @@ pub(super) fn run_lint_paths(
         if kind == FileKind::Orphan {
             // Story B1: itemized, coded, positioned findings for the
             // un-owned-text allowlist — the same set A1's BOM strip covers.
-            let diagnostics = prim_fmt::hygiene_diagnostics(&original, &style);
+            let Ok(diagnostics) = crate::formatting::contained(&path, || {
+                prim_fmt::hygiene_diagnostics(&original, &style)
+            }) else {
+                ui::error(&crate::formatting::panic_message(&path));
+                had_error = true;
+                continue;
+            };
             if !diagnostics.is_empty() {
                 any_error_finding = true;
                 for diagnostic in &diagnostics {
@@ -240,12 +246,18 @@ pub(super) fn run_lint_paths(
             }
         } else if kind == FileKind::Markdown {
             unknown_rule_reporter.report(&markdown_policy);
-            let diagnostics = prim_fmt::lint_markdown(
-                &original,
-                markdown_policy.strict,
-                &markdown_policy.disabled,
-                markdown_policy.report_line_length,
-            );
+            let Ok(diagnostics) = crate::formatting::contained(&path, || {
+                prim_fmt::lint_markdown(
+                    &original,
+                    markdown_policy.strict,
+                    &markdown_policy.disabled,
+                    markdown_policy.report_line_length,
+                )
+            }) else {
+                ui::error(&crate::formatting::panic_message(&path));
+                had_error = true;
+                continue;
+            };
             if !diagnostics.is_empty() {
                 any_error_finding |= diagnostics.iter().any(|diagnostic| diagnostic.is_error);
                 for diagnostic in &diagnostics {

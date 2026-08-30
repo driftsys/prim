@@ -510,17 +510,24 @@ default, format-in-place action.
   actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
   could not do its job (parse/IO/usage error, or a gate that examined nothing —
   FR-4.4c). Warnings never raise the exit code; only errors do.
-- **FR-5.6a** _(the contract survives a fault)_ prim shall not exit outside
-  FR-5.6 for a fault it can contain (AD-0017). It shall read its command line
-  with `std::env::args_os`, so an argument that is not valid UTF-8 is carried
-  rather than fatal, and it shall contain a panic inside the formatter per file:
-  the file shall be reported as an error with its path named and left
-  byte-for-byte unchanged (FR-6.3), the run shall continue to the next file, and
-  the process shall exit `2`. A panic shall be an error whether the file was
-  named or walked, because it is a fault in prim rather than in the input. Where
-  prim holds a buffer it does not own, it shall return that buffer unchanged:
-  `--stdin-filepath` shall echo stdin to stdout and exit `2`, and the LSP shall
-  return no edits and keep the session.
+- **FR-5.6a** _(argv survives a byte prim cannot decode)_ prim shall read its
+  command line with `std::env::args_os`, so a **path** that is not valid UTF-8
+  reaches the filesystem as the bytes prim was given — satisfying FR-2.5 for a
+  named path, not only a discovered one (AD-0017). A non-UTF-8 value for an
+  option that is not a path — an `--exclude` glob, a `--since` ref — remains a
+  usage error (exit `2`, FR-4.5): those are matched and resolved as text, and
+  prim has no meaning for bytes that are not.
+- **FR-5.6b** _(a contained fault keeps the contract)_ prim shall not exit
+  outside FR-5.6 for a panic raised inside a third-party formatter or linter. It
+  shall contain such a panic per file: the file shall be reported as an error
+  with its path named and left byte-for-byte unchanged (FR-6.3), the run shall
+  continue to the next file, and the process shall exit `2`. A panic shall be an
+  error whether the file was named or walked, because it is a fault in prim
+  rather than in the input. Where prim holds a buffer it does not own it shall
+  return that buffer unchanged: `--stdin-filepath` shall echo stdin to stdout
+  and exit `2`, and the LSP shall return no edits, no diagnostics, and keep the
+  session. A `--format` run shall still emit its report document, since
+  `--format` governs stdout alone.
 - **FR-5.7** _(deprecated top-level flags)_ The top-level `--check`, `--diff`,
   and `--stdin-filepath` flags remain accepted directly on bare `prim` as
   deprecated sugar for the `fmt` forms; the first use in a run emits a one-line
