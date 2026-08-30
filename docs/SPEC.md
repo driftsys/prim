@@ -362,6 +362,15 @@ source-code formatter and has **no plugin system**.
   whose type prim does not own shall be reported as a warning and left unchanged
   (exit `0`). An unowned path reached only by directory walking shall be skipped
   silently (FR-2.4).
+- **FR-4.6a** A path whose final component is a symbolic link is a path type
+  prim does not own (AD-0016). prim shall not follow it: the link shall be left
+  byte-for-byte unchanged and the file it points at shall be neither read nor
+  written, in every verb and gate, so that naming the link and walking to it
+  give the same answer. Naming one shall be reported under FR-4.6 and shall not
+  count toward FR-4.4c. A path that merely passes **through** a symlinked
+  directory shall be processed normally: it ends at a regular file, so no link
+  is destroyed, and the `.primignore` reach limit that follows from FR-4.4b's
+  lexical matching stands as decided.
 
 ## FR-5 — Operating modes (CLI)
 

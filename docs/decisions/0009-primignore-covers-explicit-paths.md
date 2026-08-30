@@ -16,6 +16,11 @@ directory now applies to that spelling, where it was silently missed before. A
 rule above it is still not reached — see the limit recorded in the Decision
 section.
 
+Amended for #152: the deferred alternative below — refusing a path that goes
+through a symlinked directory — is now rejected on the merits, and the reach
+limit recorded in the Decision section stands as decided. AD-0016 carries that
+decision and the platform cost behind it. Not breaking: nothing changes.
+
 Amended for #114: a named path now obeys gitignore's re-inclusion rule, as a
 walked one always did. Breaking: a `!` rule under an excluded directory no
 longer re-includes the file it names. The two routes agree on the file, which is
@@ -237,10 +242,17 @@ supports: the fix closes the distance up to the symlink's target, not past it.
   which is worse than the defect. It also disagrees with `git`, which never
   resolves a path for ignore matching.
 - **Refuse a path that goes through a symlinked directory,** as `git` does
-  (`fatal: pathspec ... is beyond a symbolic link`). Rejected for now: prim is
-  handed paths by hooks and editors that do not choose their spelling, and
-  declining to format them is a larger change to the CLI contract than this
-  defect warrants. It is the only route that closes the limit above.
+  (`fatal: pathspec ... is beyond a symbolic link`). It is the only route that
+  closes the limit above. Rejected, and no longer only provisionally (#152): on
+  macOS `/tmp` is a symlink to `private/tmp` and `/var` to `private/var`, and
+  `$TMPDIR` resolves under `/var/folders/...`, so refusing traversal would
+  refuse every `/tmp/...` and `$TMPDIR/...` path on that platform. prim is also
+  handed paths by hooks and editors that do not choose their spelling. A path
+  through a symlinked directory ends at a regular file, so the write destroys
+  nothing — the limit is a matching surprise, not data loss, and it is the
+  cheaper of the two. AD-0016 records the decision, together with the adjacent
+  case that does destroy something: a symlink named as the target itself, which
+  prim now declines to follow.
 
 This bound was added with AD-0011, after a stray `.primignore` in a parent
 directory was found to silently change how prim treated every repository beneath
