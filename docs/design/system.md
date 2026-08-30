@@ -71,11 +71,14 @@ For every file that prim processes the steps are, in order:
    `Style::default()` with a warning (AD-0002) when it has a valid first section
    header and an invalid line after that header. A config prim cannot open, and
    one whose first invalid line is at or before its first section header, are
-   normally skipped silently: `ec4rs` never constructs the file and continues
+   reported and then skipped: `ec4rs` never constructs the file and continues
    the walk, so the rest of the cascade still applies — including any
-   `.editorconfig` above a `root = true` prim did not get to read. A byte-order
-   mark before a first-line section header is the exception — the file is
-   constructed and then fails on line 1, so it warns (AD-0002).
+   `.editorconfig` above a `root = true` prim did not get to read.
+   `ancestors.rs` walks the same ancestry `ec4rs` walks to name them, stopping
+   where it stops so a file above a root boundary is not named (#153). A
+   byte-order mark before a first-line section header lands on the other side of
+   the split — the file is constructed and then fails on line 1, so it costs the
+   whole cascade (AD-0002).
 5. **Format** — `prim_fmt::format(kind, &source, &style)` applies the whitespace
    hygiene pass (FR-2), and for structured formats the per-format pass followed
    by hygiene: `Json`/`Jsonc` via `dprint-plugin-json` (FR-1.2/1.3, AD-0003),

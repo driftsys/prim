@@ -5,7 +5,7 @@
 use std::fs;
 
 use assert_cmd::Command;
-use predicates::prelude::PredicateBooleanExt;
+use predicates::prelude::*;
 
 fn prim() -> Command {
     Command::cargo_bin("prim").expect("prim binary builds")
@@ -438,4 +438,31 @@ fn init_normalizes_a_bare_cr_editorconfig() {
         .arg(dir.path().join(".editorconfig"))
         .assert()
         .success();
+}
+
+// #153: `prim init` never builds a resolver, so an ancestor `.editorconfig`
+// that `ec4rs` could not open went unmentioned by this command entirely —
+// including in the "what root = true cuts off" report, whose whole job is to
+// say what the new file severs.
+#[cfg(unix)]
+#[test]
+fn init_reports_an_unreadable_ancestor_editorconfig() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let outer = tempfile::tempdir().unwrap();
+    let config = outer.path().join(".editorconfig");
+    fs::write(&config, "[*]\nmax_line_length = 120\n").unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&config).is_ok() {
+        return; // readable regardless of mode (root, or no permission bits).
+    }
+    let target = outer.path().join("project");
+    fs::create_dir(&target).unwrap();
+
+    prim()
+        .arg("init")
+        .arg(&target)
+        .assert()
+        .success()
+        .stderr(predicates::str::contains(config.display().to_string()));
 }

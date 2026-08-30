@@ -839,13 +839,13 @@ Scope notes:
   `[section]` header and its first invalid line comes after that header. It then
   warns, and the built-in canonical style applies for the whole cascade —
   including any `.editorconfig` that was read successfully before it.
-- Anything that goes wrong earlier in the file is normally silent. An
-  `.editorconfig` prim cannot open, and one whose first invalid line is at or
+- Anything that goes wrong earlier in the file is reported too, but costs less.
+  An `.editorconfig` prim cannot open, and one whose first invalid line is at or
   before its first `[section]` header — an unclosed `[*.md`, for instance — are
-  skipped without a warning, and the walk continues past them. A broken section
-  header at the top of a file is the common typo, so being malformed is not on
-  its own enough to get a file reported; where the broken line sits is what
-  decides.
+  named on stderr and then skipped, and the walk continues past them. Only that
+  one file drops out; the rest of the cascade still applies. prim says
+  `unreadable` when it could not read the bytes and `malformed` when it read
+  them and they were not `.editorconfig`. Each file is named once per run.
 - The exception is a byte-order mark immediately before a first-line `[section]`
   header, which is reported rather than skipped. `ec4rs` strips the mark when it
   first classifies that line but not when it re-reads it, so the file is

@@ -72,6 +72,9 @@ pub(super) fn from_ancestors(dir: &Path) -> Ancestry {
     let Ok(config_files) = ConfigFiles::open(&probe, Option::<&Path>::None) else {
         return Ancestry::Nothing;
     };
+    // `prim init` never builds a resolver, so an ancestor `ec4rs` could not
+    // open would otherwise go unmentioned by this command entirely (#153).
+    crate::editorconfig::ancestors::report_unopenable_above(&own_dir);
     let mut files = Vec::new();
     let mut keys = BTreeSet::new();
 

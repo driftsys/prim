@@ -16,6 +16,7 @@ use prim_fmt::{Indent, LineEnding, Style};
 
 use crate::ui;
 
+pub(crate) mod ancestors;
 pub(crate) mod line;
 
 /// One parsed `.editorconfig` in a cascade: the directory that contains it
@@ -86,6 +87,10 @@ fn build_cascade(dir: &Path) -> Cascade {
             return Vec::new();
         }
     };
+
+    // `ec4rs` skipped any `.editorconfig` in this ancestry that it could not
+    // open, which silently changes what resolves here (#153). Name them.
+    ancestors::report_unopenable_in_cascade(dir);
 
     let mut cascade = Vec::new();
     for mut file in files {

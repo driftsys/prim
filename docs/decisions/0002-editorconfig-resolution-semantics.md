@@ -86,42 +86,63 @@ against `ec4rs::properties_of` guards.
 This is the fail-safe posture: a bad config file should not silently corrupt
 output or block the tool.
 
-That posture is only partly implemented, and the line it actually falls on is
-not malformed-versus-unreadable. prim reports a file in the cascade only when
+That posture was only partly implemented until #153. The line it fell on was not
+malformed-versus-unreadable. prim reported a file in the cascade only when
 `ec4rs` yields an error while iterating a `ConfigFile`'s sections, which
 requires the file to have parsed far enough to have a valid first section
 header. `ConfigParser::new_with_path` eagerly parses everything up to and
 including that header; an invalid line anywhere in that span fails there,
 `ConfigFile::open` propagates it, and `ConfigFiles::open` discards the error and
 carries on with the walk. So a file whose first invalid line is the section
-header itself — an unclosed `[*.md`, the common `.editorconfig` typo — is
-skipped in silence, as is a file that cannot be opened at all. An unreadable
-file is indistinguishable from one broken at or above its first header.
+header itself — an unclosed `[*.md`, the common `.editorconfig` typo — was
+skipped in silence, as was a file that could not be opened at all.
 
-The split is therefore not "broken line after the first header" but "parsed far
-enough to be constructed, then errored during section iteration". One line can
-satisfy both: a byte-order mark immediately before a first-line section header
-is stripped when `LineReader` classifies that line but not when `read_section`
-re-parses it, so the file is constructed and then reports on line 1. That
-asymmetry is the one described under "Line-level parsing is reimplemented"
-below, and it is the only case where an invalid first header is reported rather
-than passed over.
+prim now reports both, by walking the same ancestry `ec4rs` walks and naming
+what `ConfigFile::open` refused: the same climb, the same call, and the same
+stop at the first `root = true` that opens, so a file above a root boundary —
+which never reached resolution — is not named. The two faults are still told
+apart, because they read differently to whoever has to fix them: an I/O failure
+is reported as `unreadable`, anything else as `malformed`.
+
+What does **not** change is resolution. A file `ec4rs` could not open still
+resolves as absent, and the rest of the cascade still applies — including any
+`.editorconfig` above a `root = true` prim did not get to read. That is what
+`ec4rs` does and what any other EditorConfig reader with the same permissions
+would do, and #153 was a diagnosis-quality complaint rather than a resolution
+one: an ancestor at mode `000` turned `max_line_length = 120` into `unset` with
+nothing said. So the tail of the message differs from the section-iteration case
+above, which drops the whole cascade to canonical style; here only the one file
+drops out.
+
+Every bad `.editorconfig` in the cascade is now reported. What the split above
+still decides is **which report, and what it costs**: a file that failed during
+section iteration drops the whole cascade to canonical style, while one
+`ConfigFile::open` refused drops only itself. One line can land on either side
+of it: a byte-order mark immediately before a first-line section header is
+stripped when `LineReader` classifies that line but not when `read_section`
+re-parses it, so the file is constructed and then errors on line 1 — reported
+under the first rule, at the cost of the whole cascade, where an unclosed
+`[*.md` in the same position is reported under the second and costs only that
+file. That asymmetry is the one described under "Line-level parsing is
+reimplemented" below.
 
 (The other warning `build_cascade` can emit, `cannot search for .editorconfig`,
 is not about a file in the cascade: it reports the walk failing to start, which
 for a relative probe means the working directory could not be determined.)
 
-Both silent cases also let the walk continue past the skipped file. If that file
-carried `root = true`, prim never sees the boundary and keeps reading
-`.editorconfig` files above it, so resolution can gain settings as well as lose
-them. Measured, for a file under a `root = true` parent: with the parent
-readable, `indent_style` resolves to prim's default; with the same parent
-unreadable, it resolves to `tab` inherited from the grandparent.
+A skipped file also lets the walk continue past it. If that file carried
+`root = true`, prim never sees the boundary and keeps reading `.editorconfig`
+files above it, so resolution can gain settings as well as lose them. Measured,
+for a file under a `root = true` parent: with the parent readable,
+`indent_style` resolves to prim's default; with the same parent unreadable, it
+resolves to `tab` inherited from the grandparent. That is still what happens —
+the report says which file was skipped, and does not put its settings back.
 
-Closing this needs prim to notice an `.editorconfig` it can `stat` but cannot
-turn into a `ConfigFile`, on a resolution path that runs per directory during a
-walk. The decision above stands as the intended posture; the gap between it and
-the implementation is tracked as issue #153.
+The report costs one extra `ConfigFile::open` per `.editorconfig` in the
+ancestry. That is affordable because the cascade is cached per directory, so the
+walk runs once per directory rather than once per file. It is deduplicated per
+run: one resolver is built per rayon thread, so a single bad ancestor is
+otherwise met once per directory per thread.
 
 **Line-level parsing is reimplemented, not called, and is pinned to `ec4rs`'s
 `ConfigParser`, not its private `parse_line`.** `.editorconfig`-writing and
