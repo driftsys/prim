@@ -944,3 +944,112 @@ fn empty_git_output_stays_an_empty_selection() {
         .assert()
         .code(0);
 }
+
+/// #168 end to end. A filename that is not valid UTF-8 is legal on Linux and
+/// cannot exist on APFS or HFS+, so this runs only where it is reachable —
+/// CI's ubuntu runner. Before the fix the path decoded to U+FFFD, resolved to
+/// nothing, and left the gate reporting a clean run over a drifting file.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_path_that_is_not_valid_utf8_is_selected() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        let repo = init_repo();
+        let odd = repo.path().join(OsStr::from_bytes(b"caf\xe9.txt"));
+        // A parsed format as well as an orphan: this one also resolves its
+        // `.editorconfig` section through a glob match on a byte-string name.
+        let odd_md = repo.path().join(OsStr::from_bytes(b"caf\xe9.md"));
+        write(&odd, "x\n");
+        write(&odd_md, "# Title\n");
+        commit_all(repo.path(), "baseline");
+
+        // Committed clean and left drifting without being staged or changed
+        // against HEAD: it must not be selected. Without it this test passes
+        // even if the changed-file filter stopped filtering.
+        let unchanged = repo.path().join("unchanged.txt");
+        write(&unchanged, "y  \n");
+        commit_all(repo.path(), "drifting but unchanged");
+
+        write(&odd, "x  \n");
+        write(&odd_md, "# Title  \n");
+        git(repo.path(), &["add", odd.to_str().unwrap_or(".")]);
+        git(repo.path(), &["add", "."]);
+
+        // `Path::display` is lossy, so a correct run names the file this way.
+        // Asserting the name rather than "something was printed" separates
+        // this from a run that selected some other file, or none.
+        let mut command = prim();
+        command.current_dir(repo.path()).arg("fmt").arg("--check");
+        command.args(scope).arg(".").assert().code(1).stdout(
+            predicates::str::contains("caf\u{FFFD}.txt")
+                .and(predicates::str::contains("unchanged.txt").not()),
+        );
+
+        // Write mode: a dropped path meant the file silently kept its drift.
+        let mut command = prim();
+        command.current_dir(repo.path()).arg("fmt");
+        command.args(scope).arg(".").assert().code(0);
+
+        assert_eq!(
+            std::fs::read_to_string(&odd).unwrap(),
+            "x\n",
+            "{scope:?}: the orphan file was formatted, not skipped"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&odd_md).unwrap(),
+            "# Title\n",
+            "{scope:?}: the Markdown file was formatted, not skipped"
+        );
+    }
+}
+
+/// The repository root is a path too, and `git rev-parse --show-toplevel`
+/// appends exactly one newline to it. Stripping more than that terminator
+/// mangles a root whose own name ends in one, and every reported path is
+/// joined onto that root — so the whole selection is lost, not one entry.
+/// Creatable on APFS, so unlike the byte-decode half this pins the call site
+/// on the machines prim is developed on.
+#[cfg(unix)]
+#[test]
+fn a_repository_root_ending_in_a_newline_still_resolves() {
+    a_repository_root_named("weird\n");
+}
+
+/// A CR is not a terminator on unix, where git writes a bare LF. Stripping it
+/// pointed the root at the sibling directory created below, so the selection
+/// came out empty and the gate passed over a drifting file.
+#[cfg(unix)]
+#[test]
+fn a_repository_root_ending_in_a_carriage_return_still_resolves() {
+    a_repository_root_named("weird\r");
+}
+
+#[cfg(unix)]
+fn a_repository_root_named(name: &str) {
+    let parent = tempfile::tempdir().unwrap();
+    // The sibling the truncated spelling would resolve to.
+    std::fs::create_dir(parent.path().join("weird")).unwrap();
+    let root = parent.path().join(name);
+    std::fs::create_dir(&root).unwrap();
+
+    git(&root, &["init"]);
+    git(&root, &["config", "user.name", "Prim Test"]);
+    git(&root, &["config", "user.email", "prim@example.com"]);
+    write(&root.join("a.txt"), "x\n");
+    commit_all(&root, "baseline");
+    write(&root.join("a.txt"), "x  \n");
+    git(&root, &["add", "."]);
+
+    for scope in [["--since", "HEAD"].as_slice(), ["--staged"].as_slice()] {
+        let mut command = prim();
+        command.current_dir(&root).arg("fmt").arg("--check");
+        command
+            .args(scope)
+            .arg(".")
+            .assert()
+            .code(1)
+            .stdout(predicates::str::contains("a.txt"));
+    }
+}
