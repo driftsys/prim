@@ -1,5 +1,64 @@
 # Changelog
 
+## [0.7.0] (2026-08-30)
+
+### Bug Fixes
+
+- **prim-cli:** hold the exit-code contract through a panic and an undecodable
+  argv ([#178]) ([f4bcc74]), closes [#125], [#173]
+- **prim-cli:** report an .editorconfig prim could not open ([#177])
+  ([de10472]), closes [#153]
+- **prim-cli:** leave a named symlink intact instead of destroying it ([#175])
+  ([f185b06]), closes [#152], [#166]
+- **prim-cli:** classify every changed path before passing over any ([#174])
+  ([29abeab]), closes [#169]
+- **prim:** own a file whose name is not valid UTF-8 ([#171]) ([c26c829]),
+  closes [#168], [#164]
+
+### BREAKING CHANGES
+
+- `prim fmt <symlink>` no longer rewrites the file the link
+points at, and `prim fmt --check <symlink>` no longer reports it. `prim init`
+exits 2 on a symlinked .editorconfig rather than replacing it. A changed-file
+scope no longer selects a file because a symlink to it was staged. A dangling
+symlink named on the command line is reported as an unowned path (exit 0)
+rather than as a missing file (exit 2).
+- a path staged as a modification and then removed from the
+working tree now exits 2 where it was previously skipped in silence. prim was
+pointed at content it cannot read, and the commit that follows would record
+bytes prim never examined.
+
+`--since` and `--staged` also require git 2.24 or newer, which `--end-of-options`
+already required of `--since`.
+- prim now owns files it previously left byte-for-byte
+unchanged. On a platform whose filenames are byte strings, a name that is not
+valid UTF-8 with an owned extension, or matching the orphan allowlist, is
+formatted like any other — so `prim fmt .` rewrites files it used to skip, and
+`prim fmt --check .` reports them. This is not limited to `--since`/`--staged`:
+the classification rule governs every invocation.
+
+Two limits remain, both recorded in FR-2.5: prim reports such a path through
+
+[0.7.0]: https://github.com/driftsys/prim/compare/v0.6.0...v0.7.0
+[f4bcc74]: https://github.com/driftsys/prim/commit/f4bcc74
+[#178]: https://github.com/driftsys/prim/issues/178
+[#125]: https://github.com/driftsys/prim/issues/125
+[#173]: https://github.com/driftsys/prim/issues/173
+[de10472]: https://github.com/driftsys/prim/commit/de10472
+[#177]: https://github.com/driftsys/prim/issues/177
+[#153]: https://github.com/driftsys/prim/issues/153
+[f185b06]: https://github.com/driftsys/prim/commit/f185b06
+[#175]: https://github.com/driftsys/prim/issues/175
+[#152]: https://github.com/driftsys/prim/issues/152
+[#166]: https://github.com/driftsys/prim/issues/166
+[29abeab]: https://github.com/driftsys/prim/commit/29abeab
+[#174]: https://github.com/driftsys/prim/issues/174
+[#169]: https://github.com/driftsys/prim/issues/169
+[c26c829]: https://github.com/driftsys/prim/commit/c26c829
+[#171]: https://github.com/driftsys/prim/issues/171
+[#168]: https://github.com/driftsys/prim/issues/168
+[#164]: https://github.com/driftsys/prim/issues/164
+
 ## [0.6.0] (2026-08-29)
 
 ### Bug Fixes
