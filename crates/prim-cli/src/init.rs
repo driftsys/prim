@@ -85,12 +85,23 @@ pub enum Error {
         path: PathBuf,
         source: io::Error,
     },
+    /// The `.editorconfig` prim would write is a symbolic link. Writing is a
+    /// temporary file plus a rename (FR-6.4), which would replace the link
+    /// with a regular file and leave the shared config it points at unchanged
+    /// (AD-0016).
+    SymlinkedEditorConfig(PathBuf),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotDirectory(path) => write!(f, "{}: not a directory", path.display()),
+            Self::SymlinkedEditorConfig(path) => write!(
+                f,
+                "{}: is a symbolic link; prim wrote nothing (run prim init on the \
+                 directory holding the file it points at)",
+                path.display()
+            ),
             Self::DefectiveMap { glob, flaws } => write!(
                 f,
                 "prim's own Markdown map for [{glob}] does not resolve the way it is meant to \
@@ -121,6 +132,12 @@ pub fn run(target_dir: &Path) -> Result<Outcome, Error> {
         flaws,
     })?;
     let editorconfig = target_dir.join(EDITORCONFIG_NAME);
+    // Before anything is written, and before `exists()` is consulted: that
+    // follows the link, so a live one reaches the merge path and a dangling
+    // one reaches the scaffold path, and both renames destroy it (AD-0016).
+    if crate::symlink::is_symlink(&editorconfig) {
+        return Err(Error::SymlinkedEditorConfig(editorconfig));
+    }
     // Asked before any write: prim's own `root = true` stops the very walk
     // this reads, so afterwards there is nothing left to find.
     let ancestry = cascade::from_ancestors(target_dir);

@@ -1400,3 +1400,67 @@ fn a_file_prim_does_not_own_is_not_refused() {
         .code(1)
         .stdout(predicates::str::contains("kept.txt"));
 }
+
+// #166: `contains` canonicalizes before testing membership, so a named symlink
+// matches on its target's identity. prim then wrote to the symlink path,
+// replacing the link with a regular file while the path git actually staged
+// kept drifting. A symlink is a path type prim does not own (AD-0016).
+#[cfg(unix)]
+#[test]
+fn staged_named_symlink_is_left_intact_and_the_target_is_untouched() {
+    let repo = init_repo();
+    let target = repo.path().join("target.md");
+    let link = repo.path().join("link.md");
+    write(&target, "title\n");
+    std::os::unix::fs::symlink("target.md", &link).unwrap();
+    commit_all(repo.path(), "base");
+
+    write(&target, "title  \n"); // drifts
+    git(repo.path(), &["add", "target.md"]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--staged", "link.md"])
+        .assert()
+        .success();
+
+    assert!(
+        std::fs::symlink_metadata(&link).unwrap().is_symlink(),
+        "--staged on a named symlink must not destroy the symlink"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "title  \n",
+        "prim was pointed only at the link, so the target must be untouched"
+    );
+}
+
+// A symlink git reports is a path prim does not own (AD-0016). Resolving it
+// put its *target's* identity in the changed set, so staging only the link
+// made prim format a file git never staged — the same question answered two
+// ways, which is what AD-0009 exists to prevent.
+#[cfg(unix)]
+#[test]
+fn staging_only_a_symlink_does_not_drag_its_target_into_scope() {
+    let repo = init_repo();
+    let target = repo.path().join("target.md");
+    write(&target, "title\n");
+    commit_all(repo.path(), "base");
+
+    std::os::unix::fs::symlink("target.md", repo.path().join("link.md")).unwrap();
+    git(repo.path(), &["add", "link.md"]); // only the link is staged
+    write(&target, "title  \n"); // the target drifts, unstaged
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("target.md").not());
+
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "title  \n",
+        "git staged only the link, so the target is out of scope"
+    );
+}

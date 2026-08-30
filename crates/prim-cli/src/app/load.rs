@@ -4,7 +4,7 @@ use rayon::prelude::*;
 
 use crate::changed_files::ChangedFilesScope;
 use crate::mdlint_policy::MdLintPolicy;
-use crate::{discover, editorconfig, ui};
+use crate::{discover, editorconfig, symlink, ui};
 use prim_fmt::{FileKind, Style};
 
 pub(super) type FormattedFile = (PathBuf, FileKind, Style, MdLintPolicy, String, String);
@@ -86,6 +86,21 @@ fn load_discovered(files: Vec<discover::Discovered>) -> Vec<LoadOutcome> {
 }
 
 fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -> LoadOutcome {
+    // A symlink is a path type prim does not own (FR-4.6, AD-0016). Following
+    // one would destroy it: the atomic write of FR-6.4 is a temp file plus
+    // rename, which replaces the link with a regular file and leaves the file
+    // it pointed at still drifting (#166).
+    //
+    // Only a named path is tested. `walk_into` admits an entry only where
+    // `ft.is_file()`, and the `ignore` walker does not follow links, so a walk
+    // never offers one — which is exactly why the named route has to decline
+    // it too, or `prim fmt --check .` and `prim fmt --check <link>` answer the
+    // same question differently (AD-0009). Testing only the named route keeps
+    // the extra `lstat` off the per-file walk path.
+    if file.explicit && symlink::is_symlink(&file.path) {
+        return warning(symlink::skipped(&file.path));
+    }
+
     let Some(kind) = prim_fmt::classify(&file.path) else {
         return if file.explicit {
             if file.path.exists() {

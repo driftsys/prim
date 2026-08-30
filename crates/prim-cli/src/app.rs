@@ -167,6 +167,13 @@ fn run_init(args: &InitArgs) -> i32 {
 /// exist yet.
 fn run_explain(args: &ExplainArgs) -> i32 {
     let path = &args.path;
+    // A symlink is a path type prim does not own (AD-0016), and `explain`
+    // already declines a type prim does not format. Answering for one would
+    // describe settings prim will never apply to it.
+    if crate::symlink::is_symlink(path) {
+        ui::warning(&crate::symlink::skipped(path));
+        return EXIT_OK;
+    }
     match prim_fmt::classify(path) {
         Some(kind) => {
             let explanation = provenance::explain(path, kind);
