@@ -1053,3 +1053,350 @@ fn a_repository_root_named(name: &str) {
             .stdout(predicates::str::contains("a.txt"));
     }
 }
+
+/// #169: the `.ok()` that discarded every unresolvable path is the mechanism
+/// that hid #164, #165 and #167. git owns the question "was this a deletion?"
+/// and already answers it, so prim asks with `--diff-filter=d` and treats
+/// whatever is left and does not resolve as a run it could not perform.
+///
+/// The case: staged as a modification, then removed from the working tree.
+/// git still reports it, because the index differs from HEAD, and it is not a
+/// deletion — so prim has been pointed at content it cannot read.
+#[test]
+fn a_reported_path_prim_cannot_resolve_is_a_usage_error() {
+    let repo = init_repo();
+    write(&repo.path().join("vanished.txt"), "x\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("vanished.txt"), "x  \n");
+    git(repo.path(), &["add", "vanished.txt"]);
+    std::fs::remove_file(repo.path().join("vanished.txt")).unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(2)
+        .stderr(
+            predicates::str::contains("vanished.txt").and(predicates::str::contains("--staged")),
+        )
+        .stdout(predicates::str::is_empty());
+}
+
+/// AD-0015 promises every offending path in one run, so a repository with
+/// several needs one invocation to find them all.
+#[test]
+fn every_unresolvable_path_is_named_in_one_run() {
+    let repo = init_repo();
+    for name in ["one.txt", "two.txt", "three.txt"] {
+        write(&repo.path().join(name), "x\n");
+    }
+    commit_all(repo.path(), "baseline");
+
+    for name in ["one.txt", "two.txt", "three.txt"] {
+        write(&repo.path().join(name), "x  \n");
+    }
+    git(repo.path(), &["add", "."]);
+    for name in ["one.txt", "two.txt", "three.txt"] {
+        std::fs::remove_file(repo.path().join(name)).unwrap();
+    }
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(2)
+        .stderr(
+            predicates::str::contains("one.txt")
+                .and(predicates::str::contains("two.txt"))
+                .and(predicates::str::contains("three.txt"))
+                .and(predicates::str::contains("3 paths")),
+        );
+}
+
+/// Absent is not the same set as deleted. A sparse checkout leaves tracked
+/// files out of the working tree on purpose, and refusing over one would fail
+/// every sparse monorepo gate.
+#[test]
+fn a_sparse_checkout_is_not_an_unresolvable_path() {
+    let repo = init_repo();
+    write(&repo.path().join("keep/a.txt"), "a\n");
+    write(&repo.path().join("drop/b.txt"), "b\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("keep/a.txt"), "a  \n");
+    write(&repo.path().join("drop/b.txt"), "b  \n");
+    commit_all(repo.path(), "drift in both");
+
+    git(repo.path(), &["sparse-checkout", "init", "--cone"]);
+    git(repo.path(), &["sparse-checkout", "set", "keep"]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "HEAD~1", "."])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("a.txt"));
+}
+
+/// A tracked symlink whose target is gone is still something on disk, and the
+/// walk declines to format a symlink anyway. Refusing the run over one would
+/// fail an ordinary dotfiles or fixture repository.
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_is_not_an_unresolvable_path() {
+    let repo = init_repo();
+    write(&repo.path().join("target.txt"), "x\n");
+    std::os::unix::fs::symlink("target.txt", repo.path().join("link.txt")).unwrap();
+    commit_all(repo.path(), "baseline");
+
+    std::fs::remove_file(repo.path().join("link.txt")).unwrap();
+    std::os::unix::fs::symlink("missing.txt", repo.path().join("link.txt")).unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "HEAD", "."])
+        .assert()
+        .code(0)
+        .stderr(predicates::str::is_empty());
+}
+
+/// The refusal covers what prim was pointed at. A gate scoped to one directory
+/// must not fail over a path elsewhere in the repository.
+#[test]
+fn an_unresolvable_path_outside_the_requested_scope_is_not_an_error() {
+    let repo = init_repo();
+    write(&repo.path().join("docs/a.txt"), "a\n");
+    write(&repo.path().join("vanished.txt"), "v\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("vanished.txt"), "v  \n");
+    git(repo.path(), &["add", "."]);
+    std::fs::remove_file(repo.path().join("vanished.txt")).unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "docs"])
+        .assert()
+        .code(0);
+}
+
+/// The carve-out FR-4.2b already grants: a deletion git reports as a deletion
+/// is the normal case and stays silent, so the rule above cannot fire on it.
+#[test]
+fn a_staged_deletion_is_still_dropped_silently() {
+    let repo = init_repo();
+    write(&repo.path().join("gone.txt"), "x\n");
+    write(&repo.path().join("kept.txt"), "y\n");
+    commit_all(repo.path(), "baseline");
+
+    git(repo.path(), &["rm", "-q", "gone.txt"]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(0)
+        .stdout(predicates::str::is_empty())
+        .stderr(predicates::str::is_empty());
+}
+
+/// `git rm --cached` untracks a file and leaves it on disk. git calls that a
+/// deletion, but the file is there and drifting, so prim must still format it.
+/// Asking git to hide deletions dropped it — a fail-open introduced by the fix
+/// for one (#169).
+#[test]
+fn a_staged_deletion_of_a_file_still_on_disk_is_examined() {
+    let repo = init_repo();
+    write(&repo.path().join("u.txt"), "x  \n");
+    commit_all(repo.path(), "baseline");
+
+    git(repo.path(), &["rm", "-q", "--cached", "u.txt"]);
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("u.txt"));
+}
+
+/// A sparse checkout must work from wherever the gate runs. The index query
+/// is answered from the repository root in root-relative names for exactly
+/// this reason.
+#[test]
+fn a_sparse_checkout_survives_from_any_directory_and_either_spelling() {
+    let repo = init_repo();
+    write(&repo.path().join("pkg/keep/a.txt"), "a\n");
+    write(&repo.path().join("pkg/drop/b.txt"), "b\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("pkg/keep/a.txt"), "a  \n");
+    write(&repo.path().join("pkg/drop/b.txt"), "b  \n");
+    commit_all(repo.path(), "drift in both");
+
+    git(repo.path(), &["sparse-checkout", "init", "--cone"]);
+    git(repo.path(), &["sparse-checkout", "set", "pkg/keep"]);
+
+    for directory in [repo.path().to_path_buf(), repo.path().join("pkg")] {
+        for scope in [
+            ["fmt", "--check", "--since", "HEAD~1", "."].as_slice(),
+            ["fmt", "--check", "--since", "HEAD~1"].as_slice(),
+        ] {
+            prim()
+                .current_dir(&directory)
+                .args(scope)
+                .assert()
+                .code(1)
+                .stdout(predicates::str::contains("a.txt"));
+        }
+    }
+}
+
+/// Named directly, scoped away, and unscoped. The scope test canonicalizes the
+/// nearest existing ancestor, because the requested path may itself be the
+/// missing one — canonicalizing it outright judged the most explicit
+/// invocation out of scope and stayed silent.
+#[test]
+fn a_staged_then_removed_path_is_refused_wherever_it_is_in_scope() {
+    let cases: [(&[&str], i32); 3] = [
+        (&["fmt", "--check", "--staged", "x.txt"], 2),
+        (&["fmt", "--check", "--staged"], 2),
+        (&["fmt", "--check", "--staged", "sib"], 0),
+    ];
+
+    for (args, code) in cases {
+        let repo = init_repo();
+        write(&repo.path().join("sib/a.txt"), "a\n");
+        write(&repo.path().join("x.txt"), "x\n");
+        commit_all(repo.path(), "baseline");
+
+        write(&repo.path().join("x.txt"), "x  \n");
+        git(repo.path(), &["add", "x.txt"]);
+        std::fs::remove_file(repo.path().join("x.txt")).unwrap();
+
+        prim()
+            .current_dir(repo.path())
+            .args(args)
+            .assert()
+            .code(code);
+    }
+}
+
+/// Every configuration that legitimately leaves a tracked file off disk.
+#[cfg(unix)]
+#[test]
+fn configurations_that_leave_a_file_off_disk_on_purpose_are_not_refused() {
+    let repo = init_repo();
+    write(&repo.path().join("a.txt"), "a\n");
+    write(&repo.path().join("skipped.txt"), "b\n");
+    write(&repo.path().join("assumed.txt"), "c\n");
+    std::os::unix::fs::symlink("missing.txt", repo.path().join("dangling.txt")).unwrap();
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("a.txt"), "a  \n");
+    git(repo.path(), &["add", "a.txt"]);
+    git(
+        repo.path(),
+        &["update-index", "--skip-worktree", "skipped.txt"],
+    );
+    std::fs::remove_file(repo.path().join("skipped.txt")).unwrap();
+    git(
+        repo.path(),
+        &["update-index", "--assume-unchanged", "assumed.txt"],
+    );
+    std::fs::remove_file(repo.path().join("assumed.txt")).unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--since", "HEAD", "."])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("a.txt"));
+}
+
+/// A name git does not track cannot come from the repository — only from prim
+/// mishandling git's output, which is the shape of #164, #165 and #167. That
+/// is reported wherever prim was pointed, because the fault is prim's.
+#[cfg(unix)]
+#[test]
+fn a_name_git_does_not_track_is_reported_whatever_the_scope() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let repo = init_repo();
+    write(&repo.path().join("docs/a.txt"), "a\n");
+    commit_all(repo.path(), "baseline");
+    write(&repo.path().join("docs/a.txt"), "a  \n");
+    git(repo.path(), &["add", "."]);
+
+    let real = which_git();
+    let bin = tempfile::tempdir().unwrap();
+    let shim = bin.path().join("git");
+    std::fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\n\
+             for a in \"$@\"; do\n\
+             \tif [ \"$a\" = diff ]; then printf 'M\\0ghost.txt\\0'; exit 0; fi\n\
+             done\n\
+             exec {real} \"$@\"\n",
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let path = format!(
+        "{}:{}",
+        bin.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    for directory in [repo.path().to_path_buf(), repo.path().join("docs")] {
+        for scope in [
+            ["fmt", "--check", "--staged", "."].as_slice(),
+            ["fmt", "--check", "--staged"].as_slice(),
+        ] {
+            prim()
+                .current_dir(&directory)
+                .env("PATH", &path)
+                .args(scope)
+                .assert()
+                .code(2)
+                .stderr(predicates::str::contains("ghost.txt"));
+        }
+    }
+}
+
+#[cfg(unix)]
+fn which_git() -> String {
+    let output = StdCommand::new("sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .expect("git is on PATH");
+    String::from_utf8(output.stdout)
+        .expect("a path")
+        .trim()
+        .to_string()
+}
+
+/// prim is not a source-code formatter, so a file it would never open cannot
+/// be one it failed to examine.
+#[test]
+fn a_file_prim_does_not_own_is_not_refused() {
+    let repo = init_repo();
+    write(&repo.path().join("main.rs"), "fn main() {}\n");
+    write(&repo.path().join("kept.txt"), "x\n");
+    commit_all(repo.path(), "baseline");
+
+    write(&repo.path().join("main.rs"), "fn main() { }\n");
+    write(&repo.path().join("kept.txt"), "x  \n");
+    git(repo.path(), &["add", "."]);
+    std::fs::remove_file(repo.path().join("main.rs")).unwrap();
+
+    prim()
+        .current_dir(repo.path())
+        .args(["fmt", "--check", "--staged", "."])
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("kept.txt"));
+}

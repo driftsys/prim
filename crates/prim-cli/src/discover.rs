@@ -113,7 +113,20 @@ pub fn collect(
     changed_files_scope: &ChangedFilesScope,
 ) -> Result<Discovery, Error> {
     validate_excludes(excludes)?;
-    let changed_files = changed_files::ChangedFiles::resolve(changed_files_scope)?;
+
+    // With no path given, prim is pointed at the working directory. It is
+    // judged exactly as a named `.` would be, so the two spellings of the same
+    // invocation cannot give different answers (FR-4.4c). The changed-file
+    // scope is told the same thing, so its refusal cannot disagree with the
+    // walk about what prim was pointed at.
+    let working_directory = [PathBuf::from(".")];
+    let pointed_at: &[PathBuf] = if paths.is_empty() {
+        &working_directory
+    } else {
+        paths
+    };
+
+    let changed_files = changed_files::ChangedFiles::resolve(changed_files_scope, pointed_at)?;
     // BTreeMap keeps results sorted by path and de-duplicated; the bool is the
     // `explicit` flag, OR-ed so explicit provenance wins over a walk.
     let mut selected: BTreeMap<PathBuf, bool> = BTreeMap::new();
@@ -124,16 +137,6 @@ pub fn collect(
     // Shared because the walk consults it from a `filter_entry` closure, which
     // the `ignore` crate requires to be `Send + Sync + 'static`.
     let primignore = Arc::new(Mutex::new(PrimignoreCache::default()));
-
-    // With no path given, prim is pointed at the working directory. It is
-    // judged exactly as a named `.` would be, so the two spellings of the same
-    // invocation cannot give different answers (FR-4.4c).
-    let working_directory = [PathBuf::from(".")];
-    let pointed_at: &[PathBuf] = if paths.is_empty() {
-        &working_directory
-    } else {
-        paths
-    };
 
     for path in pointed_at {
         let is_dir = path.is_dir();

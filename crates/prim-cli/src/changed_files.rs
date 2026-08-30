@@ -7,16 +7,16 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use self::decode::{relative_paths, repo_root_from_bytes, trim_line_terminator};
+use self::decode::{diff_entries, index_entries, repo_root_from_bytes, trim_line_terminator};
 
 /// Which git-derived changed-file scope, if any, restricts discovery.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ChangedFilesScope {
     /// No git-derived restriction: discover all matched files as usual.
     All,
-    /// Limit to `git diff --name-only <ref>`.
+    /// Limit to `git diff --name-status <ref>`.
     Since(String),
-    /// Limit to `git diff --name-only --cached`.
+    /// Limit to `git diff --name-status --cached`.
     Staged,
 }
 
@@ -51,11 +51,19 @@ pub(crate) enum Error {
         command: &'static str,
         path: String,
     },
+    UnresolvablePaths {
+        flag: &'static str,
+        paths: Vec<String>,
+    },
+    MisreadPaths {
+        flag: &'static str,
+        paths: Vec<String>,
+    },
 }
 
 impl ChangedFiles {
     /// Resolve the current git-derived changed-file filter, if any.
-    pub(crate) fn resolve(scope: &ChangedFilesScope) -> Result<Self, Error> {
+    pub(crate) fn resolve(scope: &ChangedFilesScope, requested: &[PathBuf]) -> Result<Self, Error> {
         // `--` is git's revision/pathspec separator. Passed through, it would
         // pair with the trailing `--` in `git_diff_command`, leaving git zero
         // revisions and a pathspec matching nothing — an empty selection and a
@@ -108,19 +116,87 @@ impl ChangedFiles {
             });
         }
 
-        let relatives = relative_paths(&output).map_err(|path| Error::UndecodablePath {
+        let entries = diff_entries(&output).map_err(|path| Error::UndecodablePath {
             flag,
             command: diff_command,
             path,
         })?;
 
+        // Classify every reported path before excusing any. Asking git to hide
+        // deletions instead (`--diff-filter=d`) made two mistakes at once: it
+        // dropped a staged deletion of a file that still exists and drifts,
+        // and it left every other absence indistinguishable from one (#169).
         let mut paths = HashSet::new();
-        for relative in relatives {
-            // A path git reports that does not resolve is still dropped here.
-            // Telling a deletion apart from a path prim could not resolve is
-            // #169, and needs a rule rather than a patch.
-            if let Ok(canonical) = std::fs::canonicalize(repo_root.join(relative)) {
+        let mut absent = Vec::new();
+        for entry in entries {
+            let joined = repo_root.join(&entry.path);
+
+            // On disk is on disk. A staged deletion of a file still present —
+            // `git rm --cached` — is a file prim must still format.
+            if let Ok(canonical) = std::fs::canonicalize(&joined) {
                 paths.insert(canonical);
+                continue;
+            }
+            // Really gone, and git says so: the case FR-4.2b has always passed
+            // over in silence.
+            if entry.is_deletion {
+                continue;
+            }
+            // Something is there that prim does not format — a dangling
+            // symlink, a directory. Discovery admits only regular files, so it
+            // has already declined this one.
+            if std::fs::symlink_metadata(&joined).is_ok() {
+                continue;
+            }
+            absent.push(entry.path);
+        }
+
+        if !absent.is_empty() {
+            // Run from the repository root, and ask for root-relative names
+            // over the whole tree: from a subdirectory `git ls-files` lists
+            // only that subtree, in names relative to it, and the diff paths
+            // are root-relative — the two key spaces would never meet.
+            let index = run_git(
+                &repo_root,
+                flag,
+                "git ls-files -v",
+                &["ls-files", "-v", "--full-name", "-z", "--", ":/"],
+            )?;
+            let index = index_entries(&index);
+            let requested_roots = requested_roots(requested, &current_dir);
+
+            let mut misread = Vec::new();
+            let mut unresolvable = Vec::new();
+            for path in absent {
+                // Absent on purpose: sparse checkout and skip-worktree both
+                // tell git not to put the file there.
+                if index.not_materialised.contains(&path) {
+                    continue;
+                }
+                // git named something it does not track. No repository state
+                // produces that, so prim misread git's output — the shape of
+                // #164, #165 and #167. Reported whatever prim was pointed at,
+                // because the fault is prim's, not the caller's.
+                if !index.tracked.contains(&path) {
+                    misread.push(path.display().to_string());
+                } else if prim_fmt::classify(&path).is_some()
+                    && is_requested(&repo_root.join(&path), &requested_roots)
+                {
+                    unresolvable.push(path.display().to_string());
+                }
+            }
+
+            if !misread.is_empty() {
+                return Err(Error::MisreadPaths {
+                    flag,
+                    paths: misread,
+                });
+            }
+            if !unresolvable.is_empty() {
+                return Err(Error::UnresolvablePaths {
+                    flag,
+                    paths: unresolvable,
+                });
             }
         }
 
@@ -148,6 +224,46 @@ impl ChangedFiles {
         };
         std::fs::canonicalize(absolute).ok()
     }
+}
+
+/// The paths prim was pointed at, made absolute and canonical.
+///
+/// A requested path may itself be the one that is missing, so canonicalizing
+/// it outright would fail and silently judge it out of scope — the most
+/// explicit invocation being the one that stayed quiet. Canonicalize the
+/// nearest existing ancestor instead and re-attach the rest.
+fn requested_roots(requested: &[PathBuf], current_dir: &Path) -> Vec<PathBuf> {
+    requested
+        .iter()
+        .filter_map(|path| {
+            let absolute = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                current_dir.join(path)
+            };
+
+            let mut tail = Vec::new();
+            let mut probe = absolute.as_path();
+            loop {
+                if let Ok(canonical) = std::fs::canonicalize(probe) {
+                    let mut root = canonical;
+                    root.extend(tail.iter().rev());
+                    return Some(root);
+                }
+                tail.push(probe.file_name()?.to_os_string());
+                probe = probe.parent()?;
+            }
+        })
+        .collect()
+}
+
+/// Whether `candidate` lies under one of the paths prim was pointed at. The
+/// caller resolves "no path arguments" to `.` first, so the two spellings of
+/// the same invocation cannot disagree (FR-4.4c).
+fn is_requested(candidate: &Path, requested_roots: &[PathBuf]) -> bool {
+    requested_roots
+        .iter()
+        .any(|root| candidate.starts_with(root))
 }
 
 impl ChangedFilesScope {
@@ -192,12 +308,13 @@ impl ChangedFilesScope {
             Self::All => None,
             Self::Since(reference) => Some((
                 "--since",
-                "git diff --name-only <REF>",
+                "git diff --name-status <REF>",
                 vec![
                     "-c",
                     "diff.relative=false",
                     "diff",
-                    "--name-only",
+                    "--name-status",
+                    "--no-renames",
                     "-z",
                     "--end-of-options",
                     reference.as_str(),
@@ -206,12 +323,13 @@ impl ChangedFilesScope {
             )),
             Self::Staged => Some((
                 "--staged",
-                "git diff --name-only --cached",
+                "git diff --name-status --cached",
                 vec![
                     "-c",
                     "diff.relative=false",
                     "diff",
-                    "--name-only",
+                    "--name-status",
+                    "--no-renames",
                     "-z",
                     "--cached",
                 ],
@@ -256,6 +374,29 @@ impl fmt::Display for Error {
             } => write!(
                 f,
                 "{flag}: {command} reported a path this platform cannot represent, because it is not valid UTF-8: {path}"
+            ),
+            Self::MisreadPaths { flag, paths } => write!(
+                f,
+                "{flag}: prim read {} out of git's output that git does not track: {}. That is a defect in prim rather than a state of the repository — please report it.",
+                if paths.len() == 1 {
+                    "a path".to_string()
+                } else {
+                    format!("{} paths", paths.len())
+                },
+                paths.join(", ")
+            ),
+            Self::UnresolvablePaths { flag, paths } => write!(
+                f,
+                "{flag}: git reported {} that {} not on disk and that git will still put there, so prim could not examine {}: {}. Restore {}, or stage the removal as well.",
+                if paths.len() == 1 {
+                    "1 path".to_string()
+                } else {
+                    format!("{} paths", paths.len())
+                },
+                if paths.len() == 1 { "is" } else { "are" },
+                if paths.len() == 1 { "it" } else { "them" },
+                paths.join(", "),
+                if paths.len() == 1 { "it" } else { "them" }
             ),
         }
     }
@@ -311,17 +452,52 @@ mod tests {
     fn an_undecodable_path_error_names_the_flag_the_command_and_the_path() {
         let rendered = Error::UndecodablePath {
             flag: "--staged",
-            command: "git diff --name-only --cached",
+            command: "git diff --name-status --cached",
             path: "caf\u{FFFD}.txt".to_string(),
         }
         .to_string();
 
         assert!(rendered.contains("--staged"), "{rendered}");
         assert!(
-            rendered.contains("git diff --name-only --cached"),
+            rendered.contains("git diff --name-status --cached"),
             "{rendered}"
         );
         assert!(rendered.contains("caf\u{FFFD}.txt"), "{rendered}");
+    }
+
+    /// The message has to name the flag and every path, or the user cannot
+    /// tell which invocation refused or what to look at.
+    /// A name git does not track can only have come from prim, so the message
+    /// has to say so rather than blame the repository.
+    #[test]
+    fn a_misread_paths_error_says_the_fault_is_prims() {
+        let rendered = Error::MisreadPaths {
+            flag: "--since",
+            paths: vec!["ghost.txt".to_string()],
+        }
+        .to_string();
+
+        assert!(rendered.contains("--since"), "{rendered}");
+        assert!(rendered.contains("ghost.txt"), "{rendered}");
+        assert!(rendered.contains("defect in prim"), "{rendered}");
+    }
+
+    #[test]
+    fn an_unresolvable_paths_error_names_the_flag_and_every_path() {
+        let rendered = Error::UnresolvablePaths {
+            flag: "--staged",
+            paths: vec!["one.txt".to_string(), "two.txt".to_string()],
+        }
+        .to_string();
+
+        assert!(rendered.contains("--staged"), "{rendered}");
+        assert!(rendered.contains("one.txt"), "{rendered}");
+        assert!(rendered.contains("two.txt"), "{rendered}");
+        assert!(rendered.contains("2 paths"), "{rendered}");
+        assert!(
+            rendered.contains("stage the removal"),
+            "the remedy: {rendered}"
+        );
     }
 
     /// `-c` is only honoured before the subcommand: after it, git reads `-c`
@@ -334,8 +510,15 @@ mod tests {
         ] {
             let (_, _, args) = scope.git_diff_command().expect("a git-backed scope");
             assert_eq!(
-                &args[..5],
-                &["-c", "diff.relative=false", "diff", "--name-only", "-z"],
+                &args[..6],
+                &[
+                    "-c",
+                    "diff.relative=false",
+                    "diff",
+                    "--name-status",
+                    "--no-renames",
+                    "-z"
+                ],
                 "{scope:?}"
             );
         }
@@ -348,7 +531,7 @@ mod tests {
         let scope = ChangedFilesScope::Since("HEAD".to_string());
         let (_, _, args) = scope.git_diff_command().expect("a git-backed scope");
 
-        assert_eq!(&args[5..], &["--end-of-options", "HEAD", "--"]);
+        assert_eq!(&args[6..], &["--end-of-options", "HEAD", "--"]);
     }
 
     #[test]
@@ -357,6 +540,6 @@ mod tests {
             .git_diff_command()
             .expect("a git-backed scope");
 
-        assert_eq!(&args[5..], &["--cached"]);
+        assert_eq!(&args[6..], &["--cached"]);
     }
 }
