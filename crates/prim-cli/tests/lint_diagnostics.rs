@@ -384,3 +384,57 @@ fn the_same_unknown_id_in_two_sections_warns_about_each_one() {
         "one warning per section that carries the typo:\n{stderr}"
     );
 }
+
+/// The reproduction from #180, end to end: a ridl CI job that installs prim
+/// from `install.sh` went from passing on 0.3.0 to failing on 0.7.0 with one
+/// MD051 on a link that is not broken. rumdl retains U+00A7 in a heading's
+/// slug as an artifact of its own `§emoji§` sentinel; GitHub strips it, so
+/// `#a-1-b` is the anchor a reader's browser resolves.
+#[test]
+fn a_heading_holding_a_section_sign_does_not_break_a_correct_link() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("t.md");
+    std::fs::write(&file, "# T\n\n[l](#a-1-b)\n\n## A §1 B\n\nx\n").unwrap();
+
+    prim().arg("lint").arg(&file).assert().code(0).stdout("");
+}
+
+/// The other half of the contract: the rule keeps working in exactly the
+/// documents the workaround touches.
+#[test]
+fn a_dead_anchor_still_reports_beside_a_section_sign_heading() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("t.md");
+    std::fs::write(&file, "# T\n\n[l](#gone)\n\n## A §1 B\n\nx\n").unwrap();
+
+    prim()
+        .arg("lint")
+        .arg(&file)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD051]").and(predicates::str::contains("#gone")));
+}
+
+/// The stdin route reaches the same engine through `app::stdin`, so the
+/// correction has to hold there too — a hook that pipes a buffer gets the same
+/// answer as one that names the file.
+#[test]
+fn the_section_sign_correction_holds_over_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "--stdin-filepath", "t.md"])
+        .write_stdin("# T\n\n[l](#a-1-b)\n\n## A §1 B\n\nx\n")
+        .assert()
+        .code(0)
+        .stdout("");
+
+    prim()
+        .current_dir(dir.path())
+        .args(["lint", "--stdin-filepath", "t.md"])
+        .write_stdin("# T\n\n[l](#gone)\n\n## A §1 B\n\nx\n")
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("[MD051]").and(predicates::str::contains("#gone")));
+}
