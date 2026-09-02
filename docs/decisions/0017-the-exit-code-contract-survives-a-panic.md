@@ -127,7 +127,7 @@ single thing a bug report needs for a tidier terminal.
   inside the contract.
 - FR-2.5's guarantee is now delivered through naming a path as well, so its
   "#173 does not yet work" caveat goes. The caveat about lossy _reporting_
-  (#172) stays: that is untouched here.
+  (#172) was untouched here, and has since been closed by AD-0019.
 - A panicking file no longer takes its neighbours with it. A run over a thousand
   files where one panics now formats the other 999 and exits `2`.
 - Exit `101` remains reachable in principle — a panic outside the contained

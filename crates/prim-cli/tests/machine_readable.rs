@@ -286,3 +286,98 @@ fn a_gate_that_examined_nothing_still_emits_its_report() {
         );
     }
 }
+
+/// #172 end to end through the report formats. A filename that is not valid
+/// UTF-8 is legal on Linux and cannot exist on APFS or HFS+, so this runs only
+/// where it is reachable — CI's ubuntu runner. The unit tests reach `render`
+/// directly; this is what proves the bytes survive the whole way from
+/// discovery through `app::emit_report`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_report_carries_the_exact_bytes_of_an_undecodable_path() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let odd = dir.path().join(OsStr::from_bytes(b"caf\xe9.md"));
+    fs::write(&odd, "# Title  \n").unwrap();
+
+    let json = prim()
+        .current_dir(dir.path())
+        .args(["fmt", "--check", "--format", "json", "."])
+        .assert()
+        .code(1);
+    let report = stdout_json(&json);
+    // A walked path carries its walk root, so this is `./caf%E9.md`.
+    let encoded = report["findings"][0]["path_encoded"]
+        .as_str()
+        .unwrap_or_else(|| panic!("path_encoded is present and a string: {report}"));
+    assert!(
+        encoded.ends_with("caf%E9.md") && !encoded.contains("%EF%BF%BD"),
+        "the exact bytes reach the JSON report: {encoded}"
+    );
+
+    let sarif = prim()
+        .current_dir(dir.path())
+        .args(["fmt", "--check", "--format", "sarif", "."])
+        .assert()
+        .code(1);
+    let log = stdout_json(&sarif);
+    validate_sarif(&log);
+    let uri = log["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
+        ["uri"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the SARIF uri is a string: {log}"));
+    assert!(
+        uri.ends_with("caf%E9.md") && !uri.contains("%EF%BF%BD"),
+        "the exact bytes reach the SARIF uri: {uri}"
+    );
+}
+
+/// The plain-text `lint` half of FR-5.9, which the `--check` list does not
+/// cover. `run_lint`'s arms are mutually exclusive, so two fixtures are needed:
+/// an orphan reaches `ui::lint_positioned`, and a parsed format with drift
+/// reaches the coarse `ui::lint_finding`. Reverting either wrapper to
+/// `Path::display` passes every test outside this one.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_plain_text_lint_finding_names_the_file_by_its_bytes() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    // An orphan: a hygiene finding carries a position, so this drives
+    // `lint_positioned`.
+    let odd = dir.path().join(OsStr::from_bytes(b"caf\xe9.txt"));
+    fs::write(&odd, "x  \n").unwrap();
+    // A parsed format with drift: the coarse shape, which is the only route to
+    // `lint_finding`.
+    let odd_json = dir.path().join(OsStr::from_bytes(b"caf\xe9.json"));
+    fs::write(&odd_json, "{\"a\":1}").unwrap();
+
+    let assert = prim()
+        .current_dir(dir.path())
+        .args(["lint", "."])
+        .assert()
+        .code(1);
+
+    let reported = &assert.get_output().stdout;
+    assert!(
+        contains_bytes(reported, b"caf\xe9.txt:"),
+        "the positioned finding names the file by its real bytes: {reported:?}"
+    );
+    assert!(
+        contains_bytes(reported, b"caf\xe9.json:"),
+        "the coarse finding names the file by its real bytes: {reported:?}"
+    );
+    assert!(
+        !contains_bytes(reported, "caf\u{FFFD}.txt".as_bytes()),
+        "and never by the lossy rendering: {reported:?}"
+    );
+}

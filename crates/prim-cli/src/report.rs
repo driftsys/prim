@@ -1,7 +1,7 @@
 //! Machine-readable report rendering for `fmt --check` and `lint`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -32,7 +32,7 @@ impl ReportMode {
 /// A machine-readable finding emitted by `fmt --check` or `lint`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finding {
-    path: String,
+    path: PathBuf,
     code: String,
     message: String,
     line: Option<usize>,
@@ -44,7 +44,7 @@ impl Finding {
     /// Build an unpositioned finding for `path`.
     pub fn new(path: &Path, code: &str, message: &str) -> Self {
         Self {
-            path: path.display().to_string(),
+            path: path.to_path_buf(),
             code: code.to_string(),
             message: message.to_string(),
             line: None,
@@ -56,7 +56,7 @@ impl Finding {
     /// Build a positioned finding from a structured hygiene diagnostic.
     pub fn diagnostic(path: &Path, diagnostic: &prim_fmt::Diagnostic) -> Self {
         Self {
-            path: path.display().to_string(),
+            path: path.to_path_buf(),
             code: diagnostic.code.to_string(),
             message: diagnostic.message.clone(),
             line: Some(diagnostic.line),
@@ -69,7 +69,7 @@ impl Finding {
     /// (story G2). The rule code is passed through verbatim (e.g. `"MD034"`).
     pub fn markdown(path: &Path, diagnostic: &prim_fmt::MdDiagnostic) -> Self {
         Self {
-            path: path.display().to_string(),
+            path: path.to_path_buf(),
             code: diagnostic.rule.clone(),
             message: diagnostic.message.clone(),
             line: Some(diagnostic.line),
@@ -77,6 +77,71 @@ impl Finding {
             is_error: diagnostic.is_error,
         }
     }
+
+    /// The path as a reader sees it. Lossy for a name that is not valid UTF-8,
+    /// which is what [`Self::encoded_path`] exists to sit beside.
+    fn display_path(&self) -> String {
+        self.path.display().to_string()
+    }
+
+    /// The path's bytes percent-encoded, and `None` when there is nothing to
+    /// add: the path is valid UTF-8, or the platform has no bytes to offer.
+    ///
+    /// Returning `None` for the decodable case is what keeps this additive:
+    /// every path on a platform whose filenames are Unicode, and nearly every
+    /// path elsewhere, renders exactly as it did before (#172).
+    fn encoded_path(&self) -> Option<String> {
+        if self.path.to_str().is_some() {
+            return None;
+        }
+
+        Some(percent_encode(path_bytes(&self.path)?))
+    }
+}
+
+/// The bytes a path is made of, where the platform has them.
+///
+/// On unix a path is an arbitrary byte string, so the bytes are the name.
+/// Elsewhere a path is Unicode: one that is not valid UTF-8 cannot be
+/// represented at all, so there is no exact form to offer and the caller adds
+/// no field. Encoding `Path::display`'s output there would percent-encode the
+/// U+FFFD this split exists to avoid, and promise a round-trip it cannot keep.
+#[cfg(unix)]
+fn path_bytes(path: &Path) -> Option<&[u8]> {
+    use std::os::unix::ffi::OsStrExt;
+
+    Some(path.as_os_str().as_bytes())
+}
+
+#[cfg(not(unix))]
+fn path_bytes(_path: &Path) -> Option<&[u8]> {
+    None
+}
+
+/// Percent-encode `bytes` so a name that is not valid UTF-8 survives a format
+/// whose strings must be.
+///
+/// `/` is left as itself so the result still reads as a path — a unix filename
+/// component cannot contain one — and every byte outside the unreserved set of
+/// RFC 3986 is escaped, `%` included, so the encoding round-trips.
+fn percent_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    let mut encoded = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
+                encoded.push(char::from(byte));
+            }
+            _ => {
+                encoded.push('%');
+                encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+                encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+            }
+        }
+    }
+
+    encoded
 }
 
 /// Render `findings` in the requested machine-readable `format`.
@@ -94,7 +159,8 @@ fn render_json(mode: ReportMode, findings: &[Finding]) -> String {
         findings: findings
             .iter()
             .map(|finding| JsonFinding {
-                path: &finding.path,
+                path: finding.display_path(),
+                path_encoded: finding.encoded_path(),
                 code: &finding.code,
                 message: &finding.message,
                 line: finding.line,
@@ -136,7 +202,14 @@ fn render_sarif(findings: &[Finding]) -> String {
             },
             locations: vec![SarifLocation {
                 physical_location: SarifPhysicalLocation {
-                    artifact_location: SarifArtifactLocation { uri: &finding.path },
+                    artifact_location: SarifArtifactLocation {
+                        // A SARIF uri is a URI reference, so the encoded form
+                        // is the one the format wants for a path that cannot
+                        // be a Unicode string (#172).
+                        uri: finding
+                            .encoded_path()
+                            .unwrap_or_else(|| finding.display_path()),
+                    },
                     region: match (finding.line, finding.column) {
                         (Some(line), Some(column)) => Some(SarifRegion {
                             start_line: line,
@@ -176,7 +249,10 @@ struct JsonReport<'a> {
 
 #[derive(Serialize)]
 struct JsonFinding<'a> {
-    path: &'a str,
+    path: String,
+    /// Present only for a path that is not valid UTF-8 (#172).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path_encoded: Option<String>,
     code: &'a str,
     message: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,7 +305,7 @@ struct SarifResult<'a> {
     rule_id: &'a str,
     level: &'a str,
     message: SarifMessage<'a>,
-    locations: Vec<SarifLocation<'a>>,
+    locations: Vec<SarifLocation>,
 }
 
 #[derive(Serialize)]
@@ -239,21 +315,21 @@ struct SarifMessage<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SarifLocation<'a> {
-    physical_location: SarifPhysicalLocation<'a>,
+struct SarifLocation {
+    physical_location: SarifPhysicalLocation,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SarifPhysicalLocation<'a> {
-    artifact_location: SarifArtifactLocation<'a>,
+struct SarifPhysicalLocation {
+    artifact_location: SarifArtifactLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     region: Option<SarifRegion>,
 }
 
 #[derive(Serialize)]
-struct SarifArtifactLocation<'a> {
-    uri: &'a str,
+struct SarifArtifactLocation {
+    uri: String,
 }
 
 #[derive(Serialize)]
@@ -264,56 +340,4 @@ struct SarifRegion {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::*;
-
-    #[test]
-    fn json_report_omits_missing_location_fields() {
-        let report = render(
-            OutputFormat::Json,
-            ReportMode::FmtCheck,
-            &[Finding::new(
-                Path::new("doc.json"),
-                "format::drift",
-                "would be reformatted",
-            )],
-        );
-        let value: Value = serde_json::from_str(&report).unwrap();
-
-        assert_eq!(
-            value,
-            json!({
-                "version": 1,
-                "mode": "fmt-check",
-                "findings": [
-                    {
-                        "path": "doc.json",
-                        "code": "format::drift",
-                        "message": "would be reformatted"
-                    }
-                ]
-            })
-        );
-    }
-
-    #[test]
-    fn sarif_rules_are_deduplicated_by_code() {
-        let findings = vec![
-            Finding::new(Path::new("a.json"), "format::drift", "would be reformatted"),
-            Finding::new(Path::new("b.json"), "format::drift", "would be reformatted"),
-        ];
-        let report = render(OutputFormat::Sarif, ReportMode::FmtCheck, &findings);
-        let value: Value = serde_json::from_str(&report).unwrap();
-
-        assert_eq!(
-            value["runs"][0]["tool"]["driver"]["rules"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(value["runs"][0]["results"].as_array().unwrap().len(), 2);
-    }
-}
+mod tests;

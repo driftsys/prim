@@ -114,8 +114,19 @@ panic also prints its own message, which is what to include in a bug report.
   filename that is not valid UTF-8 is selected and formatted like any other
   where the platform permits one. Where it does not, prim exits `2` naming the
   path rather than skipping it silently. Naming one directly on the command line
-  works the same way. One limit remains: prim prints such a path lossily, so the
-  machine-readable list on stdout may name a file that cannot be opened.
+  works the same way. The `fmt --check` list and plain-text `lint` findings
+  carry such a path as the bytes the filesystem holds, so the name prim prints
+  is a name that opens; `--format json` adds `path_encoded` beside the lossy
+  `path`, and `--format sarif` percent-encodes its `uri`. Two stdout writers
+  still render a path lossily and are not covered: the `fmt --diff` patch header
+  and `prim explain`. Human-facing messages on stderr stay lossy too, because a
+  terminal cannot render an undecodable byte.
+
+  Piping the list needs a newline delimiter, because bare `xargs` splits on
+  spaces and interprets quotes. `xargs -d '\n'` is a GNU extension and is
+  rejected by the BSD `xargs` on macOS; `| tr '\n' '\0' | xargs -0` works on
+  both. A filename containing a newline is legal and cannot be expressed in a
+  newline-delimited list at all; there is no NUL-separated output mode.
 - **Changed-file filters** — `--since` and `--staged` are mutually exclusive.
   They compose by intersection with `--check`, `--diff`, `lint`, `fix`, explicit
   path arguments, `.primignore`, `--exclude`, `--no-ignore`, and
@@ -619,6 +630,10 @@ prim's JSON report is intentionally small and stable:
 - `mode` is `fmt-check` or `lint`.
 - `findings` contains one object per reported finding.
 - `line` and `column` appear only when prim has a concrete source position.
+- `path_encoded` appears only when the path is not valid UTF-8: it carries the
+  path's bytes percent-encoded, because JSON strings cannot hold them and `path`
+  is a lossy rendering there. On a platform whose filenames are Unicode the
+  field never appears.
 - `fmt --check` emits `format::drift` findings with the message
   `would be reformatted`.
 
@@ -627,7 +642,8 @@ prim's JSON report is intentionally small and stable:
 `--format sarif` emits a SARIF 2.1.0 log for the same findings. `ruleId` matches
 prim's stable finding code, `artifactLocation.uri` is the reported path, and
 `region.startLine` / `region.startColumn` are included when prim has a
-positioned finding.
+positioned finding. A path that is not valid UTF-8 is percent-encoded, which is
+the form a SARIF uri calls for; a path that is valid UTF-8 is written as it is.
 
 ```json
 {
