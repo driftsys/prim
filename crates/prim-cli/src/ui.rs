@@ -3,6 +3,7 @@
 //! Human-readable messages go to stderr; the default plain-text report modes
 //! also write their findings to stdout.
 
+use std::io::{self, Write};
 use std::path::Path;
 
 use yansi::Paint;
@@ -26,7 +27,12 @@ pub fn status(msg: &str) {
 
 /// Report, on stdout, that `path` would be reformatted (`--check`).
 pub fn would_reformat(path: &Path) {
-    println!("{}", path.display());
+    to_stdout(|out| write_would_reformat(out, path));
+}
+
+fn write_would_reformat(out: &mut impl Write, path: &Path) -> io::Result<()> {
+    write_path(out, path)?;
+    out.write_all(b"\n")
 }
 
 /// Report, on stdout, a lint finding for `path` (`prim lint` — report-only,
@@ -35,7 +41,12 @@ pub fn would_reformat(path: &Path) {
 /// own positioned rumdl diagnostics via [`lint_markdown_diagnostic`] (story
 /// G2).
 pub fn lint_finding(path: &Path, message: &str) {
-    println!("{}: {message}", path.display());
+    to_stdout(|out| write_lint_finding(out, path, message));
+}
+
+fn write_lint_finding(out: &mut impl Write, path: &Path, message: &str) -> io::Result<()> {
+    write_path(out, path)?;
+    writeln!(out, ": {message}")
 }
 
 /// Report, on stdout, one positioned, coded lint finding for `path` (story
@@ -64,14 +75,56 @@ pub fn lint_markdown_diagnostic(path: &Path, diagnostic: &prim_fmt::MdDiagnostic
 }
 
 fn lint_positioned(path: &Path, line: usize, column: usize, message: &str, code: &str) {
-    println!(
-        "{}:{}:{}: {} [{}]",
-        path.display(),
-        line,
-        column,
-        message,
-        code
-    );
+    to_stdout(|out| write_lint_positioned(out, path, line, column, message, code));
+}
+
+fn write_lint_positioned(
+    out: &mut impl Write,
+    path: &Path,
+    line: usize,
+    column: usize,
+    message: &str,
+    code: &str,
+) -> io::Result<()> {
+    write_path(out, path)?;
+    writeln!(out, ":{line}:{column}: {message} [{code}]")
+}
+
+/// Write one report line to the locked stdout, panicking as `println!` does
+/// when the stream cannot be written.
+fn to_stdout(write: impl FnOnce(&mut io::StdoutLock<'_>) -> io::Result<()>) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    write(&mut out).unwrap_or_else(|err| panic!("failed printing to stdout: {err}"));
+}
+
+/// Write `path` to the machine-readable stream as the bytes the filesystem
+/// holds.
+///
+/// On unix a path is an arbitrary byte string. Rendering one through
+/// `Path::display` replaces each byte that is not valid UTF-8 with U+FFFD, so
+/// prim printed `caf\u{fffd}.md` — the bytes `EF BF BD` where the name holds
+/// `E9` — and the documented `prim fmt --check --since ... | xargs` hook
+/// received a path that does not open (#172). The bytes are the name, so they
+/// are what this stream carries.
+///
+/// Human-facing output stays lossy: stderr is prose for a reader, and a
+/// terminal cannot show an undecodable byte anyway.
+#[cfg(unix)]
+fn write_path(out: &mut impl Write, path: &Path) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+
+    out.write_all(path.as_os_str().as_bytes())
+}
+
+/// Where a filename is Unicode there are no bytes to write. Such a name is not
+/// always representable either — a Windows path may hold an unpaired surrogate,
+/// which `Path::display` renders as U+FFFD — but there is no byte string to
+/// offer in its place, so the lossy rendering stands. `report::path_bytes`
+/// draws the same line for the same reason.
+#[cfg(not(unix))]
+fn write_path(out: &mut impl Write, path: &Path) -> io::Result<()> {
+    write!(out, "{}", path.display())
 }
 
 /// Decide whether coloured output is enabled: an explicit `--color always` /
@@ -89,7 +142,57 @@ pub fn resolve_color(when: ColorWhen, stderr_is_tty: bool, no_color: bool) -> bo
 mod tests {
     use crate::cli::ColorWhen;
 
-    use super::resolve_color;
+    use super::*;
+
+    /// A name holding a byte that is not valid UTF-8. It cannot be created on
+    /// APFS or HFS+, so the end-to-end coverage is Linux-only; this reaches
+    /// the rendering without touching a filesystem.
+    #[cfg(unix)]
+    fn undecodable() -> std::path::PathBuf {
+        use std::os::unix::ffi::OsStrExt;
+
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(b"caf\xe9.md"))
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_check_list_writes_the_bytes_the_filesystem_holds() {
+        let mut out = Vec::new();
+        write_would_reformat(&mut out, &undecodable()).unwrap();
+
+        assert_eq!(out, b"caf\xe9.md\n");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_lint_finding_writes_the_bytes_the_filesystem_holds() {
+        let mut out = Vec::new();
+        write_lint_finding(&mut out, &undecodable(), "would be reformatted").unwrap();
+
+        assert_eq!(out, b"caf\xe9.md: would be reformatted\n");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_positioned_finding_writes_the_bytes_the_filesystem_holds() {
+        let mut out = Vec::new();
+        write_lint_positioned(&mut out, &undecodable(), 3, 1, "bad anchor", "MD051").unwrap();
+
+        assert_eq!(out, b"caf\xe9.md:3:1: bad anchor [MD051]\n");
+    }
+
+    #[test]
+    fn a_decodable_name_renders_exactly_as_before() {
+        let mut out = Vec::new();
+        write_would_reformat(&mut out, Path::new("docs/guide.md")).unwrap();
+        write_lint_finding(&mut out, Path::new("a.json"), "would be reformatted").unwrap();
+        write_lint_positioned(&mut out, Path::new("b.md"), 2, 5, "msg", "MD034").unwrap();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "docs/guide.md\na.json: would be reformatted\nb.md:2:5: msg [MD034]\n"
+        );
+    }
 
     #[test]
     fn always_and_never_ignore_the_environment() {

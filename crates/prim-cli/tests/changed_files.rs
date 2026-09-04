@@ -945,6 +945,60 @@ fn empty_git_output_stays_an_empty_selection() {
         .code(0);
 }
 
+/// Whether `haystack` holds `needle`, for output that is not valid UTF-8 and
+/// so cannot go through a `str` predicate.
+#[cfg(target_os = "linux")]
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// #172 end to end. The documented hook shape pipes the `--check` list into
+/// another tool, so the bytes prim writes have to be the bytes that open.
+/// Before the fix `Path::display` replaced the invalid byte with U+FFFD and
+/// the consumer got `ENOENT` for a file that exists.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_check_list_names_a_file_that_opens() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let repo = init_repo();
+    let odd = repo.path().join(OsStr::from_bytes(b"caf\xe9.md"));
+    write(&odd, "# Title\n");
+    commit_all(repo.path(), "baseline");
+    write(&odd, "# Title  \n");
+    git(repo.path(), &["add", "."]);
+
+    let mut command = prim();
+    command.current_dir(repo.path()).args(["fmt", "--check"]);
+    let assert = command.args(["--staged", "."]).assert().code(1);
+
+    let listed = assert.get_output().stdout.clone();
+    let name = listed
+        .strip_suffix(b"\n")
+        .expect("the list is one newline-terminated path");
+    // A walked path carries its walk root, so prim reports `./caf\xe9.md` here.
+    // What has to hold is that the name carries the byte the filesystem holds
+    // and never the replacement character.
+    assert!(
+        contains_bytes(name, b"caf\xe9.md"),
+        "the list names the file by its real bytes: {name:?}"
+    );
+    assert!(
+        !contains_bytes(name, "\u{FFFD}".as_bytes()),
+        "and never by a lossy rendering: {name:?}"
+    );
+
+    let printed = repo.path().join(OsStr::from_bytes(name));
+    assert_eq!(
+        std::fs::read(&printed).expect("the path prim printed must open"),
+        b"# Title  \n",
+        "the printed path names the drifting file, not a lossy rendering of it"
+    );
+}
+
 /// #168 end to end. A filename that is not valid UTF-8 is legal on Linux and
 /// cannot exist on APFS or HFS+, so this runs only where it is reachable —
 /// CI's ubuntu runner. Before the fix the path decoded to U+FFFD, resolved to
@@ -977,14 +1031,21 @@ fn a_path_that_is_not_valid_utf8_is_selected() {
         git(repo.path(), &["add", odd.to_str().unwrap_or(".")]);
         git(repo.path(), &["add", "."]);
 
-        // `Path::display` is lossy, so a correct run names the file this way.
-        // Asserting the name rather than "something was printed" separates
-        // this from a run that selected some other file, or none.
+        // The machine-readable list carries the bytes the filesystem holds,
+        // so the name is matched as bytes (#172). Asserting the name rather
+        // than "something was printed" separates this from a run that
+        // selected some other file, or none.
         let mut command = prim();
         command.current_dir(repo.path()).arg("fmt").arg("--check");
-        command.args(scope).arg(".").assert().code(1).stdout(
-            predicates::str::contains("caf\u{FFFD}.txt")
-                .and(predicates::str::contains("unchanged.txt").not()),
+        let assert = command.args(scope).arg(".").assert().code(1);
+        let listed = &assert.get_output().stdout;
+        assert!(
+            contains_bytes(listed, b"caf\xe9.txt"),
+            "{scope:?}: the check list names the file by its real bytes: {listed:?}"
+        );
+        assert!(
+            !contains_bytes(listed, b"unchanged.txt"),
+            "{scope:?}: an unchanged file must not be listed: {listed:?}"
         );
 
         // Write mode: a dropped path meant the file silently kept its drift.

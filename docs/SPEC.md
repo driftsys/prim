@@ -74,7 +74,8 @@ source-code formatter and has **no plugin system**.
   UTF-8 is therefore owned, and formatted, exactly as the same name would be
   were it decodable (#168), whether prim reached it by directory walk or through
   `--since`/`--staged`, and whether it was named on the command line (#173).
-  prim still reports such a path lossily (#172).
+  prim reports such a path as the bytes the filesystem holds on the stdout
+  streams FR-5.9 names (#172).
 - **FR-2.6** prim shall strip a leading UTF-8 BOM (`U+FEFF`), unconditionally,
   from every file it processes.
 - **FR-2.7** prim shall leave a tool-generated file byte-for-byte unchanged,
@@ -286,14 +287,14 @@ source-code formatter and has **no plugin system**.
   paths git reports are the ones prim resolves (#165). prim shall treat those
   paths as bytes rather than as text, so on a platform whose filenames are byte
   strings a name that is not valid UTF-8 selects, classifies and formats like
-  any other (#168). prim reports such a path lossily, so the machine-readable
-  list on stdout may name a file that cannot be opened (#172). Where a path
-  cannot be represented at all — a platform whose filenames are Unicode, given
-  output that is not valid UTF-8 — prim shall raise a usage error (exit `2`)
-  naming that path, rather than drop it. prim shall raise a usage error (exit
-  `2`), rather than resolve an empty file set, when git reports output that is
-  not NUL-separated. Output that is empty is a legitimately empty selection and
-  shall stay a clean run.
+  any other (#168), and prim reports it as the bytes the filesystem holds on the
+  stdout streams FR-5.9 names, so the name prim prints there is a name that
+  opens (#172). Where a path cannot be represented at all — a platform whose
+  filenames are Unicode, given output that is not valid UTF-8 — prim shall raise
+  a usage error (exit `2`) naming that path, rather than drop it. prim shall
+  raise a usage error (exit `2`), rather than resolve an empty file set, when
+  git reports output that is not NUL-separated. Output that is empty is a
+  legitimately empty selection and shall stay a clean run.
 
 - **FR-4.2f** No `<REF>` shall reach git as anything but a revision. prim shall
   exit `2` for a `<REF>` git will not resolve, including one beginning with `-`
@@ -550,18 +551,43 @@ default, format-in-place action.
   unchanged, and warnings/errors remain on stderr. Without `--format`, the
   existing plain-text stdout for `fmt --check` and `lint` remains unchanged.
   - **FR-5.8a** `--format json` shall emit a stable JSON document of the form
-    `{ "version": 1, "mode": "fmt-check"|"lint", "findings": [...] }`. Each
-    finding includes `path`, `code`, and `message`; positioned findings also
-    include 1-indexed `line` and `column`. `fmt --check` reports one
-    `format::drift` finding per file that would change, with the message
-    `"would be reformatted"`. `prim lint` reports the existing coarse structured
-    format drift as `format::drift`, plus the B1 hygiene diagnostics for orphan
-    files with their stable `hygiene::*` codes and positions.
+    `{ "version": 1, "mode": "fmt-check"|"lint", "findings": [...] }`. A finding
+    may gain a field within a version — a consumer shall ignore one it does not
+    know, rather than reject the document — and the version rises only when an
+    existing field changes shape or meaning. Each finding includes `path`,
+    `code`, and `message`; positioned findings also include 1-indexed `line` and
+    `column`. A finding whose path is not valid UTF-8 also includes
+    `path_encoded`, the path's bytes percent-encoded (FR-5.9), on a platform
+    whose filenames are byte strings; the field is absent for every other
+    finding, and absent everywhere on a platform whose filenames are Unicode,
+    which has no bytes to offer. A decodable path therefore renders exactly as
+    it did before. `fmt --check` reports one `format::drift` finding per file
+    that would change, with the message `"would be reformatted"`. `prim lint`
+    reports the existing coarse structured format drift as `format::drift`, plus
+    the B1 hygiene diagnostics for orphan files with their stable `hygiene::*`
+    codes and positions.
   - **FR-5.8b** `--format sarif` shall emit a valid SARIF 2.1.0 log with one
     result per finding. Each result's `ruleId` shall match the stable `code`,
-    `artifactLocation.uri` shall be the reported file path, and
-    `region.startLine` / `region.startColumn` shall be present whenever the
-    finding has a known position.
+    `artifactLocation.uri` shall be the reported file path — percent-encoded
+    when that path is not valid UTF-8 and the platform has its bytes, which a
+    SARIF uri requires and which leaves every decodable path unchanged (FR-5.9)
+    — and `region.startLine` / `region.startColumn` shall be present whenever
+    the finding has a known position.
+- **FR-5.9** _(the machine-readable stream names files that open)_ On a platform
+  whose filenames are byte strings, prim shall write a path to stdout as the
+  bytes the filesystem holds in three places: the `fmt --check` list, the same
+  list under `fmt --check-idempotence` (FR-5.3a), and both plain-text `lint`
+  finding shapes — the positioned `path:line:col` prefix and the coarse
+  `path: message` line. Two stdout writers are **not** covered and stay lossy:
+  the `fmt --diff` patch header and `prim explain`. Rendering through
+  `Path::display` replaces each byte that is not valid UTF-8 with U+FFFD, which
+  names a file that cannot be opened and breaks the documented
+  `prim fmt --check --since <REF> . | xargs` hook (#172). Where a format's
+  strings must be valid UTF-8, prim shall carry the bytes in a form that
+  round-trips rather than drop them: `path_encoded` in JSON (FR-5.8a) and a
+  percent-encoded `artifactLocation.uri` in SARIF (FR-5.8b). Human-facing output
+  on stderr stays lossy — it is prose for a reader, and a terminal cannot render
+  an undecodable byte.
 
 ## FR-6 — Correctness & safety
 
