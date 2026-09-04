@@ -446,7 +446,17 @@ default, format-in-place action.
       MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
       MD070, MD075. Each reports something objectively broken — a dead link, a
       dangling reference, a malformed table — independent of what the author
-      intended, so it can gate every repository with no opt-in.
+      intended, so it can gate every repository with no opt-in. MD051 is
+      corrected before it is reported: rumdl retains U+00A7 in a heading's
+      computed slug as an artifact of its own emoji sentinel, where GitHub
+      strips it. For a document holding that character which MD051 reported
+      against, prim lints a second copy with the character substituted, drops
+      the fragment findings the second pass does not report, and keeps every
+      other finding. It is the one place prim lints a document twice. The
+      correction is skipped — leaving the upstream false positive in place
+      rather than risking a real finding — when the second pass cannot run, or
+      when the document already holds every substitute character prim can safely
+      use (AD-0018, #180).
     - **Strict tier — convention rules (`prim_mdlint_strict = true` only, error
       when active):** MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,

@@ -311,3 +311,9 @@ AD-0007 (exit-code contract, §4 warnings-never-gate), issue #115 (debug-build
 panic on one quarantined documentation-site file),
 `crates/prim-fmt/src/mdlint.rs`, `crates/prim-cli/src/mdlint_policy.rs`,
 `crates/prim-cli/src/init.rs`.
+
+## Later
+
+AD-0018 corrects one of the rules this record placed in the floor tier: MD051
+reported a false positive for any heading holding a section sign, which became a
+failing build once 0.4.0 made a lint finding raise the exit code.

@@ -156,7 +156,12 @@ panic also prints its own message, which is what to include in a bug report.
       MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
       MD070, MD075. Each reports something objectively broken — a dead link, a
       dangling reference, a malformed table — so it gates every repository with
-      no opt-in.
+      no opt-in. MD051 is corrected before it is reported: rumdl keeps `§` in a
+      heading's computed anchor where GitHub drops it, so a correct link to a
+      heading holding that character was reported as broken. prim drops those
+      findings and keeps every other one. A heading written as raw HTML is not
+      covered, and the correction is skipped for a document that already holds
+      every substitute character prim can safely use (AD-0018, #180).
     - **Strict tier — convention rules** (`prim_mdlint_strict = true` only,
       error when active): MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,

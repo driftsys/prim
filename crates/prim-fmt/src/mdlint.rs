@@ -34,6 +34,10 @@ use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
 use rumdl_lib::types::LineLength;
 
+mod section_sign;
+
+use self::section_sign::without_section_sign_false_positives;
+
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
 /// so callers never touch a rumdl type. Positions are 1-indexed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +89,11 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// the formatter's own line width. MD013 has many more options than that;
 /// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
+
+/// The flavor both passes lint under. Shared rather than named twice, so the
+/// suppression can never be computed under different anchor rules than the
+/// findings it filters.
+const FLAVOR: MarkdownFlavor = MarkdownFlavor::Standard;
 
 const ACTIVE_RULES: &[RulePolicy] = &[
     defect("MD042"),
@@ -267,21 +276,14 @@ pub fn lint(
         .collect();
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
-    let warnings = match rumdl_lib::lint(
-        source,
-        &rules,
-        false,
-        MarkdownFlavor::Standard,
-        None,
-        Some(&cfg),
-    ) {
+    let warnings = match rumdl_lib::lint(source, &rules, false, FLAVOR, None, Some(&cfg)) {
         Ok(warnings) => warnings,
         // A linter failure must never corrupt a format run: report nothing and
         // let formatting proceed. Real error surfacing is G2's contract.
         Err(_) => return Vec::new(),
     };
 
-    warnings
+    let diagnostics = warnings
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
@@ -310,7 +312,11 @@ pub fn lint(
                 message: warning.message,
             })
         })
-        .collect()
+        .collect();
+
+    without_section_sign_false_positives(source, &cfg, diagnostics, |rule| {
+        is_active(rule, strict, line_length) && !is_disabled(rule, disabled)
+    })
 }
 
 /// Scan `source` for a standalone `<!-- prim-mdlint-strict: true|false -->`
