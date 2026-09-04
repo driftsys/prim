@@ -473,7 +473,7 @@ dependencies = [
  "anyhow",
  "dprint-core",
  "dprint-core-macros",
- "jsonc-parser",
+ "jsonc-parser 0.32.4",
  "serde",
  "text_lines",
 ]
@@ -1147,8 +1147,16 @@ version = "0.32.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "840785e1a8b4fdb27be18440a35a81af64820dc185c3973ff8b012d4c6282512"
 dependencies = [
- "serde",
  "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1625,7 +1633,7 @@ dependencies = [
  "criterion",
  "dprint-plugin-json",
  "dprint-plugin-markdown",
- "jsonc-parser",
+ "jsonc-parser 0.33.1",
  "pretty_yaml",
  "rumdl",
  "serde_json",
