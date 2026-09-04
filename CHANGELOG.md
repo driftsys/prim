@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.1] (2026-09-04)
+
+### Bug Fixes
+
+- **prim-cli:** write a path to the machine-readable stream as its real bytes
+  ([#182]) ([6b3ce77]), closes [#172]. See AD-0019.
+- **prim-fmt:** keep a dependency's slug defect out of prim's exit code ([#181])
+  ([1088f92]), closes [#180]. See AD-0018.
+
+[0.7.1]: https://github.com/driftsys/prim/compare/v0.7.0...v0.7.1
+[6b3ce77]: https://github.com/driftsys/prim/commit/6b3ce77
+[#182]: https://github.com/driftsys/prim/issues/182
+[#172]: https://github.com/driftsys/prim/issues/172
+[1088f92]: https://github.com/driftsys/prim/commit/1088f92
+[#181]: https://github.com/driftsys/prim/issues/181
+[#180]: https://github.com/driftsys/prim/issues/180
+
 ## [0.7.0] (2026-08-30)
 
 ### Bug Fixes
