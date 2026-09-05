@@ -466,7 +466,9 @@ default, format-in-place action.
       absent from markdownlint, opt-in in rumdl, no fix by design, and —
       measured across six public documentation sites — 569 of 573 findings flag
       a parent heading immediately followed by a deeper one, an ordinary outline
-      shape rather than an empty section; see AD-0012).
+      shape rather than an empty section; see AD-0012). A rule rumdl adds after
+      this census was drawn is off in both tiers until a record places it; at
+      rumdl 0.2.66 that is MD083-MD089 and MD091.
     - **Selected by `prim_mdlint_report_line_length` (FR-3.2d), off otherwise:**
       MD013. It sits outside the tier model — the key decides whether it runs,
       and the tier decides only whether it examines headings. prim shall set

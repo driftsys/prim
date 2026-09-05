@@ -2,11 +2,13 @@
 
 Proves prim can link the `rumdl` Markdown linter **lint-only** without dragging
 in its LSP/async runtime, and records the cost. De-risks stories G2 (#58) and G3
-(#59). This is a skeleton + measurements, not the finished feature.
+(#59). This is a skeleton + measurements, not the finished feature. Every
+measurement below was taken at rumdl 0.2.35, the spike's pin; the pin has since
+moved (0.2.66 on 2026-09-05) and the numbers were not re-measured.
 
 ## What was proven
 
-- `rumdl = "=0.2.66"` links into `prim-fmt` with **`default-features = false`**,
+- `rumdl = "=0.2.35"` links into `prim-fmt` with **`default-features = false`**,
   keeping the engine pure (no clap/terminal/I/O leaks beyond a pure `&str → Vec`
   call).
 - The lint entry point matches the intended call exactly:
@@ -83,7 +85,7 @@ crates; turning it off cuts that to the +65 above.
   the library), so prim keeps the system allocator. Worth a confirmation test in
   G2. If it proves undesirable, raise upstream or vendor-patch.
 - **API is stable enough to pin.** The `lint`/`all_rules`/`Rule::name` surface
-  is public and matches the call shape the epic specified; pin `=0.2.66` (exact)
+  is public and matches the call shape the epic specified; pin `=0.2.35` (exact)
   and bump deliberately (E3 output-stability).
 - **No AC changes needed.** G2/G3 acceptance criteria hold as written; the size
   cost is the only new fact for the release/prebuilt stories (F2/F3) to note.

@@ -181,7 +181,9 @@ panic also prints its own message, which is what to include in a bug report.
       MD072 (frontmatter key sorting stays off because prim must remain
       semantics-preserving), MD074, MD078, MD079, MD081, MD057 (dropped — a
       cross-file link's target depends on the renderer, so prim does not check
-      it; see AD-0013), and MD082 (dropped entirely — see AD-0012).
+      it; see AD-0013), and MD082 (dropped entirely — see AD-0012). A rule rumdl
+      adds after this census was drawn is off in both tiers until a record
+      places it; at rumdl 0.2.66 that is MD083-MD089 and MD091.
     - **Line length (`prim_mdlint_report_line_length`):** `max_line_length`
       (default 80) already controls how prim wraps Markdown prose. Setting
       `prim_mdlint_report_line_length = true` additionally makes `prim lint`

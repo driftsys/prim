@@ -86,9 +86,8 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
 
-/// The flavor both passes lint under. Shared rather than named twice, so the
-/// suppression can never be computed under different anchor rules than the
-/// findings it filters.
+/// The flavor `lint` runs rumdl under. `Standard` is GitHub's anchor rules,
+/// which is what MD051 resolves a fragment against.
 const FLAVOR: MarkdownFlavor = MarkdownFlavor::Standard;
 
 const ACTIVE_RULES: &[RulePolicy] = &[

@@ -8,7 +8,10 @@ reported, and adds none.
 Retired on 2026-09-05. rumdl 0.2.66 carries the upstream fix
 ([rvben/rumdl#854][rumdl-854]), prim's pin moved to it, and the workaround was
 deleted as the Decision section describes. The record stays as the account of
-the defect and of the exit condition it was given.
+the defect and of the exit condition it was given: the Options, Decision and
+Consequences sections below describe the workaround as it stood, in the present
+tense of that time, and are kept as written except where 0.2.66 reverses a
+statement outright.
 
 ## Context
 
@@ -159,7 +162,8 @@ unchanged path.
   written `#a-§1-b` beside a heading `## A §1 B` resolves no anchor a renderer
   produces, and rumdl matches it against its own slug and reports nothing — with
   no first-pass finding there is nothing to filter. Closing that would need
-  option 3.
+  option 3. (Reversed by rumdl 0.2.66, which reports it; a CLI test pins that
+  direction.)
 - **This is a workaround with an owner.** It is prim's to delete. The exit
   condition is the upstream report, [rvben/rumdl#854][rumdl-854], filed on
   2026-09-05. Its fix, [rvben/rumdl#855][rumdl-855], was merged the same day as
@@ -178,10 +182,10 @@ unchanged path.
 
 ## A limit this record does not close
 
-prim now carries a local correction for one upstream defect. `docs/SPEC.md` and
-`docs/USAGE.md` say so in prose for this rule, but prim has no general way to
-carry that state — no machine-readable record a consumer could read, and nothing
-that ties the correction to the upstream report that ends it.
+prim carried a local correction for one upstream defect, and `docs/SPEC.md` and
+`docs/USAGE.md` said so in prose for this rule while it lasted, but prim has no
+general way to carry that state — no machine-readable record a consumer could
+read, and nothing that ties a correction to the upstream report that ends it.
 
 Whether prim wants a general "provisionally corrected pending an upstream fix"
 surface, distinct from a consumer's own `prim_mdlint_disable`, is worth deciding
