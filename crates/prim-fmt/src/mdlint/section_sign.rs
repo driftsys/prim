@@ -5,9 +5,10 @@
 //! where GitHub strips it. This module filters the fragment findings that
 //! exist only for that reason.
 //!
-//! It is a workaround with an owner. When rumdl fixes the slug, this file and
-//! its tests are deleted whole and the one call at the end of [`super::lint`]
-//! goes with them.
+//! It is a workaround with an owner. When rumdl fixes the slug (reported as
+//! rvben/rumdl#854, fix proposed in rvben/rumdl#855), this file and its tests
+//! are deleted whole and the one call at the end of [`super::lint`] goes with
+//! them.
 
 use std::collections::HashSet;
 
