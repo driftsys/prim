@@ -31,7 +31,10 @@ struct CachedConfig {
 type Cascade = Vec<CachedConfig>;
 
 /// Resolves [`Style`] from `.editorconfig`, caching each directory's parsed
-/// cascade so a repository's files parse each `.editorconfig` only once.
+/// cascade so a directory's chain is parsed once per resolver rather than once
+/// per file. That is not one parse per config file per run: `build_cascade`
+/// re-reads the whole ancestor chain for each distinct directory, and the
+/// parallel loader gives each worker thread its own resolver (AD-0002).
 #[derive(Default)]
 pub struct Resolver {
     cache: HashMap<PathBuf, Cascade>,

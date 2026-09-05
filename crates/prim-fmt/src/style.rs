@@ -22,8 +22,8 @@ impl LineEnding {
     }
 }
 
-/// Indentation unit. Carried for the per-format parsers (FR-1, #9–12); the
-/// whitespace-hygiene pass does not consume it.
+/// Indentation unit. Consumed by the JSON, TOML and YAML passes and by
+/// orphan-file lint diagnostics; the whitespace-hygiene pass does not use it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Indent {
     /// `indent_style = space` with the given `indent_size`.
@@ -42,10 +42,11 @@ pub struct Style {
     /// When true, end content with exactly one final line ending; when false,
     /// strip any final line ending (FR-2.2 / `insert_final_newline`).
     pub insert_final_newline: bool,
-    /// Indentation unit (carried for FR-1 parsers; unused by hygiene).
+    /// Indentation unit (JSON, TOML, YAML and lint diagnostics; unused by
+    /// hygiene).
     pub indent: Indent,
-    /// Hard-wrap width (carried for FR-1 Markdown; unused by hygiene). `None`
-    /// means unset — the Markdown formatter falls back to 80.
+    /// Hard-wrap width for all four structured passes — JSON, TOML, YAML and
+    /// Markdown; unused by hygiene. `None` means unset — each falls back to 80.
     pub max_line_length: Option<usize>,
 }
 
