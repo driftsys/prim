@@ -1603,6 +1603,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_mangen",
+ "criterion",
  "ec4rs",
  "ignore",
  "jsonschema",
