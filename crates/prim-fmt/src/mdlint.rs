@@ -243,9 +243,9 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
 ///
 /// `strict = false` runs the always-on floor tier (defect rules only);
 /// `strict = true` adds the convention tier on top. The tier chooses which
-/// rules run — except `MD013`, where `line_length` decides that
-/// and the tier chooses only whether headings are examined. Every rule that
-/// runs reports an error.
+/// rules run — except `LINE_LENGTH_RULE` (`MD013`), where `line_length`
+/// decides that and the tier chooses only whether headings are examined.
+/// Every rule that runs reports an error.
 ///
 /// `line_length` carries the resolved `max_line_length` when
 /// `prim_mdlint_report_line_length` selected MD013, and `None` when it did

@@ -65,9 +65,11 @@ just check              # Tests + install tests + lint
 just verify             # Full pre-PR gate (commit lint + build)
 ```
 
-On a branch with commits of its own, `just verify` runs both halves. Where
-`main..HEAD` is empty — on `main` itself, or on a branch holding no commits of
-its own — commit lint is skipped and only the build runs.
+`just verify` lints the commits in `origin/main..HEAD`, the range your pull
+request will be reviewed against. When every commit on your branch is already on
+`origin/main`, that range is empty, so commit lint is skipped and only the build
+runs. The recipe reads `origin/main` and never fetches it, so the range is as
+fresh as your last `git fetch`, and an `origin` remote is required.
 
 ### Test conventions
 

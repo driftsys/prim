@@ -6,8 +6,9 @@
 //!
 //! The engine has two steps:
 //!
-//! 1. [`classify()`] decides whether prim owns a file (by name/extension) and, if
-//!    so, what [`FileKind`] it is. Files prim does not own are left untouched.
+//! 1. [`classify()`] decides whether prim owns a file (by name/extension)
+//!    and, if so, what [`FileKind`] it is. Files prim does not own are left
+//!    untouched.
 //! 2. [`format()`] applies the canonical formatting for that kind.
 //!
 //! [`format()`] applies structured canonicalisation to the parsed formats —

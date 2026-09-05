@@ -101,11 +101,11 @@ fn eol_name(terminator: &str) -> &'static str {
 /// Scan `source` for whitespace-hygiene violations under `style`, one
 /// [`Diagnostic`] per finding, ordered by position.
 ///
-/// This mirrors the `hygiene` pass's own rules (BOM, line endings,
-/// trailing whitespace, final newline) plus one lint-only check hygiene does
-/// not perform: leading-indentation character vs. the resolved
-/// `indent_style` (`Style::indent`) — orphan files are never reformatted for
-/// indentation, so a mismatch here is only ever reported, never fixed.
+/// This mirrors the `hygiene` pass's own rules (BOM, line endings, trailing
+/// whitespace, final newline) plus one lint-only check hygiene does not
+/// perform: leading-indentation character vs. the resolved `indent_style`
+/// (`Style::indent`) — orphan files are never reformatted for indentation, so
+/// a mismatch here is only ever reported, never fixed.
 pub fn hygiene_diagnostics(source: &str, style: &Style) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 

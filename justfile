@@ -38,11 +38,16 @@ verify:
     #!/usr/bin/env bash
     set -euo pipefail
     # git-std treats an empty range as a usage error, so skip commit lint when
-    # the range holds nothing — on the base branch itself, or on a branch
-    # holding no commits of its own. Count in its own assignment: an
-    # unresolvable base would fail into the else branch and lint the same bad
-    # range, reporting a bash type error instead of git's own message.
-    range="main..HEAD"
+    # the range holds nothing — on a branch with nothing the remote lacks.
+    # The base is origin/main, matching git-std's documented pre-push recipe:
+    # it is what the pull request will be reviewed against, and it still lints
+    # a release commit made on main, which local main..HEAD cannot see. The
+    # ref is read, never fetched, so it is as fresh as the last git fetch.
+    # Count in its own assignment so `set -e` sees it fail. Inside an `if`
+    # condition it does not: an unresolvable base then adds a bash type error
+    # to git's own message, falls into the else branch, lints the same bad
+    # range and still exits 0. As an assignment it aborts on git's message.
+    range="origin/main..HEAD"
     pending=$(git rev-list --count "$range")
     if [ "$pending" -eq 0 ]; then
       echo "verify: no commits in $range — skipping commit lint" >&2
@@ -64,9 +69,9 @@ man:
     find target/ -path '*/build/prim-cli-*/out/man/*.1' -exec cp {} target/man/ \;
     @echo "man page written to target/man/"
 
-# Generate and open rustdoc
+# Generate and open rustdoc — same surface the lint gate inspects
 doc:
-    cargo doc --open
+    cargo doc --workspace --no-deps --document-private-items --open
 
 # Build and serve mdbook documentation
 book:
