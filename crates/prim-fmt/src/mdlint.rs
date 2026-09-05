@@ -20,7 +20,7 @@
 //!
 //! Key guarantees:
 //!
-//! - `rumdl = "=0.2.35"` links with `default-features = false` (no
+//! - `rumdl = "=0.2.66"` links with `default-features = false` (no
 //!   tokio/tower-lsp/notify/rayon), so the engine stays pure and small.
 //! - rules are selected by [`rumdl_lib::rule::Rule::name`] from the full
 //!   `all_rules(&cfg)` set, so off / formatter-territory rules never run.
@@ -33,10 +33,6 @@ use std::collections::BTreeMap;
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rules::all_rules;
 use rumdl_lib::types::LineLength;
-
-mod section_sign;
-
-use self::section_sign::without_section_sign_false_positives;
 
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
 /// so callers never touch a rumdl type. Positions are 1-indexed.
@@ -283,7 +279,7 @@ pub fn lint(
         Err(_) => return Vec::new(),
     };
 
-    let diagnostics = warnings
+    warnings
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
@@ -292,7 +288,7 @@ pub fn lint(
             // outside the selected tier, or one `prim_mdlint_disable`
             // removed, must never reach a caller as a finding.
             //
-            // Under the pinned `rumdl = "=0.2.35"` this second pass is
+            // Under the pinned `rumdl = "=0.2.66"` this second pass is
             // unexercised, because `rumdl_lib::lint` only ever names a rule
             // from the slice it was handed. That is an assumption about a
             // dependency, not a property prim controls, and no test can reach
@@ -312,11 +308,7 @@ pub fn lint(
                 message: warning.message,
             })
         })
-        .collect();
-
-    without_section_sign_false_positives(source, &cfg, diagnostics, |rule| {
-        is_active(rule, strict, line_length) && !is_disabled(rule, disabled)
-    })
+        .collect()
 }
 
 /// Scan `source` for a standalone `<!-- prim-mdlint-strict: true|false -->`

@@ -314,6 +314,8 @@ panic on one quarantined documentation-site file),
 
 ## Later
 
-AD-0018 corrects one of the rules this record placed in the floor tier: MD051
+AD-0018 corrected one of the rules this record placed in the floor tier: MD051
 reported a false positive for any heading holding a section sign, which became a
-failing build once 0.4.0 made a lint finding raise the exit code.
+failing build once 0.4.0 made a lint finding raise the exit code. The correction
+was deleted on 2026-09-05, when rumdl 0.2.66 shipped the upstream fix; MD051
+runs plain again.

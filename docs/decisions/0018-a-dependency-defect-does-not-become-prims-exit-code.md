@@ -5,6 +5,11 @@
 Accepted. Closes #180. Not breaking: it removes findings prim should never have
 reported, and adds none.
 
+Retired on 2026-09-05. rumdl 0.2.66 carries the upstream fix
+([rvben/rumdl#854][rumdl-854]), prim's pin moved to it, and the workaround was
+deleted as the Decision section describes. The record stays as the account of
+the defect and of the exit condition it was given.
+
 ## Context
 
 prim selects rumdl's rules and owns their output. A rule prim selects raises
@@ -53,9 +58,9 @@ tier, one of six rules it names as not having gated there before. The false
 positive was produced all along; between 0.3.0 and 0.7.0 prim started failing on
 it.
 
-The defect is upstream, and no release fixes it. It reproduces identically under
-the pinned `rumdl = "=0.2.35"`, under 0.2.63, and under 0.2.65, the latest
-release at the time of writing, so no bump reaches it.
+The defect was upstream, and no release fixed it when this record was written.
+It reproduced identically under the pinned `rumdl = "=0.2.35"`, under 0.2.63,
+and under 0.2.65, the latest release at the time, so no bump reached it.
 
 ## Options
 
@@ -158,13 +163,14 @@ unchanged path.
 - **This is a workaround with an owner.** It is prim's to delete. The exit
   condition is the upstream report, [rvben/rumdl#854][rumdl-854], filed on
   2026-09-05. Its fix, [rvben/rumdl#855][rumdl-855], was merged the same day as
-  [rvben/rumdl@d530737][rumdl-d530737]; no release carries it yet — 0.2.65 is
-  the latest at the time of writing. The fix deletes the emoji marker pass the
-  sentinel served, rather than renaming the sentinel: the same pass also counted
-  one hyphen too many around an emoji not surrounded by spaces (`## A🚀 B`
-  slugged to `a--b` where GitHub resolves `a-b`), a second false positive prim
-  does not correct. When a rumdl release carries the fix, bump the pin and
-  delete the workaround as described above.
+  [rvben/rumdl@d530737][rumdl-d530737] and released in rumdl 0.2.66 that
+  afternoon. The fix deletes the emoji marker pass the sentinel served, rather
+  than renaming the sentinel: the same pass also counted one hyphen too many
+  around an emoji not surrounded by spaces (`## A🚀 B` slugged to `a--b` where
+  GitHub resolves `a-b`), a second false positive prim did not correct. prim's
+  pin moved to 0.2.66 the same day and the workaround was deleted; MD051 runs
+  plain again, and the mirror `#a-§1-b` — an anchor no renderer produces — is
+  reported, as it should be.
 
 [rumdl-854]: https://github.com/rvben/rumdl/issues/854
 [rumdl-855]: https://github.com/rvben/rumdl/pull/855
@@ -181,4 +187,6 @@ Whether prim wants a general "provisionally corrected pending an upstream fix"
 surface, distinct from a consumer's own `prim_mdlint_disable`, is worth deciding
 once rather than per rule. One instance is not yet a pattern, and a mechanism
 built for one case would be built against a sample of one. This record leaves it
-open and marks the second occurrence as the trigger.
+open and marks the second occurrence as the trigger. The first occurrence closed
+within a day of the upstream report, which is evidence for filing promptly
+rather than for a mechanism.
