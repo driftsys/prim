@@ -18,7 +18,7 @@ const GENERATED: &[(&str, &str)] = &[
 /// The tool that generates `path`, or `None` when prim may format it.
 ///
 /// Keyed on the final path component, exact and case-sensitive, the same way
-/// [`crate::classify`] works — never by sniffing content (FR-2.5).
+/// [`crate::classify()`] works — never by sniffing content (FR-2.5).
 pub fn generated_by(path: &Path) -> Option<&'static str> {
     let name = path.file_name()?.to_str()?;
     GENERATED

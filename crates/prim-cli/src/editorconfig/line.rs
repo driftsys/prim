@@ -4,7 +4,7 @@
 //! (`parse_line` in its `src/linereader.rs`) lives in a module `lib.rs`
 //! declares as `mod linereader;` — not `pub` — so prim cannot call it
 //! directly. prim's `.editorconfig`-writing and `.editorconfig`-explaining
-//! code ([`crate::init::sections`], [`crate::provenance`]) each hand-rolled
+//! code (`init::sections`, [`crate::provenance`]) each hand-rolled
 //! their own line scanner instead, and both diverged from what `ec4rs`
 //! actually does with a section header's brackets and trailing comments
 //! (issue #117). This module is the one place that scanning happens now.

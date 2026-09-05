@@ -9,6 +9,7 @@ test:
 # Lint and format check
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items
     cargo fmt -- --check
     cargo run -q -p prim-cli -- fmt --check .
     cargo run -q -p prim-cli -- lint .
@@ -34,7 +35,25 @@ build: assemble check
 
 # Validate commits on branch and build — run before PR
 verify:
-    git std lint --range main..HEAD
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # git-std treats an empty range as a usage error, so skip commit lint when
+    # the range holds nothing — on a branch with nothing the remote lacks.
+    # The base is origin/main, matching git-std's documented pre-push recipe:
+    # it is what the pull request will be reviewed against, and it still lints
+    # a release commit made on main, which local main..HEAD cannot see. The
+    # ref is read, never fetched, so it is as fresh as the last git fetch.
+    # Count in its own assignment so `set -e` sees it fail. Inside an `if`
+    # condition it does not: an unresolvable base then adds a bash type error
+    # to git's own message, falls into the else branch, lints the same bad
+    # range and still exits 0. As an assignment it aborts on git's message.
+    range="origin/main..HEAD"
+    pending=$(git rev-list --count "$range")
+    if [ "$pending" -eq 0 ]; then
+      echo "verify: no commits in $range — skipping commit lint" >&2
+    else
+      git std lint --range "$range"
+    fi
     just build
 
 # Format Rust and the connective tissue (Markdown/JSON/YAML/TOML) with prim
@@ -50,9 +69,9 @@ man:
     find target/ -path '*/build/prim-cli-*/out/man/*.1' -exec cp {} target/man/ \;
     @echo "man page written to target/man/"
 
-# Generate and open rustdoc
+# Generate and open rustdoc — same surface the lint gate inspects
 doc:
-    cargo doc --open
+    cargo doc --workspace --no-deps --document-private-items --open
 
 # Build and serve mdbook documentation
 book:

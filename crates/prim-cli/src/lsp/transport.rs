@@ -7,7 +7,8 @@ use serde_json::Value;
 
 /// Read one `Content-Length`-framed JSON-RPC message from `reader`, returning
 /// its parsed body. `Ok(None)` means a clean end of stream (the client closed
-/// the connection). A malformed frame or non-JSON body is an [`io::Error`].
+/// the connection). A malformed frame or non-JSON body is an
+/// [`std::io::Error`].
 pub fn read_message(reader: &mut impl BufRead) -> std::io::Result<Option<Value>> {
     let mut content_length: Option<usize> = None;
     let mut header = String::new();

@@ -65,6 +65,12 @@ just check              # Tests + install tests + lint
 just verify             # Full pre-PR gate (commit lint + build)
 ```
 
+`just verify` lints the commits in `origin/main..HEAD`, the range your pull
+request will be reviewed against. When every commit on your branch is already on
+`origin/main`, that range is empty, so commit lint is skipped and only the build
+runs. The recipe reads `origin/main` and never fetches it, so the range is as
+fresh as your last `git fetch`, and an `origin` remote is required.
+
 ### Test conventions
 
 - **Acceptance / CLI-snapshot tests** go in `spec/` — blackbox `trycmd` cases
@@ -84,6 +90,10 @@ just fmt    # Format Rust + Markdown
 just lint   # Lint + format check
 ```
 
-- Rust code must pass `cargo fmt` and `cargo clippy` with no warnings.
+- Rust code must pass `cargo fmt`, `cargo clippy`, and rustdoc with no warnings.
+  `just lint` runs all three; its rustdoc step passes `-D warnings` through
+  `RUSTDOCFLAGS`, because `cargo doc` has no `--` passthrough. It also passes
+  `--document-private-items`, without which `cargo doc` skips a library's
+  internals and a broken link in `prim-fmt` goes unseen.
 - Markdown files must pass `dprint check`.
 - Always run `just fmt` before committing.
