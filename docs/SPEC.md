@@ -608,7 +608,9 @@ default, format-in-place action.
 - **FR-6.4** _(atomic write)_ prim shall write via a temporary file and atomic
   rename, preserving permission bits.
 - **FR-6.5** prim shall process only UTF-8 text; it shall leave non-UTF-8 files
-  unchanged and report them.
+  unchanged and report them under FR-6.3's grading: an error (exit `2`) when the
+  path was named, a warning that leaves the exit code alone when the file was
+  reached by a directory walk.
 
 ## NFR — non-functional (targets, tunable)
 
