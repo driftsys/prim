@@ -77,9 +77,12 @@ resolver rather than once per file. That is not one parse per config file per
 run: `build_cascade` re-reads the chain for each distinct directory, and the
 parallel loader gives each worker thread its own resolver. The change was
 measured at about 9 % faster in `--check` mode on a 5,000-file tree with a root
-`.editorconfig`. Only reading and parsing is cached — per-glob sections still
-resolve per file — so output stays byte-identical, which an equivalence test
-against `ec4rs::properties_of` guards.
+`.editorconfig`. That figure is an end-to-end one and nothing reproduces it;
+`crates/prim-cli/benches/resolution.rs` reproduces the mechanism instead,
+comparing one reused `Resolver` against a cascade parsed per file (AD-0020).
+Only reading and parsing is cached — per-glob sections still resolve per file —
+so output stays byte-identical, which an equivalence test against
+`ec4rs::properties_of` guards.
 
 **Malformed or unreadable `.editorconfig`** — prim falls back to
 `Style::default()` and emits a `ui::warning`. The file is not left unprocessed.

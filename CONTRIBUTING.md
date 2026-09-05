@@ -35,14 +35,15 @@ just build
 
 ## Architecture
 
-The project is a Cargo workspace with one library crate, one binary crate, and a
-test-only acceptance crate:
+The project is a Cargo workspace with one engine library crate, one binary crate
+that also carries an internal library target (AD-0020), and a test-only
+acceptance crate:
 
 ```text
 prim/
 ├── crates/
 │   ├── prim-fmt/             # LIBRARY — the formatting engine (no CLI deps)
-│   └── prim-cli/             # BINARY  — `prim`; thin CLI over prim-fmt
+│   └── prim-cli/             # BINARY  — `prim`; thin CLI (+ internal lib)
 ├── spec/                     # test-only acceptance crate (trycmd + install tests)
 ├── docs/
 │   └── SPEC.md               # full specification
