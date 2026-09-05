@@ -139,7 +139,11 @@ so both branches of that check converge on the identical value: when the
 resolved width is not 80 the sentinel is false and the rule value already
 stands; when it is exactly 80 the overwrite substitutes an identical number.
 Either way the two settings cannot disagree, including if rumdl changes this
-precedence rule later.
+precedence rule later. rumdl 0.2.66, the pin since #193, moved the check to
+`MD013Config::from_document_config`
+(`src/rules/md013_line_length/md013_config.rs`) behind a
+`line_length_is_default()` helper; the sentinel and the overwrite are the same,
+so the double write still holds.
 
 ### Severity is per-rule, not per-context
 

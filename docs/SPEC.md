@@ -468,7 +468,9 @@ default, format-in-place action.
       a parent heading immediately followed by a deeper one, an ordinary outline
       shape rather than an empty section; see AD-0012). A rule rumdl adds after
       this census was drawn is off in both tiers until a record places it; at
-      rumdl 0.2.66 that is MD083-MD089 and MD091.
+      rumdl 0.2.66 that is MD083-MD089 and MD091 (#194). The census is checked
+      against the rules rumdl registers by `mdlint/tests/census.rs`, so a bump
+      that adds or drops a rule fails the build until this list is updated.
     - **Selected by `prim_mdlint_report_line_length` (FR-3.2d), off otherwise:**
       MD013. It sits outside the tier model — the key decides whether it runs,
       and the tier decides only whether it examines headings. prim shall set
@@ -623,8 +625,13 @@ The canonical style is a compatibility contract. Any change to prim's output for
 already-canonical input — including a change inherited from a formatter
 dependency upgrade (`dprint-plugin-json`, `dprint-plugin-markdown`, `taplo`,
 `pretty_yaml`) — is a versioned, release-noted event: a **minor** version bump
-while prim is pre-1.0, a **major** bump once prim reaches 1.0. The release notes
-must call out the changed output explicitly so downstream `prim --check` gates
+while prim is pre-1.0, a **major** bump once prim reaches 1.0. The same holds
+for a lint finding a gate did not report before, including one inherited from a
+`rumdl` upgrade: `prim lint` fails a build through the same exit code as format
+drift. Either kind is marked with a `BREAKING CHANGE:` commit footer, which is
+what the release tooling turns into the minor bump and the changelog note; a
+bare `feat` is a patch while prim is pre-1.0. The release notes must call out
+the changed output explicitly so downstream `prim --check` and `prim lint` gates
 upgrade deliberately. The fixture harness
 (`crates/prim-fmt/tests/correctness/fixtures/`) is prim's **golden corpus**: its
 `spec_cases_format_as_expected` test byte-compares formatter output against each

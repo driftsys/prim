@@ -389,9 +389,9 @@ fn the_same_unknown_id_in_two_sections_warns_about_each_one() {
 /// from `install.sh` went from passing on 0.3.0 to failing on 0.7.0 with one
 /// MD051 on a link that is not broken. rumdl retained U+00A7 in a heading's
 /// slug as an artifact of its own `§emoji§` sentinel where GitHub strips it;
-/// rumdl 0.2.66 fixed that (rvben/rumdl#854), and prim's own correction went
-/// with it (AD-0018). This pins the pin: a rumdl that retained the character
-/// again would fail here.
+/// rumdl 0.2.66 fixed that (rvben/rumdl#854), and prim's own correction was
+/// deleted with it (AD-0018, #193). This pins the pin: a rumdl that retained
+/// the character again would fail here.
 #[test]
 fn a_heading_holding_a_section_sign_does_not_break_a_correct_link() {
     let dir = tempfile::tempdir().unwrap();

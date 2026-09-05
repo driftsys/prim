@@ -5,13 +5,13 @@
 Accepted. Closes #180. Not breaking: it removes findings prim should never have
 reported, and adds none.
 
-Retired on 2026-09-05. rumdl 0.2.66 carries the upstream fix
-([rvben/rumdl#854][rumdl-854]), prim's pin moved to it, and the workaround was
-deleted as the Decision section describes. The record stays as the account of
-the defect and of the exit condition it was given: the Options, Decision and
-Consequences sections below describe the workaround as it stood, in the present
-tense of that time, and are kept as written except where 0.2.66 reverses a
-statement outright.
+Retired on 2026-09-05 (#193): rumdl 0.2.66 carries the upstream fix, prim's pin
+moved to it, and the workaround was deleted as the Decision section describes.
+The last Consequences bullet records how; the record stays as the account of the
+defect and of the exit condition it was given. The Options, Decision and the
+other Consequences describe the workaround as it stood, in the present tense of
+that time, and are kept as written except where the deletion made a claim moot
+or 0.2.66 reverses a statement outright; each such place says so.
 
 ## Context
 
@@ -117,7 +117,8 @@ shift every column after it just as deletion did. That property is guaranteed by
 the stand-in's `char` type rather than asserted. The property that does depend
 on rumdl — that the stand-in is stripped from a computed slug exactly as GitHub
 strips U+00A7 — is pinned by a test over every candidate, so a future rumdl that
-started retaining one fails the build.
+started retaining one fails the build. (That test went with the workaround; the
+slug itself is now pinned in `mdlint/tests/anchors.rs`.)
 
 The stand-in is **chosen per document**, as the first candidate the source does
 not already contain. MD051 does not resolve every fragment through a slug: an
@@ -165,20 +166,21 @@ unchanged path.
   option 3. (Reversed by rumdl 0.2.66, which reports it; a CLI test pins that
   direction.)
 - **This is a workaround with an owner.** It is prim's to delete. The exit
-  condition is the upstream report, [rvben/rumdl#854][rumdl-854], filed on
-  2026-09-05. Its fix, [rvben/rumdl#855][rumdl-855], was merged the same day as
-  [rvben/rumdl@d530737][rumdl-d530737] and released in rumdl 0.2.66 that
-  afternoon. The fix deletes the emoji marker pass the sentinel served, rather
-  than renaming the sentinel: the same pass also counted one hyphen too many
-  around an emoji not surrounded by spaces (`## A🚀 B` slugged to `a--b` where
-  GitHub resolves `a-b`), a second false positive prim did not correct. prim's
-  pin moved to 0.2.66 the same day and the workaround was deleted; MD051 runs
-  plain again, and the mirror `#a-§1-b` — an anchor no renderer produces — is
-  reported, as it should be.
-
-[rumdl-854]: https://github.com/rvben/rumdl/issues/854
-[rumdl-855]: https://github.com/rvben/rumdl/pull/855
-[rumdl-d530737]: https://github.com/rvben/rumdl/commit/d530737
+  condition is the upstream report,
+  [rvben/rumdl#854](https://github.com/rvben/rumdl/issues/854), filed on
+  2026-09-05 and tracked here as #193. Its fix,
+  [rvben/rumdl#855](https://github.com/rvben/rumdl/pull/855), was merged as
+  [d530737](https://github.com/rvben/rumdl/commit/d530737) the same morning and
+  released in rumdl 0.2.66 that afternoon. The fix deletes the emoji marker pass
+  the sentinel served, rather than renaming the sentinel: the same pass also
+  counted one hyphen too many around an emoji not surrounded by spaces
+  (`## A🚀 B` slugged to `a--b` where GitHub resolves `a-b`), a second false
+  positive prim did not correct. prim's pin moved to 0.2.66 the same day and the
+  workaround was deleted; MD051 runs without it, and the mirror `#a-§1-b` — an
+  anchor no renderer produces — is reported, as it should be. MD073 and MD080
+  resolve headings through the same slug, so a TOC entry to a `§` heading stops
+  reporting and two headings that differ only by `§` now collide;
+  `mdlint/tests/anchors.rs` pins each direction.
 
 ## A limit this record does not close
 

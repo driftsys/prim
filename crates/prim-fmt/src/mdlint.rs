@@ -86,8 +86,10 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
 
-/// The flavor `lint` runs rumdl under. `Standard` is GitHub's anchor rules,
-/// which is what MD051 resolves a fragment against.
+/// The flavor rumdl parses every document under; it drives heading and table
+/// detection for every rule, and `Standard` is also GitHub's anchor rules,
+/// which MD051, MD073 and MD080 resolve a heading against. Pinned by
+/// `tests::anchors`: `MkDocs` would exempt a `#fn:` fragment from MD051.
 const FLAVOR: MarkdownFlavor = MarkdownFlavor::Standard;
 
 const ACTIVE_RULES: &[RulePolicy] = &[
@@ -287,7 +289,7 @@ pub fn lint(
             // outside the selected tier, or one `prim_mdlint_disable`
             // removed, must never reach a caller as a finding.
             //
-            // Under the pinned `rumdl = "=0.2.66"` this second pass is
+            // Under the pinned `rumdl = "=0.2.66"` this re-check is
             // unexercised, because `rumdl_lib::lint` only ever names a rule
             // from the slice it was handed. That is an assumption about a
             // dependency, not a property prim controls, and no test can reach

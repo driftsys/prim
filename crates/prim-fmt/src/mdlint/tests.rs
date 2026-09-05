@@ -1,5 +1,7 @@
 use super::*;
 
+mod anchors;
+mod census;
 mod rule_fixtures;
 
 const DEFECT_RULES: [&str; 12] = [

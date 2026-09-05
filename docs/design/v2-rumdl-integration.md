@@ -3,8 +3,9 @@
 Proves prim can link the `rumdl` Markdown linter **lint-only** without dragging
 in its LSP/async runtime, and records the cost. De-risks stories G2 (#58) and G3
 (#59). This is a skeleton + measurements, not the finished feature. Every
-measurement below was taken at rumdl 0.2.35, the spike's pin; the pin has since
-moved (0.2.66 on 2026-09-05) and the numbers were not re-measured.
+version reference and measurement below is the spike's pin, rumdl 0.2.35; the
+pin has since moved (0.2.66 on 2026-09-05, #193) and the numbers were not
+re-measured.
 
 ## What was proven
 
