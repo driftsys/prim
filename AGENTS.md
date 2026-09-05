@@ -87,7 +87,9 @@ code.
   `prim_mdlint_disable` changes which rules run, never how one behaves.
 - Semantics-preserving: never reorder keys, table entries, or array elements.
 - Fail-safe: unparseable or non-UTF-8 files are left byte-for-byte unchanged and
-  reported (exit `2`). Writes are atomic (temp file + rename).
+  reported — an error (exit `2`) when the path was named, a warning that leaves
+  the exit code alone when it was reached by a directory walk (FR-6.3). Writes
+  are atomic (temp file + rename).
 - `.primignore` (gitignore syntax) is the committed escape hatch for
   tracked-but-unformatted files.
 

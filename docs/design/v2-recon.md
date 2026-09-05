@@ -94,6 +94,7 @@ One command, flag-driven modes (`cli.rs` / `app.rs`):
 - Never reorder semantically meaningful lines or keys (`.gitignore`,
   `.gitattributes`, frontmatter, TOML/YAML/JSON keys).
 - `.editorconfig` is the only config surface (FR-3.3); no `prim.toml`.
-- Fail-safe: unparseable / non-UTF-8 files left unchanged, reported, exit `2`.
+- Fail-safe: unparseable / non-UTF-8 files left unchanged and reported — exit
+  `2` when the path was named, a warning when it was reached by a walk (FR-6.3).
 - Writes are atomic (temp + rename).
 - Module size soft-limit 300 / hard-limit 500 lines; one concept per module.
