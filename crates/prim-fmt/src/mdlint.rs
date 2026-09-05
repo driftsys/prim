@@ -243,7 +243,7 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
 ///
 /// `strict = false` runs the always-on floor tier (defect rules only);
 /// `strict = true` adds the convention tier on top. The tier chooses which
-/// rules run — except [`LINE_LENGTH_RULE`], where `line_length` decides that
+/// rules run — except `MD013`, where `line_length` decides that
 /// and the tier chooses only whether headings are examined. Every rule that
 /// runs reports an error.
 ///

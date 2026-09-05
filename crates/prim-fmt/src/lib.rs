@@ -6,11 +6,11 @@
 //!
 //! The engine has two steps:
 //!
-//! 1. [`classify`] decides whether prim owns a file (by name/extension) and, if
+//! 1. [`classify()`] decides whether prim owns a file (by name/extension) and, if
 //!    so, what [`FileKind`] it is. Files prim does not own are left untouched.
-//! 2. [`format`] applies the canonical formatting for that kind.
+//! 2. [`format()`] applies the canonical formatting for that kind.
 //!
-//! [`format`] applies structured canonicalisation to the parsed formats —
+//! [`format()`] applies structured canonicalisation to the parsed formats —
 //! JSON/JSONC via `dprint-plugin-json`, TOML via `taplo`, YAML via
 //! `pretty_yaml`, Markdown via `dprint-plugin-markdown` — followed by the
 //! format-agnostic **whitespace hygiene** pass (trailing-whitespace removal,

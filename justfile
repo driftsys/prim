@@ -9,6 +9,7 @@ test:
 # Lint and format check
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items
     cargo fmt -- --check
     cargo run -q -p prim-cli -- fmt --check .
     cargo run -q -p prim-cli -- lint .
@@ -37,8 +38,8 @@ verify:
     #!/usr/bin/env bash
     set -euo pipefail
     # git-std treats an empty range as a usage error, so skip commit lint when
-    # the range holds nothing — on the base branch itself, or on a merged
-    # branch. Count in its own assignment: inside an `if` condition an
+    # the range holds nothing — on the base branch itself, or on a branch
+    # holding no commits of its own. Count in its own assignment: an
     # unresolvable base would fail into the else branch and lint the same bad
     # range, reporting a bash type error instead of git's own message.
     range="main..HEAD"

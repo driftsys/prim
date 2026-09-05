@@ -35,8 +35,10 @@ just fmt                # Format Rust + Markdown
 ```
 
 `just verify` skips commit lint when `main..HEAD` is empty — on `main` itself,
-or on a merged branch — because git-std treats an empty range as a usage error.
-It still runs `just build`.
+or on a branch holding no commits of its own — because git-std treats an empty
+range as a usage error. It still runs `just build`. A squash-merged branch is
+not this case: its original commits stay unreachable from `main`, so the range
+is still non-empty and commit lint still runs.
 
 ## Architecture
 
@@ -142,9 +144,10 @@ Group modules by domain concept. Keep each module focused and small.
 
 ## Conventions
 
-- **Zero warnings.** No warnings anywhere — compiler, `cargo test`, `clippy`, or
-  Markdown (`dprint` + markdownlint). Do not suppress with `#[allow(...)]`
-  unless unavoidable, and document the reason.
+- **Zero warnings.** No warnings anywhere — compiler, `cargo test`, `clippy`,
+  `rustdoc`, or Markdown (`dprint` + markdownlint). Do not suppress with
+  `#[allow(...)]` unless unavoidable, and document the reason. `just lint` and
+  CI both gate rustdoc with `-D warnings`.
 - **Code style:** `rustfmt` + `clippy`. Always run `just fmt` before committing.
 - **Naming.** Names must reveal intent. Avoid `temp`, `data`, `flag`. Booleans
   use `is_`/`has_`/`can_`. No `get_` prefix. **Rust API guidelines and `clippy`

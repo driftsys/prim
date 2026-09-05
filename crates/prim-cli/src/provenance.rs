@@ -3,9 +3,9 @@
 //! for `prim explain` (story C2).
 //!
 //! This is a distinct concern from [`crate::editorconfig`]'s job of merging
-//! the cascade into one effective [`Style`]: `explain` needs the same merged
-//! result, plus per-key provenance that `ec4rs`'s `track-source` feature
-//! exposes via [`ec4rs::rawvalue::RawValue::source`].
+//! the cascade into one effective [`prim_fmt::Style`]: `explain` needs the
+//! same merged result, plus per-key provenance that `ec4rs`'s `track-source`
+//! feature exposes via [`ec4rs::rawvalue::RawValue::source`].
 
 use std::path::{Path, PathBuf};
 

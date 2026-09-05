@@ -65,9 +65,9 @@ just check              # Tests + install tests + lint
 just verify             # Full pre-PR gate (commit lint + build)
 ```
 
-On a branch with commits, `just verify` runs both halves. Where `main..HEAD` is
-empty — on `main` itself, or on a merged branch — commit lint is skipped and
-only the build runs.
+On a branch with commits of its own, `just verify` runs both halves. Where
+`main..HEAD` is empty — on `main` itself, or on a branch holding no commits of
+its own — commit lint is skipped and only the build runs.
 
 ### Test conventions
 
@@ -88,6 +88,10 @@ just fmt    # Format Rust + Markdown
 just lint   # Lint + format check
 ```
 
-- Rust code must pass `cargo fmt` and `cargo clippy` with no warnings.
+- Rust code must pass `cargo fmt`, `cargo clippy`, and rustdoc with no warnings.
+  `just lint` runs all three; its rustdoc step passes `-D warnings` through
+  `RUSTDOCFLAGS`, because `cargo doc` has no `--` passthrough. It also passes
+  `--document-private-items`, without which `cargo doc` skips a library's
+  internals and a broken link in `prim-fmt` goes unseen.
 - Markdown files must pass `dprint check`.
 - Always run `just fmt` before committing.

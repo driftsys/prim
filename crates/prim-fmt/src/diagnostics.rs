@@ -101,7 +101,7 @@ fn eol_name(terminator: &str) -> &'static str {
 /// Scan `source` for whitespace-hygiene violations under `style`, one
 /// [`Diagnostic`] per finding, ordered by position.
 ///
-/// This mirrors [`crate::hygiene::hygiene`]'s own rules (BOM, line endings,
+/// This mirrors the `hygiene` pass's own rules (BOM, line endings,
 /// trailing whitespace, final newline) plus one lint-only check hygiene does
 /// not perform: leading-indentation character vs. the resolved
 /// `indent_style` (`Style::indent`) — orphan files are never reformatted for
