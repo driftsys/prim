@@ -3,6 +3,8 @@ use super::*;
 mod anchors;
 mod census;
 mod rule_fixtures;
+mod selection;
+mod upstream;
 
 const DEFECT_RULES: [&str; 12] = [
     "MD042", "MD011", "MD052", "MD056", "MD062", "MD034", "MD051", "MD045", "MD075", "MD066",
@@ -24,44 +26,6 @@ fn defect_rules_run_in_both_tiers_and_conventions_only_in_strict() {
         assert!(!is_active(rule, false, None), "{rule} floor");
         assert!(is_active(rule, true, None), "{rule} strict");
     }
-}
-
-/// `lint` builds only the rules the tier selects, by name, rather than
-/// constructing rumdl's whole set and discarding most of it: at rumdl 0.2.66
-/// the whole set costs about 1.4 ms per call, three quarters of it MD083
-/// compiling a regex in its constructor, against 5 µs for the selected names.
-/// The names that come back are the tier table's, so a rule rumdl could not
-/// construct by name shows up here as a missing name.
-#[test]
-fn lint_builds_exactly_the_rules_the_tier_selects() {
-    let names = |strict: bool, disabled: &[String], line_length: Option<usize>| {
-        let mut names: Vec<String> = selected_rules(strict, disabled, line_length)
-            .iter()
-            .map(|rule| rule.name().to_string())
-            .collect();
-        names.sort();
-        names
-    };
-    let sorted = |rules: &[&str]| {
-        let mut v: Vec<String> = rules.iter().map(|r| r.to_string()).collect();
-        v.sort();
-        v
-    };
-
-    assert_eq!(names(false, &[], None), sorted(&DEFECT_RULES));
-
-    let mut both: Vec<&str> = DEFECT_RULES.to_vec();
-    both.extend(CONVENTION_RULES);
-    assert_eq!(names(true, &[], None), sorted(&both));
-
-    let mut with_width = both.clone();
-    with_width.push(LINE_LENGTH_RULE);
-    assert_eq!(names(true, &[], Some(80)), sorted(&with_width));
-
-    let disabled = ["MD051".to_string()];
-    let mut without: Vec<&str> = DEFECT_RULES.to_vec();
-    without.retain(|r| *r != "MD051");
-    assert_eq!(names(false, &disabled, None), sorted(&without));
 }
 
 #[test]

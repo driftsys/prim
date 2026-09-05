@@ -248,10 +248,10 @@ reporting link lines without any decision here changing.
   MD013 never ran, that hatch could only turn rules off; now a file carrying a
   `markdownlint-configure-file` directive can change the width or re-enable the
   table and code checks for itself. It cannot select MD013 where the key has
-  not, because prim filters the rule set before rumdl sees it. The guarantee
-  this decision makes is therefore about the `.editorconfig` cascade, which no
-  repository-wide setting can bend, not about a single file that deliberately
-  opts out.
+  not, because prim builds only the selected rules before rumdl sees them. The
+  guarantee this decision makes is therefore about the `.editorconfig` cascade,
+  which no repository-wide setting can bend, not about a single file that
+  deliberately opts out.
 - **`prim init` does not scaffold the key.** It scaffolds the strict-glob map
   and nothing else, so a repository opts into line-length reporting deliberately
   rather than finding it switched on by a tool run.

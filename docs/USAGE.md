@@ -183,7 +183,9 @@ panic also prints its own message, which is what to include in a bug report.
       cross-file link's target depends on the renderer, so prim does not check
       it; see AD-0013), and MD082 (dropped entirely — see AD-0012). A rule rumdl
       adds after this census was drawn is off in both tiers until a record
-      places it; at rumdl 0.2.66 that is MD083-MD089 and MD091.
+      places it; at rumdl 0.2.66 that is MD083-MD089 and MD091 (#194). MD051
+      does not see a heading written as raw HTML (`<h2>`): rumdl computes no
+      anchor for it, so a link to that anchor is reported.
     - **Line length (`prim_mdlint_report_line_length`):** `max_line_length`
       (default 80) already controls how prim wraps Markdown prose. Setting
       `prim_mdlint_report_line_length = true` additionally makes `prim lint`

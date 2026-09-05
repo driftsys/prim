@@ -2,16 +2,18 @@
 
 ## Status
 
-Accepted. Closes #180. Not breaking: it removes findings prim should never have
-reported, and adds none.
-
 Retired on 2026-09-05 (#193): rumdl 0.2.66 carries the upstream fix, prim's pin
 moved to it, and the workaround was deleted as the Decision section describes.
-The last Consequences bullet records how; the record stays as the account of the
-defect and of the exit condition it was given. The Options, Decision and the
-other Consequences describe the workaround as it stood, in the present tense of
-that time, and are kept as written except where the deletion made a claim moot
-or 0.2.66 reverses a statement outright; each such place says so.
+The retirement is release-noted as breaking (0.8.0), since the bump makes
+`prim lint` report findings it did not report before; the last Consequences
+bullet records how, and the record stays as the account of the defect and of the
+exit condition it was given.
+
+Accepted before that; closes #180. Not breaking when accepted: it removed
+findings prim should never have reported, and added none. The Options, Decision
+and the other Consequences describe the workaround as it stood, in the present
+tense of that time, and are kept as written except where the deletion made a
+claim moot or 0.2.66 reverses a statement outright; each such place says so.
 
 ## Context
 
@@ -117,8 +119,8 @@ shift every column after it just as deletion did. That property is guaranteed by
 the stand-in's `char` type rather than asserted. The property that does depend
 on rumdl — that the stand-in is stripped from a computed slug exactly as GitHub
 strips U+00A7 — is pinned by a test over every candidate, so a future rumdl that
-started retaining one fails the build. (That test went with the workaround; the
-slug itself is now pinned in `mdlint/tests/anchors.rs`.)
+started retaining one fails the build. (That test went with the workaround;
+`mdlint/tests/anchors.rs` pins the `§` slug itself, not the stand-ins.)
 
 The stand-in is **chosen per document**, as the first candidate the source does
 not already contain. MD051 does not resolve every fragment through a slug: an

@@ -390,8 +390,8 @@ fn the_same_unknown_id_in_two_sections_warns_about_each_one() {
 /// MD051 on a link that is not broken. rumdl retained U+00A7 in a heading's
 /// slug as an artifact of its own `§emoji§` sentinel where GitHub strips it;
 /// rumdl 0.2.66 fixed that (rvben/rumdl#854), and prim's own correction was
-/// deleted with it (AD-0018, #193). This pins the pin: a rumdl that retained
-/// the character again would fail here.
+/// deleted with it (AD-0018, #193). A rumdl that retained the character again
+/// fails here, so the pin cannot move back without notice.
 #[test]
 fn a_heading_holding_a_section_sign_does_not_break_a_correct_link() {
     let dir = tempfile::tempdir().unwrap();
@@ -438,22 +438,4 @@ fn a_section_sign_heading_resolves_the_same_over_stdin() {
         .assert()
         .code(1)
         .stdout(predicates::str::contains("[MD051]").and(predicates::str::contains("#gone")));
-}
-
-/// The mirror of the old defect. `#a-§1-b` resolves no anchor a renderer
-/// produces, and rumdl 0.2.35 accepted it because its own slug retained the
-/// character. rumdl 0.2.66 reports it, which is the direction a downgrade of
-/// the pin would silently reverse.
-#[test]
-fn a_fragment_holding_a_section_sign_is_reported() {
-    let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("t.md");
-    std::fs::write(&file, "# T\n\n[l](#a-§1-b)\n\n## A §1 B\n\nx\n").unwrap();
-
-    prim()
-        .arg("lint")
-        .arg(&file)
-        .assert()
-        .code(1)
-        .stdout(predicates::str::contains("[MD051]").and(predicates::str::contains("#a-§1-b")));
 }

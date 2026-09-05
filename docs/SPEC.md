@@ -468,9 +468,10 @@ default, format-in-place action.
       a parent heading immediately followed by a deeper one, an ordinary outline
       shape rather than an empty section; see AD-0012). A rule rumdl adds after
       this census was drawn is off in both tiers until a record places it; at
-      rumdl 0.2.66 that is MD083-MD089 and MD091 (#194). The census is checked
-      against the rules rumdl registers by `mdlint/tests/census.rs`, so a bump
-      that adds or drops a rule fails the build until this list is updated.
+      rumdl 0.2.66 that is MD083-MD089 and MD091 (#194). The same census, as
+      lists in `mdlint/tests/census.rs`, is checked against the rules rumdl
+      registers, so a bump that adds or drops a rule fails the build until those
+      lists are updated; this prose is edited with them.
     - **Selected by `prim_mdlint_report_line_length` (FR-3.2d), off otherwise:**
       MD013. It sits outside the tier model — the key decides whether it runs,
       and the tier decides only whether it examines headings. prim shall set
@@ -628,29 +629,32 @@ dependency upgrade (`dprint-plugin-json`, `dprint-plugin-markdown`, `taplo`,
 while prim is pre-1.0, a **major** bump once prim reaches 1.0. The same holds
 for a lint finding a gate did not report before, including one inherited from a
 `rumdl` upgrade: `prim lint` fails a build through the same exit code as format
-drift. Either kind is marked with a `BREAKING CHANGE:` commit footer, which is
-what the release tooling turns into the minor bump and the changelog note; a
-bare `feat` is a patch while prim is pre-1.0. The release notes must call out
-the changed output explicitly so downstream `prim --check` and `prim lint` gates
-upgrade deliberately. The fixture harness
-(`crates/prim-fmt/tests/correctness/fixtures/`) is prim's **golden corpus**: its
-`spec_cases_format_as_expected` test byte-compares formatter output against each
-fixture's committed `-- expected --` section, so canonical-output drift fails
-the build until it is reverted, or deliberately regenerated with
+drift. Either kind carries the breaking marker on its commit — `!` on the type
+or a `BREAKING CHANGE:` footer — which is what the release tooling turns into
+the minor bump and the changelog note; a bare `feat` is a patch while prim is
+pre-1.0. The release notes must call out the changed output explicitly so
+downstream `prim --check` and `prim lint` gates upgrade deliberately. The
+fixture harness (`crates/prim-fmt/tests/correctness/fixtures/`) is prim's
+**golden corpus**: its `spec_cases_format_as_expected` test byte-compares
+formatter output against each fixture's committed `-- expected --` section, so
+canonical-output drift fails the build until it is reverted, or deliberately
+regenerated with
 `PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness
 spec_cases_format_as_expected`,
 reviewed in the diff, and released as above. CI runs the plain, ungated
 `cargo test --workspace` (no `PRIM_SPEC_UPDATE`), so an unreviewed golden-corpus
 regeneration can never merge silently.
 
-Because releases are generated from Conventional Commits (`convco`), the policy
-above only holds if commit types match intent: a commit that changes a golden
-fixture's `-- expected --` section (or otherwise changes canonical output) must
-be typed `feat` (or `feat!` for a breaking, post-1.0 change) — never `fix`,
-`refactor`, or `chore` — so the generated `CHANGELOG.md` surfaces it under the
-right heading and `convco`'s version bump matches the compatibility contract
-above. A reviewer who sees a fixture's `-- expected --` section change in a
-non-`feat` commit should request re-typing before merge.
+Because releases are generated from Conventional Commits (`git std bump`), the
+policy above only holds if commit messages carry the marker the tooling reads: a
+commit that changes a golden fixture's `-- expected --` section, or otherwise
+changes canonical output or makes a gate report a finding it did not report
+before, carries the breaking marker — `!` on its type, or a `BREAKING CHANGE:`
+footer — on whatever type fits the change (`fix!` for a corrected defect,
+`feat!` for new behaviour). That marker is what yields the minor bump and the
+changelog note; the type alone does not, since a bare `feat` is a patch while
+prim is pre-1.0. A reviewer who sees such a change in a commit without the
+marker should request it before merge.
 
 ## Non-goals
 

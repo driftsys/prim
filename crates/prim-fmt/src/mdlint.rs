@@ -24,7 +24,8 @@
 //!   tokio/tower-lsp/notify/rayon), so the engine stays pure and small.
 //! - only the rules the tier selects are built, by name through
 //!   `create_rule_by_name`, so off / formatter-territory rules never run and
-//!   are never constructed.
+//!   prim constructs none of them (a document's own inline configure-file
+//!   directive can make rumdl build one; #195).
 //! - `rumdl_lib::lint` returns 1-indexed `line`/`column` diagnostics — the
 //!   line:col that stories B1/D2 want (and which serde-based formats lack, per
 //!   spike #42).
@@ -88,10 +89,11 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
 
-/// The flavor rumdl parses every document under; it drives heading and table
-/// detection for every rule, and `Standard` is also GitHub's anchor rules,
-/// which MD051, MD073 and MD080 resolve a heading against. Pinned by
-/// `tests::anchors`: `MkDocs` would exempt a `#fn:` fragment from MD051.
+/// The flavor rumdl parses every document under. `Standard` is also GitHub's
+/// anchor rules, which MD051 and MD080 resolve a heading against (MD073 uses
+/// GitHub's slug whatever the flavor). Pinned by `tests::anchors`: `MkDocs`
+/// would exempt a `#fn:` fragment from MD051, and `Quarto` or `MyST` would
+/// exempt a directive fence from MD040.
 const FLAVOR: MarkdownFlavor = MarkdownFlavor::Standard;
 
 const ACTIVE_RULES: &[RulePolicy] = &[
@@ -240,25 +242,31 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
 
 /// The rule objects the tier selects for one document, built by name.
 ///
-/// Building only the selected rules rather than filtering `all_rules` is a
-/// cost decision measured at rumdl 0.2.66: the whole set costs about 1.4 ms
-/// per call, three quarters of it MD083 compiling a regex in its constructor,
-/// against 5 µs for these names — and `lint` runs once per file and once per
-/// LSP diagnostics request. A name rumdl cannot construct is skipped here;
-/// `tests::lint_builds_exactly_the_rules_the_tier_selects` and the rule
-/// fixtures turn that into a failing build rather than a silent gap.
+/// prim builds the selected rules rather than constructing rumdl's whole set
+/// and keeping the selected names: `lint` runs once per file and once per LSP
+/// diagnostics request, and at rumdl 0.2.66 the whole set costs hundreds of
+/// times what these names do, most of it one rule prim never runs compiling
+/// a regex in its constructor (measured in #192). A name rumdl cannot
+/// construct is an invariant violation of the exact pin, not a condition:
+/// `tests::selection` and the rule fixtures fail the build on it, and at run
+/// time it panics rather than silently dropping a rule from a gate.
 fn selected_rules(
+    cfg: &Config,
     strict: bool,
     disabled: &[String],
     line_length: Option<usize>,
 ) -> Vec<Box<dyn Rule>> {
-    let cfg = prim_config(strict, line_length);
     ACTIVE_RULES
         .iter()
+        .filter(|policy| policy.floor || strict)
         .map(|policy| policy.rule)
-        .chain([LINE_LENGTH_RULE])
-        .filter(|name| is_active(name, strict, line_length) && !is_disabled(name, disabled))
-        .filter_map(|name| create_rule_by_name(name, &cfg))
+        .chain(line_length.is_some().then_some(LINE_LENGTH_RULE))
+        .filter(|name| !is_disabled(name, disabled))
+        .map(|name| {
+            create_rule_by_name(name, cfg).unwrap_or_else(|| {
+                panic!("rumdl {name} is in prim's tier table but the pinned rumdl cannot build it")
+            })
+        })
         .collect()
 }
 
@@ -291,7 +299,7 @@ pub fn lint(
 ) -> Vec<MdDiagnostic> {
     let strict = file_level_strict_override(source).unwrap_or(strict);
     let cfg = prim_config(strict, line_length);
-    let rules = selected_rules(strict, disabled, line_length);
+    let rules = selected_rules(&cfg, strict, disabled, line_length);
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
     let warnings = match rumdl_lib::lint(source, &rules, false, FLAVOR, None, Some(&cfg)) {
@@ -301,7 +309,7 @@ pub fn lint(
         Err(_) => return Vec::new(),
     };
 
-    warnings
+    let mut diagnostics: Vec<MdDiagnostic> = warnings
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
@@ -330,7 +338,15 @@ pub fn lint(
                 message: warning.message,
             })
         })
-        .collect()
+        .collect();
+    // rumdl returns each rule's findings as a block in the order the rules
+    // were handed to it. File order is what a reader wants and what the
+    // hygiene diagnostics already use, and it makes the output independent
+    // of how the tier table is written.
+    diagnostics.sort_by(|a, b| {
+        (a.line, a.column, a.rule.as_str()).cmp(&(b.line, b.column, b.rule.as_str()))
+    });
+    diagnostics
 }
 
 /// Scan `source` for a standalone `<!-- prim-mdlint-strict: true|false -->`

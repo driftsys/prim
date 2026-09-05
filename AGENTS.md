@@ -127,9 +127,11 @@ review flow.
   tests, and updated documentation together.
 - **Commits.** Use Conventional Commits — `feat`, `fix`, `refactor`, `docs`,
   `test`, `chore`. Imperative mood. A commit that changes prim's canonical
-  output (see `docs/SPEC.md` § Style stability) must be `feat`/`feat!`, never
-  `fix`/`refactor`/`chore` — the changelog and version bump are generated from
-  commit type.
+  output, or makes a gate report a finding it did not report before (see
+  `docs/SPEC.md` § Style stability), carries the breaking marker — `!` on its
+  type or a `BREAKING CHANGE:` footer — whatever the type: the changelog and
+  version bump are generated from the marker, and a bare `feat` is a patch while
+  prim is pre-1.0.
 - **Before PR.** Run `just verify` — all must pass.
 - **PR-based workflow — never push directly to `main`.**
 
