@@ -22,8 +22,9 @@
 //!
 //! - `rumdl = "=0.2.66"` links with `default-features = false` (no
 //!   tokio/tower-lsp/notify/rayon), so the engine stays pure and small.
-//! - rules are selected by [`rumdl_lib::rule::Rule::name`] from the full
-//!   `all_rules(&cfg)` set, so off / formatter-territory rules never run.
+//! - only the rules the tier selects are built, by name through
+//!   `create_rule_by_name`, so off / formatter-territory rules never run and
+//!   are never constructed.
 //! - `rumdl_lib::lint` returns 1-indexed `line`/`column` diagnostics — the
 //!   line:col that stories B1/D2 want (and which serde-based formats lack, per
 //!   spike #42).
@@ -31,7 +32,8 @@
 use std::collections::BTreeMap;
 
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
-use rumdl_lib::rules::all_rules;
+use rumdl_lib::rule::Rule;
+use rumdl_lib::rules::create_rule_by_name;
 use rumdl_lib::types::LineLength;
 
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
@@ -236,6 +238,30 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
     config
 }
 
+/// The rule objects the tier selects for one document, built by name.
+///
+/// Building only the selected rules rather than filtering `all_rules` is a
+/// cost decision measured at rumdl 0.2.66: the whole set costs about 1.4 ms
+/// per call, three quarters of it MD083 compiling a regex in its constructor,
+/// against 5 µs for these names — and `lint` runs once per file and once per
+/// LSP diagnostics request. A name rumdl cannot construct is skipped here;
+/// `tests::lint_builds_exactly_the_rules_the_tier_selects` and the rule
+/// fixtures turn that into a failing build rather than a silent gap.
+fn selected_rules(
+    strict: bool,
+    disabled: &[String],
+    line_length: Option<usize>,
+) -> Vec<Box<dyn Rule>> {
+    let cfg = prim_config(strict, line_length);
+    ACTIVE_RULES
+        .iter()
+        .map(|policy| policy.rule)
+        .chain([LINE_LENGTH_RULE])
+        .filter(|name| is_active(name, strict, line_length) && !is_disabled(name, disabled))
+        .filter_map(|name| create_rule_by_name(name, &cfg))
+        .collect()
+}
+
 /// Lint `source` as Markdown content, returning prim's own diagnostics.
 ///
 /// `strict = false` runs the always-on floor tier (defect rules only);
@@ -255,7 +281,7 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
 /// precedence rumdl's own `rumdl-disable`/`markdownlint-disable` inline
 /// directives already get (rumdl applies those inside `rumdl_lib::lint`
 /// itself, independent of prim's tier table). Lint-only: `source` is
-/// never modified. Rules are filtered from the full rumdl set by name so
+/// never modified. Only the rules the tier selects are built, by name, so
 /// off/formatter-territory rules never run.
 pub fn lint(
     source: &str,
@@ -265,12 +291,7 @@ pub fn lint(
 ) -> Vec<MdDiagnostic> {
     let strict = file_level_strict_override(source).unwrap_or(strict);
     let cfg = prim_config(strict, line_length);
-    let rules: Vec<_> = all_rules(&cfg)
-        .into_iter()
-        .filter(|rule| {
-            is_active(rule.name(), strict, line_length) && !is_disabled(rule.name(), disabled)
-        })
-        .collect();
+    let rules = selected_rules(strict, disabled, line_length);
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
     let warnings = match rumdl_lib::lint(source, &rules, false, FLAVOR, None, Some(&cfg)) {

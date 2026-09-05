@@ -432,14 +432,14 @@ default, format-in-place action.
     content diagnostics land (D2).
   - **FR-5.5b** _(Markdown content diagnostics, stories G2/G3)_ For Markdown
     files, `prim lint` shall run `rumdl_lib::lint()` in Standard flavor through
-    `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
-    prim's active rule subset by `Rule::name()`. The per-file `.editorconfig`
-    key `prim_mdlint_strict = true|false` (default `false`) is resolved through
-    the normal EditorConfig cascade; `false` runs the always-on floor tier of 12
-    defect rules, `true` adds 13 convention rules on top. Every rule prim runs,
-    at either tier, is an error: there is no warning severity for Markdown, so a
-    finding's presence is its severity. Each finding carries rumdl's rule code
-    verbatim and a 1-indexed `path:line:col`, printed as
+    `prim_fmt::lint_markdown`, building prim's active rule subset by name
+    through `rumdl_lib::rules::create_rule_by_name`. The per-file
+    `.editorconfig` key `prim_mdlint_strict = true|false` (default `false`) is
+    resolved through the normal EditorConfig cascade; `false` runs the always-on
+    floor tier of 12 defect rules, `true` adds 13 convention rules on top. Every
+    rule prim runs, at either tier, is an error: there is no warning severity
+    for Markdown, so a finding's presence is its severity. Each finding carries
+    rumdl's rule code verbatim and a 1-indexed `path:line:col`, printed as
     `path:line:col: message [MD0xx]`. This path is lint-only: prim shall never
     invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
     not yet auto-fix these rules.
