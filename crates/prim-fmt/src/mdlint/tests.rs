@@ -6,6 +6,13 @@ mod rule_fixtures;
 mod selection;
 mod upstream;
 
+/// The rule names in `rules`, as an ordered set.
+fn rule_set<'a>(
+    rules: impl IntoIterator<Item = &'a &'a str>,
+) -> std::collections::BTreeSet<String> {
+    rules.into_iter().map(|rule| rule.to_string()).collect()
+}
+
 const DEFECT_RULES: [&str; 12] = [
     "MD042", "MD011", "MD052", "MD056", "MD062", "MD034", "MD051", "MD045", "MD075", "MD066",
     "MD068", "MD070",

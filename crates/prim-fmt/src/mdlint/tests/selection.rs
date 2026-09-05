@@ -1,41 +1,43 @@
 //! Which rule objects `lint` builds for a tier, and the order its findings
 //! come back in.
 
-use std::collections::BTreeSet;
-
-use super::super::{LINE_LENGTH_RULE, MdDiagnostic, lint, prim_config, selected_rules};
+use super::super::{LINE_LENGTH_RULE, MdDiagnostic, build_rule, lint, prim_config, selected_rules};
 use super::{CONVENTION_RULES, DEFECT_RULES};
 
-fn names(strict: bool, disabled: &[String], line_length: Option<usize>) -> BTreeSet<String> {
+/// The built rules' names, sorted but not deduplicated: a name built twice
+/// would show as a duplicate.
+fn names(strict: bool, disabled: &[String], line_length: Option<usize>) -> Vec<String> {
     let cfg = prim_config(strict, line_length);
-    selected_rules(&cfg, strict, disabled, line_length)
+    let mut names: Vec<String> = selected_rules(&cfg, strict, disabled, line_length)
         .iter()
         .map(|rule| rule.name().to_string())
-        .collect()
+        .collect();
+    names.sort();
+    names
 }
 
-fn set<'a>(rules: impl IntoIterator<Item = &'a &'a str>) -> BTreeSet<String> {
-    rules.into_iter().map(|rule| rule.to_string()).collect()
+fn sorted<'a>(rules: impl IntoIterator<Item = &'a &'a str>) -> Vec<String> {
+    let mut names: Vec<String> = rules.into_iter().map(|rule| rule.to_string()).collect();
+    names.sort();
+    names
 }
 
 /// The tier table is the only source of the selection: the floor at the
 /// floor tier, both bands at strict, MD013 only with a width, and never a
-/// name `prim_mdlint_disable` removed. The names come back from the built
-/// rule objects, so a name the pinned rumdl could not construct would fail
-/// here (by panic, which is the run-time contract too).
+/// name `prim_mdlint_disable` removed — each name built exactly once.
 #[test]
 fn lint_builds_exactly_the_rules_the_tier_selects() {
-    assert_eq!(names(false, &[], None), set(&DEFECT_RULES));
+    assert_eq!(names(false, &[], None), sorted(&DEFECT_RULES));
 
     let both: Vec<&str> = DEFECT_RULES
         .iter()
         .chain(&CONVENTION_RULES)
         .copied()
         .collect();
-    assert_eq!(names(true, &[], None), set(&both));
+    assert_eq!(names(true, &[], None), sorted(&both));
 
     let with_width: Vec<&str> = both.iter().copied().chain([LINE_LENGTH_RULE]).collect();
-    assert_eq!(names(true, &[], Some(80)), set(&with_width));
+    assert_eq!(names(true, &[], Some(80)), sorted(&with_width));
 
     let disabled = ["MD051".to_string()];
     let without: Vec<&str> = DEFECT_RULES
@@ -43,7 +45,15 @@ fn lint_builds_exactly_the_rules_the_tier_selects() {
         .copied()
         .filter(|r| *r != "MD051")
         .collect();
-    assert_eq!(names(false, &disabled, None), set(&without));
+    assert_eq!(names(false, &disabled, None), sorted(&without));
+}
+
+/// A name the pinned rumdl cannot build is a defect in the tier table or the
+/// pin, and it fails loudly rather than leaving a gate one rule short.
+#[test]
+#[should_panic(expected = "MD999 is in prim's tier table")]
+fn a_rule_the_pinned_rumdl_cannot_build_panics() {
+    let _ = build_rule("MD999", &prim_config(false, None));
 }
 
 /// Findings come back in file order, whatever order the rules ran in. rumdl

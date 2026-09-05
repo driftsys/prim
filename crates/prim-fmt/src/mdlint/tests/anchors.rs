@@ -55,17 +55,41 @@ fn a_fragment_holding_a_section_sign_is_reported() {
 }
 
 /// Two headings whose slugs become equal get GitHub's `-1` suffix on the
-/// second, so both `#a-1-b` and `#a-1-b-1` resolve. This is the one place a
-/// stripped character can change which heading a fragment reaches.
+/// second, so both `#a-1-b` and `#a-1-b-1` resolve and a `-2` that no heading
+/// earned still reports. This is the one place a stripped character can
+/// change which heading a fragment reaches.
 #[test]
 fn two_headings_with_the_same_slug_number_the_second() {
     let findings = lint(
-        "# T\n\n[a](#a-1-b)\n[b](#a-1-b-1)\n\n## A §1 B\n\n## A °1 B\n",
+        "# T\n\n[a](#a-1-b)\n[b](#a-1-b-1)\n[c](#a-1-b-2)\n\n## A §1 B\n\n## A °1 B\n",
         false,
         &[],
         None,
     );
-    assert_eq!(named(&findings, "MD051"), 0, "{findings:?}");
+    let finding = only(&findings, "MD051");
+    assert_eq!(finding.line, 5, "{finding:?}");
+    assert!(finding.message.contains("#a-1-b-2"), "{finding:?}");
+}
+
+/// An explicit `<a id="...">` is an anchor MD051 matches as a literal, with
+/// no slug involved: the exact id resolves and any other fragment reports.
+#[test]
+fn an_explicit_html_anchor_resolves_its_exact_id() {
+    let exact = lint(
+        "# T\n\n[l](#custom-id)\n\n<a id=\"custom-id\"></a>\n",
+        false,
+        &[],
+        None,
+    );
+    assert_eq!(named(&exact, "MD051"), 0, "{exact:?}");
+
+    let other = lint(
+        "# T\n\n[l](#custom)\n\n<a id=\"custom-id\"></a>\n",
+        false,
+        &[],
+        None,
+    );
+    assert_eq!(named(&other, "MD051"), 1, "{other:?}");
 }
 
 /// `## A🚀 B` slugs to `a-b`: the emoji is deleted and the one space becomes

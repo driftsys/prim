@@ -13,6 +13,7 @@ use rumdl_lib::config::Config;
 use rumdl_lib::rules::all_rules;
 
 use super::super::{ACTIVE_RULES, LINE_LENGTH_RULE};
+use super::rule_set;
 
 /// Formatter territory: prim's own Markdown formatter decides these.
 const FORMATTER_TERRITORY: &[&str] = &[
@@ -37,10 +38,6 @@ const UNPLACED_SINCE_CENSUS: &[&str] = &[
 const PROSE: &str =
     "docs/SPEC.md § FR-5.5 and docs/USAGE.md print the same census: edit them with this file";
 
-fn set(rules: &[&str]) -> BTreeSet<String> {
-    rules.iter().map(|rule| rule.to_string()).collect()
-}
-
 #[test]
 fn every_rumdl_rule_is_selected_or_in_one_never_run_group() {
     let registered: BTreeSet<String> = all_rules(&Config::default())
@@ -53,9 +50,9 @@ fn every_rumdl_rule_is_selected_or_in_one_never_run_group() {
         .chain([LINE_LENGTH_RULE.to_string()])
         .collect();
     let groups = [
-        set(FORMATTER_TERRITORY),
-        set(OFF_IN_BOTH_TIERS),
-        set(UNPLACED_SINCE_CENSUS),
+        rule_set(FORMATTER_TERRITORY),
+        rule_set(OFF_IN_BOTH_TIERS),
+        rule_set(UNPLACED_SINCE_CENSUS),
     ];
 
     let mut placed = selected;

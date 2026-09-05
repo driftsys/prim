@@ -30,7 +30,7 @@
 //!   line:col that stories B1/D2 want (and which serde-based formats lack, per
 //!   spike #42).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
 use rumdl_lib::rule::Rule;
@@ -249,7 +249,10 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
 /// a regex in its constructor (measured in #192). A name rumdl cannot
 /// construct is an invariant violation of the exact pin, not a condition:
 /// `tests::selection` and the rule fixtures fail the build on it, and at run
-/// time it panics rather than silently dropping a rule from a gate.
+/// time [`build_rule`] panics rather than silently dropping a rule from a
+/// gate. The selection is `is_active` and `is_disabled`, the same predicate
+/// everything else in this module uses, applied to every name the tier table
+/// and the width key can put forward.
 fn selected_rules(
     cfg: &Config,
     strict: bool,
@@ -258,16 +261,20 @@ fn selected_rules(
 ) -> Vec<Box<dyn Rule>> {
     ACTIVE_RULES
         .iter()
-        .filter(|policy| policy.floor || strict)
         .map(|policy| policy.rule)
-        .chain(line_length.is_some().then_some(LINE_LENGTH_RULE))
-        .filter(|name| !is_disabled(name, disabled))
-        .map(|name| {
-            create_rule_by_name(name, cfg).unwrap_or_else(|| {
-                panic!("rumdl {name} is in prim's tier table but the pinned rumdl cannot build it")
-            })
-        })
+        .chain([LINE_LENGTH_RULE])
+        .filter(|name| is_active(name, strict, line_length) && !is_disabled(name, disabled))
+        .map(|name| build_rule(name, cfg))
         .collect()
+}
+
+/// One rule object by name, from the pinned rumdl. A name it cannot build is
+/// a defect in the tier table or the pin, and a gate that silently lost a
+/// rule is the worse failure, so this panics; `tests::selection` pins that.
+fn build_rule(name: &str, cfg: &Config) -> Box<dyn Rule> {
+    create_rule_by_name(name, cfg).unwrap_or_else(|| {
+        panic!("{name} is in prim's tier table but the pinned rumdl cannot build it")
+    })
 }
 
 /// Lint `source` as Markdown content, returning prim's own diagnostics.
@@ -291,6 +298,13 @@ fn selected_rules(
 /// itself, independent of prim's tier table). Lint-only: `source` is
 /// never modified. Only the rules the tier selects are built, by name, so
 /// off/formatter-territory rules never run.
+///
+/// # Panics
+///
+/// If prim's own tier table names a rule the pinned rumdl cannot build. No
+/// input reaches that: it is a defect in the table or the pin, and the test
+/// suite fails on it before a release; `prim-cli` contains a panic per file
+/// (AD-0017) should one ship.
 pub fn lint(
     source: &str,
     strict: bool,
@@ -300,6 +314,7 @@ pub fn lint(
     let strict = file_level_strict_override(source).unwrap_or(strict);
     let cfg = prim_config(strict, line_length);
     let rules = selected_rules(&cfg, strict, disabled, line_length);
+    let selected: BTreeSet<&str> = rules.iter().map(|rule| rule.name()).collect();
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
     let warnings = match rumdl_lib::lint(source, &rules, false, FLAVOR, None, Some(&cfg)) {
@@ -313,7 +328,7 @@ pub fn lint(
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
-            // The same predicate that chose `rules` above, applied again to
+            // The names of the rules `lint` handed rumdl, checked against
             // what came back. It guards the subtract-only guarantee: a rule
             // outside the selected tier, or one `prim_mdlint_disable`
             // removed, must never reach a caller as a finding.
@@ -322,12 +337,11 @@ pub fn lint(
             // unexercised, because `rumdl_lib::lint` only ever names a rule
             // from the slice it was handed. That is an assumption about a
             // dependency, not a property prim controls, and no test can reach
-            // the branch: `lint` is the only entry point, and it builds that
-            // slice itself from this very predicate, so no input can make the
-            // two disagree. The check stays as the guarantee's last line of
-            // defence if a future rumdl reports a finding under a related
-            // rule's name.
-            if !is_active(&rule, strict, line_length) || is_disabled(&rule, disabled) {
+            // the branch: `lint` is the only entry point and builds that
+            // slice itself, so no input can make the two disagree. The check
+            // stays as the guarantee's last line of defence if a future rumdl
+            // reports a finding under a related rule's name.
+            if !selected.contains(rule.as_str()) {
                 return None;
             }
             Some(MdDiagnostic {
