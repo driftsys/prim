@@ -65,6 +65,10 @@ just check              # Tests + install tests + lint
 just verify             # Full pre-PR gate (commit lint + build)
 ```
 
+On a branch with commits, `just verify` runs both halves. Where `main..HEAD` is
+empty — on `main` itself, or on a merged branch — commit lint is skipped and
+only the build runs.
+
 ### Test conventions
 
 - **Acceptance / CLI-snapshot tests** go in `spec/` — blackbox `trycmd` cases

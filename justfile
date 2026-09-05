@@ -34,7 +34,20 @@ build: assemble check
 
 # Validate commits on branch and build — run before PR
 verify:
-    git std lint --range main..HEAD
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # git-std treats an empty range as a usage error, so skip commit lint when
+    # the range holds nothing — on the base branch itself, or on a merged
+    # branch. Count in its own assignment: inside an `if` condition an
+    # unresolvable base would fail into the else branch and lint the same bad
+    # range, reporting a bash type error instead of git's own message.
+    range="main..HEAD"
+    pending=$(git rev-list --count "$range")
+    if [ "$pending" -eq 0 ]; then
+      echo "verify: no commits in $range — skipping commit lint" >&2
+    else
+      git std lint --range "$range"
+    fi
     just build
 
 # Format Rust and the connective tissue (Markdown/JSON/YAML/TOML) with prim

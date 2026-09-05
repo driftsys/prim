@@ -34,6 +34,10 @@ just verify             # Commit lint + build — run before PR
 just fmt                # Format Rust + Markdown
 ```
 
+`just verify` skips commit lint when `main..HEAD` is empty — on `main` itself,
+or on a merged branch — because git-std treats an empty range as a usage error.
+It still runs `just build`.
+
 ## Architecture
 
 **Workspace structure — two crates plus an acceptance crate:**
