@@ -81,9 +81,11 @@ round is already visible: `dprint-plugin-json` 0.22.0 carries two live
 
 Point 3 is what #125 asked to have settled before any code: whether a panicking
 file is reported and skipped while the walk continues. The fail-safe rule
-already answers it. FR-6.3 says an unparseable file is left byte-for-byte
-unchanged and reported as an error, and a file prim panicked on is a file prim
-could not process — the cause differs, the disposition does not.
+answers that half. FR-6.3 leaves an unparseable file byte-for-byte unchanged,
+reports it, and moves on to the next file; a file prim panicked on is a file
+prim could not process, and gets the same treatment. It does not answer the
+severity, which FR-6.3 grades by how prim reached the file — an error when
+named, a warning when walked. Point 4 is that departure.
 
 Point 6 is what makes the contract hold rather than the one call site #125
 named. A guarantee about exit codes that covers most entry points is not a

@@ -597,7 +597,14 @@ default, format-in-place action.
 - **FR-6.2** _(semantic preservation)_ Formatting shall not change the parsed
   data model of a JSON/JSONC/YAML/TOML document.
 - **FR-6.3** _(fail-safe)_ An unparseable file shall be left byte-for-byte
-  unchanged and reported as an error (exit `2`).
+  unchanged and reported, with the severity graded by how prim reached it —
+  FR-4.6's rule that an explicitly named path is handled strictly. A file named
+  on the command line shall be reported as an error (exit `2`); one reached only
+  by a directory walk shall be reported as a warning and shall leave the exit
+  code alone, so that one unparseable file in a tree does not make `prim fmt .`
+  unusable. A panic raised inside a third-party formatter or linter is an error
+  whether the file was named or walked, because it is prim's own defect rather
+  than the input's (FR-5.6b, AD-0017).
 - **FR-6.4** _(atomic write)_ prim shall write via a temporary file and atomic
   rename, preserving permission bits.
 - **FR-6.5** prim shall process only UTF-8 text; it shall leave non-UTF-8 files

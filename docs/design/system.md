@@ -132,7 +132,9 @@ trailing whitespace stripped, exactly one final newline, two-space indent.
 the `.editorconfig` cascade for a file's directory, applies matching sections
 and `use_fallbacks()` for EditorConfig spec defaults, then maps properties onto
 `Style` fields. `Resolver` caches the parsed cascade **per directory**, so a
-repository parses each `.editorconfig` once rather than once per file. Because
+directory's chain is parsed once per resolver rather than once per file — not
+once per run, since `build_cascade` re-reads the whole ancestor chain for each
+distinct directory and each parallel worker holds its own resolver. Because
 per-glob sections mean two files in one directory can resolve differently
 (`[*.md]` vs `[*.toml]`), only the file reading and parsing is cached — the glob
 matching still runs per file, so the cached result is byte-identical to an
@@ -173,7 +175,7 @@ no longer depends on dprint (AD-0006). All v1 requirements (FR-1 through FR-6)
 are implemented.
 
 Implemented post-v1: the per-directory `.editorconfig` cascade cache (AD-0002) —
-a repository with a root `.editorconfig` formats ~9% faster by parsing each
-config once instead of per file.
+a 5,000-file tree with a root `.editorconfig` checks ~9% faster by parsing a
+directory's cascade once per resolver instead of once per file.
 
 Deferred (post-v1, not requirements): colorized `--diff` output.

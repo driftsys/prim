@@ -13,9 +13,11 @@
 //! per-package maintenance with no general protection, and the next round is
 //! already visible in `dprint-plugin-json`'s position assertions.
 //!
-//! Containment is not a licence to continue: a file prim panicked on is
-//! reported as an error and left byte-for-byte unchanged, which is what FR-6.3
-//! already says to do with a file prim cannot process.
+//! Containment is not a licence to continue: a file prim panicked on is left
+//! byte-for-byte unchanged and reported, which is what FR-6.3 already says to
+//! do with a file prim cannot process. It is an error whether the file was
+//! named or walked, which is where FR-5.6b departs from FR-6.3's grading of an
+//! unparseable file, because the fault is prim's rather than the input's.
 
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
