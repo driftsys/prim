@@ -53,9 +53,9 @@ tier, one of six rules it names as not having gated there before. The false
 positive was produced all along; between 0.3.0 and 0.7.0 prim started failing on
 it.
 
-The defect is upstream and unfixed. It reproduces identically under the pinned
-`rumdl = "=0.2.35"`, under 0.2.63, and under 0.2.65, the latest release at the
-time of writing, so no bump reaches it.
+The defect is upstream, and no release fixes it. It reproduces identically under
+the pinned `rumdl = "=0.2.35"`, under 0.2.63, and under 0.2.65, the latest
+release at the time of writing, so no bump reaches it.
 
 ## Options
 
@@ -157,15 +157,18 @@ unchanged path.
   option 3.
 - **This is a workaround with an owner.** It is prim's to delete. The exit
   condition is the upstream report, [rvben/rumdl#854][rumdl-854], filed on
-  2026-09-05 with a fix proposed in [rvben/rumdl#855][rumdl-855]. That fix
-  deletes the emoji marker pass the sentinel served, rather than renaming the
-  sentinel: the same pass also counts one hyphen too many around an emoji not
-  surrounded by spaces (`## A🚀 B` slugs to `a--b` where GitHub resolves `a-b`),
-  a second false positive prim does not correct. When a rumdl release carries
-  the fix, bump the pin and delete the workaround as described above.
+  2026-09-05. Its fix, [rvben/rumdl#855][rumdl-855], was merged the same day as
+  [rvben/rumdl@d530737][rumdl-d530737]; no release carries it yet — 0.2.65 is
+  the latest at the time of writing. The fix deletes the emoji marker pass the
+  sentinel served, rather than renaming the sentinel: the same pass also counted
+  one hyphen too many around an emoji not surrounded by spaces (`## A🚀 B`
+  slugged to `a--b` where GitHub resolves `a-b`), a second false positive prim
+  does not correct. When a rumdl release carries the fix, bump the pin and
+  delete the workaround as described above.
 
 [rumdl-854]: https://github.com/rvben/rumdl/issues/854
 [rumdl-855]: https://github.com/rvben/rumdl/pull/855
+[rumdl-d530737]: https://github.com/rvben/rumdl/commit/d530737
 
 ## A limit this record does not close
 
