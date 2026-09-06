@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.8.0] (2026-09-06)
+
+### Bug Fixes
+
+- **prim-fmt:** delete the MD051 section-sign workaround on rumdl 0.2.66
+  ([#192]) ([98ea8fa])
+
+### Documentation
+
+- **prim:** FR-6.5 carries FR-6.3's grading for a non-UTF-8 file ([#187])
+  ([#189]) ([d522b63])
+- **prim:** correct two records that misdescribe shipped behaviour ([#186])
+  ([0d9bcfa])
+
+### Performance
+
+- **prim-cli:** make the .editorconfig cache measurable ([#191]) ([08c9e64])
+
+### BREAKING CHANGES
+
+- `prim lint` reports findings it did not report under
+rumdl 0.2.35. MD051: a link written to rumdl's old slug for a heading
+holding `§` or an emoji glued to a word (`#a-§1-b`, `#a--b`), which
+GitHub never resolved. MD080 (strict tier): two headings that differ
+only by `§` now collide. MD034: a bare email address in a file with no
+other link-like text, which 0.2.35 skipped by a category prefilter.
+- `prim lint` prints a file's findings in file order
+(line, then column, then rule) rather than grouped by rule in rule
+order. The findings themselves are unchanged.
+
+[0.8.0]: https://github.com/driftsys/prim/compare/v0.7.1...v0.8.0
+[98ea8fa]: https://github.com/driftsys/prim/commit/98ea8fa
+[#192]: https://github.com/driftsys/prim/issues/192
+[d522b63]: https://github.com/driftsys/prim/commit/d522b63
+[#187]: https://github.com/driftsys/prim/issues/187
+[#189]: https://github.com/driftsys/prim/issues/189
+[0d9bcfa]: https://github.com/driftsys/prim/commit/0d9bcfa
+[#186]: https://github.com/driftsys/prim/issues/186
+[08c9e64]: https://github.com/driftsys/prim/commit/08c9e64
+[#191]: https://github.com/driftsys/prim/issues/191
+
 ## [0.7.1] (2026-09-04)
 
 ### Bug Fixes
