@@ -2,8 +2,18 @@
 
 ## Status
 
-Accepted. Closes #180. Not breaking: it removes findings prim should never have
-reported, and adds none.
+Retired on 2026-09-05 (#193): rumdl 0.2.66 carries the upstream fix, prim's pin
+moved to it, and the workaround was deleted as the Decision section describes.
+The retirement is release-noted as breaking (0.8.0), since the bump makes
+`prim lint` report findings it did not report before; the last Consequences
+bullet records how, and the record stays as the account of the defect and of the
+exit condition it was given.
+
+Accepted before that; closes #180. Not breaking when accepted: it removed
+findings prim should never have reported, and added none. The Options, Decision
+and the other Consequences describe the workaround as it stood, in the present
+tense of that time, and are kept as written except where the deletion made a
+claim moot or 0.2.66 reverses a statement outright; each such place says so.
 
 ## Context
 
@@ -53,9 +63,9 @@ tier, one of six rules it names as not having gated there before. The false
 positive was produced all along; between 0.3.0 and 0.7.0 prim started failing on
 it.
 
-The defect is upstream and unfixed. It reproduces identically under the pinned
-`rumdl = "=0.2.35"` and under 0.2.63, the latest release at the time of writing,
-so no bump reaches it.
+The defect was upstream, and no release fixed it when this record was written.
+It reproduced identically under the pinned `rumdl = "=0.2.35"`, under 0.2.63,
+and under 0.2.65, the latest release at the time, so no bump reached it.
 
 ## Options
 
@@ -109,7 +119,8 @@ shift every column after it just as deletion did. That property is guaranteed by
 the stand-in's `char` type rather than asserted. The property that does depend
 on rumdl — that the stand-in is stripped from a computed slug exactly as GitHub
 strips U+00A7 — is pinned by a test over every candidate, so a future rumdl that
-started retaining one fails the build.
+started retaining one fails the build. (That test went with the workaround;
+`mdlint/tests/anchors.rs` pins the `§` slug itself, not the stand-ins.)
 
 The stand-in is **chosen per document**, as the first candidate the source does
 not already contain. MD051 does not resolve every fragment through a slug: an
@@ -154,21 +165,36 @@ unchanged path.
   written `#a-§1-b` beside a heading `## A §1 B` resolves no anchor a renderer
   produces, and rumdl matches it against its own slug and reports nothing — with
   no first-pass finding there is nothing to filter. Closing that would need
-  option 3.
-- **This is a workaround with an owner.** It is prim's to delete. **No upstream
-  report has been filed yet**, so it currently has no exit condition at all —
-  filing one against rumdl, and recording its number here, is the first thing
-  that should happen after this lands.
+  option 3. (Reversed by rumdl 0.2.66, which reports it; a CLI test pins that
+  direction.)
+- **This is a workaround with an owner.** It is prim's to delete. The exit
+  condition is the upstream report,
+  [rvben/rumdl#854](https://github.com/rvben/rumdl/issues/854), filed on
+  2026-09-05 and tracked here as #193. Its fix,
+  [rvben/rumdl#855](https://github.com/rvben/rumdl/pull/855), was merged as
+  [d530737](https://github.com/rvben/rumdl/commit/d530737) the same morning and
+  released in rumdl 0.2.66 that afternoon. The fix deletes the emoji marker pass
+  the sentinel served, rather than renaming the sentinel: the same pass also
+  counted one hyphen too many around an emoji not surrounded by spaces
+  (`## A🚀 B` slugged to `a--b` where GitHub resolves `a-b`), a second false
+  positive prim did not correct. prim's pin moved to 0.2.66 the same day and the
+  workaround was deleted; MD051 runs without it, and the mirror `#a-§1-b` — an
+  anchor no renderer produces — is reported, as it should be. MD073 and MD080
+  resolve headings through the same slug, so a TOC entry to a `§` heading stops
+  reporting and two headings that differ only by `§` now collide;
+  `mdlint/tests/anchors.rs` pins each direction.
 
 ## A limit this record does not close
 
-prim now carries a local correction for one upstream defect. `docs/SPEC.md` and
-`docs/USAGE.md` say so in prose for this rule, but prim has no general way to
-carry that state — no machine-readable record a consumer could read, and nothing
-that ties the correction to the upstream report that ends it.
+prim carried a local correction for one upstream defect, and `docs/SPEC.md` and
+`docs/USAGE.md` said so in prose for this rule while it lasted, but prim has no
+general way to carry that state — no machine-readable record a consumer could
+read, and nothing that ties a correction to the upstream report that ends it.
 
 Whether prim wants a general "provisionally corrected pending an upstream fix"
 surface, distinct from a consumer's own `prim_mdlint_disable`, is worth deciding
 once rather than per rule. One instance is not yet a pattern, and a mechanism
 built for one case would be built against a sample of one. This record leaves it
-open and marks the second occurrence as the trigger.
+open and marks the second occurrence as the trigger. The first occurrence closed
+within a day of the upstream report, which is evidence for filing promptly
+rather than for a mechanism.

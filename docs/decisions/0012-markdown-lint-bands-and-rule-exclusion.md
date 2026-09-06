@@ -139,15 +139,16 @@ already satisfies that rule.
 
 ### Upstream posture, for corroboration
 
-rumdl enables every markdownlint core rule (MD001-MD059) by default; its own
-eight opt-in extensions are MD060, MD063, MD070, MD072, MD073, MD074, MD080, and
-MD082. markdownlint enables all rules by default and reports each as `error`
-unless a user opts a rule down to `"warning"`. Neither fact drove the placement
-above — rumdl's severities drive its own editor display, not gating, and a
-corpus measurement is a stronger basis than mirroring an upstream default — but
-both corroborate it: MD025 and MD001 are `Error` severity upstream, agreeing
-with placing them in a gating band, and rumdl's own choice to hold MD082 back as
-opt-in agrees with dropping it here.
+rumdl enables every markdownlint core rule (MD001-MD059) by default; at rumdl
+0.2.35, the pin when this record was written, its own eight opt-in extensions
+were MD060, MD063, MD070, MD072, MD073, MD074, MD080, and MD082. markdownlint
+enables all rules by default and reports each as `error` unless a user opts a
+rule down to `"warning"`. Neither fact drove the placement above — rumdl's
+severities drive its own editor display, not gating, and a corpus measurement is
+a stronger basis than mirroring an upstream default — but both corroborate it:
+MD025 and MD001 are `Error` severity upstream, agreeing with placing them in a
+gating band, and rumdl's own choice to hold MD082 back as opt-in agrees with
+dropping it here.
 
 ## Decision
 
@@ -314,6 +315,8 @@ panic on one quarantined documentation-site file),
 
 ## Later
 
-AD-0018 corrects one of the rules this record placed in the floor tier: MD051
+AD-0018 corrected one of the rules this record placed in the floor tier: MD051
 reported a false positive for any heading holding a section sign, which became a
-failing build once 0.4.0 made a lint finding raise the exit code.
+failing build once 0.4.0 made a lint finding raise the exit code. The correction
+was deleted on 2026-09-05, when rumdl 0.2.66 shipped the upstream fix; MD051
+runs without it.

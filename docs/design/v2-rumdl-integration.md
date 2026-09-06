@@ -2,7 +2,10 @@
 
 Proves prim can link the `rumdl` Markdown linter **lint-only** without dragging
 in its LSP/async runtime, and records the cost. De-risks stories G2 (#58) and G3
-(#59). This is a skeleton + measurements, not the finished feature.
+(#59). This is a skeleton + measurements, not the finished feature. Every
+version reference and measurement below is the spike's pin, rumdl 0.2.35; the
+pin has since moved (0.2.66 on 2026-09-05, #193) and the numbers were not
+re-measured.
 
 ## What was proven
 
@@ -75,8 +78,10 @@ crates; turning it off cuts that to the +65 above.
 
 - **Curation is runtime-only.** `all_rules(&cfg)` instantiates _every_ rule; the
   `.name()` filter selects which run, but the binary still carries all rule
-  code. The ~3 MiB / +65 crates is essentially fixed regardless of how small the
-  curated subset is. G3's severity matrix does not shrink the binary.
+  code. (Since #193 the shipped path builds only the selected rules, by name
+  through `create_rule_by_name`; the binary still links every rule.) The ~3 MiB
+  / +65 crates is essentially fixed regardless of how small the curated subset
+  is. G3's severity matrix does not shrink the binary.
 - **`tikv-jemallocator` is still pulled in** as a non-optional rumdl dependency
   even with `default-features = false`. It is _linked_ but not activated as the
   global allocator (rumdl only sets `#[global_allocator]` in its own binary, not

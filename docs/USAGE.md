@@ -167,12 +167,7 @@ panic also prints its own message, which is what to include in a bug report.
       MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
       MD070, MD075. Each reports something objectively broken — a dead link, a
       dangling reference, a malformed table — so it gates every repository with
-      no opt-in. MD051 is corrected before it is reported: rumdl keeps `§` in a
-      heading's computed anchor where GitHub drops it, so a correct link to a
-      heading holding that character was reported as broken. prim drops those
-      findings and keeps every other one. A heading written as raw HTML is not
-      covered, and the correction is skipped for a document that already holds
-      every substitute character prim can safely use (AD-0018, #180).
+      no opt-in.
     - **Strict tier — convention rules** (`prim_mdlint_strict = true` only,
       error when active): MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,
@@ -186,7 +181,11 @@ panic also prints its own message, which is what to include in a bug report.
       MD072 (frontmatter key sorting stays off because prim must remain
       semantics-preserving), MD074, MD078, MD079, MD081, MD057 (dropped — a
       cross-file link's target depends on the renderer, so prim does not check
-      it; see AD-0013), and MD082 (dropped entirely — see AD-0012).
+      it; see AD-0013), and MD082 (dropped entirely — see AD-0012). A rule rumdl
+      adds after this census was drawn is off in both tiers until a record
+      places it; at rumdl 0.2.66 that is MD083-MD089 and MD091 (#194). MD051
+      does not see a heading written as raw HTML (`<h2>`): rumdl computes no
+      anchor for it, so a link to that anchor is reported.
     - **Line length (`prim_mdlint_report_line_length`):** `max_line_length`
       (default 80) already controls how prim wraps Markdown prose. Setting
       `prim_mdlint_report_line_length = true` additionally makes `prim lint`

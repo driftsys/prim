@@ -20,23 +20,22 @@
 //!
 //! Key guarantees:
 //!
-//! - `rumdl = "=0.2.35"` links with `default-features = false` (no
+//! - `rumdl = "=0.2.66"` links with `default-features = false` (no
 //!   tokio/tower-lsp/notify/rayon), so the engine stays pure and small.
-//! - rules are selected by [`rumdl_lib::rule::Rule::name`] from the full
-//!   `all_rules(&cfg)` set, so off / formatter-territory rules never run.
+//! - only the rules the tier selects are built, by name through
+//!   `create_rule_by_name`, so off / formatter-territory rules never run and
+//!   prim constructs none of them (a document's own inline configure-file
+//!   directive can make rumdl build one; #195).
 //! - `rumdl_lib::lint` returns 1-indexed `line`/`column` diagnostics — the
 //!   line:col that stories B1/D2 want (and which serde-based formats lack, per
 //!   spike #42).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rumdl_lib::config::{Config, MarkdownFlavor, RuleConfig};
-use rumdl_lib::rules::all_rules;
+use rumdl_lib::rule::Rule;
+use rumdl_lib::rules::create_rule_by_name;
 use rumdl_lib::types::LineLength;
-
-mod section_sign;
-
-use self::section_sign::without_section_sign_false_positives;
 
 /// A single Markdown content-lint finding, mapped out of rumdl's `LintWarning`
 /// so callers never touch a rumdl type. Positions are 1-indexed.
@@ -90,9 +89,11 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
 
-/// The flavor both passes lint under. Shared rather than named twice, so the
-/// suppression can never be computed under different anchor rules than the
-/// findings it filters.
+/// The flavor rumdl parses every document under. `Standard` is also GitHub's
+/// anchor rules, which MD051 and MD080 resolve a heading against (MD073 uses
+/// GitHub's slug whatever the flavor). Pinned by `tests::anchors`: `MkDocs`
+/// would exempt a `#fn:` fragment from MD051, and `Quarto` or `MyST` would
+/// exempt a directive fence from MD040.
 const FLAVOR: MarkdownFlavor = MarkdownFlavor::Standard;
 
 const ACTIVE_RULES: &[RulePolicy] = &[
@@ -239,6 +240,43 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
     config
 }
 
+/// The rule objects the tier selects for one document, built by name.
+///
+/// prim builds the selected rules rather than constructing rumdl's whole set
+/// and keeping the selected names: `lint` runs once per file and once per LSP
+/// diagnostics request, and at rumdl 0.2.66 the whole set costs hundreds of
+/// times what these names do, most of it one rule prim never runs compiling
+/// a regex in its constructor (measured in #192). A name rumdl cannot
+/// construct is an invariant violation of the exact pin, not a condition:
+/// `tests::selection` and the rule fixtures fail the build on it, and at run
+/// time [`build_rule`] panics rather than silently dropping a rule from a
+/// gate. The selection is `is_active` and `is_disabled`, the same predicate
+/// everything else in this module uses, applied to every name the tier table
+/// and the width key can put forward.
+fn selected_rules(
+    cfg: &Config,
+    strict: bool,
+    disabled: &[String],
+    line_length: Option<usize>,
+) -> Vec<Box<dyn Rule>> {
+    ACTIVE_RULES
+        .iter()
+        .map(|policy| policy.rule)
+        .chain([LINE_LENGTH_RULE])
+        .filter(|name| is_active(name, strict, line_length) && !is_disabled(name, disabled))
+        .map(|name| build_rule(name, cfg))
+        .collect()
+}
+
+/// One rule object by name, from the pinned rumdl. A name it cannot build is
+/// a defect in the tier table or the pin, and a gate that silently lost a
+/// rule is the worse failure, so this panics; `tests::selection` pins that.
+fn build_rule(name: &str, cfg: &Config) -> Box<dyn Rule> {
+    create_rule_by_name(name, cfg).unwrap_or_else(|| {
+        panic!("{name} is in prim's tier table but the pinned rumdl cannot build it")
+    })
+}
+
 /// Lint `source` as Markdown content, returning prim's own diagnostics.
 ///
 /// `strict = false` runs the always-on floor tier (defect rules only);
@@ -258,8 +296,15 @@ fn prim_config(strict: bool, line_length: Option<usize>) -> Config {
 /// precedence rumdl's own `rumdl-disable`/`markdownlint-disable` inline
 /// directives already get (rumdl applies those inside `rumdl_lib::lint`
 /// itself, independent of prim's tier table). Lint-only: `source` is
-/// never modified. Rules are filtered from the full rumdl set by name so
+/// never modified. Only the rules the tier selects are built, by name, so
 /// off/formatter-territory rules never run.
+///
+/// # Panics
+///
+/// If prim's own tier table names a rule the pinned rumdl cannot build. No
+/// input reaches that: it is a defect in the table or the pin, and the test
+/// suite fails on it before a release; `prim-cli` contains a panic per file
+/// (AD-0017) should one ship.
 pub fn lint(
     source: &str,
     strict: bool,
@@ -268,12 +313,8 @@ pub fn lint(
 ) -> Vec<MdDiagnostic> {
     let strict = file_level_strict_override(source).unwrap_or(strict);
     let cfg = prim_config(strict, line_length);
-    let rules: Vec<_> = all_rules(&cfg)
-        .into_iter()
-        .filter(|rule| {
-            is_active(rule.name(), strict, line_length) && !is_disabled(rule.name(), disabled)
-        })
-        .collect();
+    let rules = selected_rules(&cfg, strict, disabled, line_length);
+    let selected: BTreeSet<&str> = rules.iter().map(|rule| rule.name()).collect();
 
     // `source_file = None` keeps this pure (no path/I/O); `verbose = false`.
     let warnings = match rumdl_lib::lint(source, &rules, false, FLAVOR, None, Some(&cfg)) {
@@ -283,25 +324,24 @@ pub fn lint(
         Err(_) => return Vec::new(),
     };
 
-    let diagnostics = warnings
+    let mut diagnostics: Vec<MdDiagnostic> = warnings
         .into_iter()
         .filter_map(|warning| {
             let rule = warning.rule_name?;
-            // The same predicate that chose `rules` above, applied again to
+            // The names of the rules `lint` handed rumdl, checked against
             // what came back. It guards the subtract-only guarantee: a rule
             // outside the selected tier, or one `prim_mdlint_disable`
             // removed, must never reach a caller as a finding.
             //
-            // Under the pinned `rumdl = "=0.2.35"` this second pass is
+            // Under the pinned `rumdl = "=0.2.66"` this re-check is
             // unexercised, because `rumdl_lib::lint` only ever names a rule
             // from the slice it was handed. That is an assumption about a
             // dependency, not a property prim controls, and no test can reach
-            // the branch: `lint` is the only entry point, and it builds that
-            // slice itself from this very predicate, so no input can make the
-            // two disagree. The check stays as the guarantee's last line of
-            // defence if a future rumdl reports a finding under a related
-            // rule's name.
-            if !is_active(&rule, strict, line_length) || is_disabled(&rule, disabled) {
+            // the branch: `lint` is the only entry point and builds that
+            // slice itself, so no input can make the two disagree. The check
+            // stays as the guarantee's last line of defence if a future rumdl
+            // reports a finding under a related rule's name.
+            if !selected.contains(rule.as_str()) {
                 return None;
             }
             Some(MdDiagnostic {
@@ -313,10 +353,14 @@ pub fn lint(
             })
         })
         .collect();
-
-    without_section_sign_false_positives(source, &cfg, diagnostics, |rule| {
-        is_active(rule, strict, line_length) && !is_disabled(rule, disabled)
-    })
+    // rumdl returns each rule's findings as a block in the order the rules
+    // were handed to it. File order is what a reader wants and what the
+    // hygiene diagnostics already use, and it makes the output independent
+    // of how the tier table is written.
+    diagnostics.sort_by(|a, b| {
+        (a.line, a.column, a.rule.as_str()).cmp(&(b.line, b.column, b.rule.as_str()))
+    });
+    diagnostics
 }
 
 /// Scan `source` for a standalone `<!-- prim-mdlint-strict: true|false -->`

@@ -1,6 +1,6 @@
 //! One minimal, self-contained Markdown fixture per rule in `ACTIVE_RULES`,
 //! each written to make its own rule actually fire against the pinned
-//! `rumdl = "=0.2.35"`.
+//! `rumdl = "=0.2.66"`.
 //!
 //! The tier matrix test in the parent module only asserts which band a rule
 //! is placed in; it never asserts the rule still matches anything. A linter's

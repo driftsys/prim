@@ -139,7 +139,11 @@ so both branches of that check converge on the identical value: when the
 resolved width is not 80 the sentinel is false and the rule value already
 stands; when it is exactly 80 the overwrite substitutes an identical number.
 Either way the two settings cannot disagree, including if rumdl changes this
-precedence rule later.
+precedence rule later. rumdl 0.2.66, the pin since #193, moved the check to
+`MD013Config::from_document_config`
+(`src/rules/md013_line_length/md013_config.rs`) behind a
+`line_length_is_default()` helper; the sentinel and the overwrite are the same,
+so the double write still holds.
 
 ### Severity is per-rule, not per-context
 
@@ -244,10 +248,10 @@ reporting link lines without any decision here changing.
   MD013 never ran, that hatch could only turn rules off; now a file carrying a
   `markdownlint-configure-file` directive can change the width or re-enable the
   table and code checks for itself. It cannot select MD013 where the key has
-  not, because prim filters the rule set before rumdl sees it. The guarantee
-  this decision makes is therefore about the `.editorconfig` cascade, which no
-  repository-wide setting can bend, not about a single file that deliberately
-  opts out.
+  not, because prim builds only the selected rules before rumdl sees them. The
+  guarantee this decision makes is therefore about the `.editorconfig` cascade,
+  which no repository-wide setting can bend, not about a single file that
+  deliberately opts out.
 - **`prim init` does not scaffold the key.** It scaffolds the strict-glob map
   and nothing else, so a repository opts into line-length reporting deliberately
   rather than finding it switched on by a tool run.

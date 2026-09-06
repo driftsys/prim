@@ -432,14 +432,14 @@ default, format-in-place action.
     content diagnostics land (D2).
   - **FR-5.5b** _(Markdown content diagnostics, stories G2/G3)_ For Markdown
     files, `prim lint` shall run `rumdl_lib::lint()` in Standard flavor through
-    `prim_fmt::lint_markdown`, filtering `rumdl_lib::rules::all_rules(&cfg)` to
-    prim's active rule subset by `Rule::name()`. The per-file `.editorconfig`
-    key `prim_mdlint_strict = true|false` (default `false`) is resolved through
-    the normal EditorConfig cascade; `false` runs the always-on floor tier of 12
-    defect rules, `true` adds 13 convention rules on top. Every rule prim runs,
-    at either tier, is an error: there is no warning severity for Markdown, so a
-    finding's presence is its severity. Each finding carries rumdl's rule code
-    verbatim and a 1-indexed `path:line:col`, printed as
+    `prim_fmt::lint_markdown`, building prim's active rule subset by name
+    through `rumdl_lib::rules::create_rule_by_name`. The per-file
+    `.editorconfig` key `prim_mdlint_strict = true|false` (default `false`) is
+    resolved through the normal EditorConfig cascade; `false` runs the always-on
+    floor tier of 12 defect rules, `true` adds 13 convention rules on top. Every
+    rule prim runs, at either tier, is an error: there is no warning severity
+    for Markdown, so a finding's presence is its severity. Each finding carries
+    rumdl's rule code verbatim and a 1-indexed `path:line:col`, printed as
     `path:line:col: message [MD0xx]`. This path is lint-only: prim shall never
     invoke rumdl's formatter or auto-fix Markdown findings, and `prim fix` does
     not yet auto-fix these rules.
@@ -447,17 +447,7 @@ default, format-in-place action.
       MD011, MD034, MD042, MD045, MD051, MD052, MD056, MD062, MD066, MD068,
       MD070, MD075. Each reports something objectively broken — a dead link, a
       dangling reference, a malformed table — independent of what the author
-      intended, so it can gate every repository with no opt-in. MD051 is
-      corrected before it is reported: rumdl retains U+00A7 in a heading's
-      computed slug as an artifact of its own emoji sentinel, where GitHub
-      strips it. For a document holding that character which MD051 reported
-      against, prim lints a second copy with the character substituted, drops
-      the fragment findings the second pass does not report, and keeps every
-      other finding. It is the one place prim lints a document twice. The
-      correction is skipped — leaving the upstream false positive in place
-      rather than risking a real finding — when the second pass cannot run, or
-      when the document already holds every substitute character prim can safely
-      use (AD-0018, #180).
+      intended, so it can gate every repository with no opt-in.
     - **Strict tier — convention rules (`prim_mdlint_strict = true` only, error
       when active):** MD001, MD024, MD025 (SUMMARY-safe via `.editorconfig`;
       front-matter title excluded by default, see below), MD026, MD033, MD036,
@@ -476,7 +466,12 @@ default, format-in-place action.
       absent from markdownlint, opt-in in rumdl, no fix by design, and —
       measured across six public documentation sites — 569 of 573 findings flag
       a parent heading immediately followed by a deeper one, an ordinary outline
-      shape rather than an empty section; see AD-0012).
+      shape rather than an empty section; see AD-0012). A rule rumdl adds after
+      this census was drawn is off in both tiers until a record places it; at
+      rumdl 0.2.66 that is MD083-MD089 and MD091 (#194). The same census, as
+      lists in `mdlint/tests/census.rs`, is checked against the rules rumdl
+      registers, so a bump that adds or drops a rule fails the build until those
+      lists are updated; this prose is edited with them.
     - **Selected by `prim_mdlint_report_line_length` (FR-3.2d), off otherwise:**
       MD013. It sits outside the tier model — the key decides whether it runs,
       and the tier decides only whether it examines headings. prim shall set
@@ -633,27 +628,35 @@ The canonical style is a compatibility contract. Any change to prim's output for
 already-canonical input — including a change inherited from a formatter
 dependency upgrade (`dprint-plugin-json`, `dprint-plugin-markdown`, `taplo`,
 `pretty_yaml`) — is a versioned, release-noted event: a **minor** version bump
-while prim is pre-1.0, a **major** bump once prim reaches 1.0. The release notes
-must call out the changed output explicitly so downstream `prim --check` gates
-upgrade deliberately. The fixture harness
-(`crates/prim-fmt/tests/correctness/fixtures/`) is prim's **golden corpus**: its
-`spec_cases_format_as_expected` test byte-compares formatter output against each
-fixture's committed `-- expected --` section, so canonical-output drift fails
-the build until it is reverted, or deliberately regenerated with
+while prim is pre-1.0, a **major** bump once prim reaches 1.0. The same holds
+for a lint finding a gate did not report before, including one inherited from a
+`rumdl` upgrade: `prim lint` fails a build through the same exit code as format
+drift. Either kind carries the breaking marker on its commit — `!` on the type
+or a `BREAKING CHANGE:` footer — which is what the release tooling turns into
+the minor bump and the changelog note; a bare `feat` is a patch while prim is
+pre-1.0. The release notes must call out the changed output explicitly so
+downstream `prim --check` and `prim lint` gates upgrade deliberately. The
+fixture harness (`crates/prim-fmt/tests/correctness/fixtures/`) is prim's
+**golden corpus**: its `spec_cases_format_as_expected` test byte-compares
+formatter output against each fixture's committed `-- expected --` section, so
+canonical-output drift fails the build until it is reverted, or deliberately
+regenerated with
 `PRIM_SPEC_UPDATE=1 cargo test -p prim-fmt --test correctness
 spec_cases_format_as_expected`,
 reviewed in the diff, and released as above. CI runs the plain, ungated
 `cargo test --workspace` (no `PRIM_SPEC_UPDATE`), so an unreviewed golden-corpus
 regeneration can never merge silently.
 
-Because releases are generated from Conventional Commits (`convco`), the policy
-above only holds if commit types match intent: a commit that changes a golden
-fixture's `-- expected --` section (or otherwise changes canonical output) must
-be typed `feat` (or `feat!` for a breaking, post-1.0 change) — never `fix`,
-`refactor`, or `chore` — so the generated `CHANGELOG.md` surfaces it under the
-right heading and `convco`'s version bump matches the compatibility contract
-above. A reviewer who sees a fixture's `-- expected --` section change in a
-non-`feat` commit should request re-typing before merge.
+Because releases are generated from Conventional Commits (`git std bump`), the
+policy above only holds if commit messages carry the marker the tooling reads: a
+commit that changes a golden fixture's `-- expected --` section, or otherwise
+changes canonical output or makes a gate report a finding it did not report
+before, carries the breaking marker — `!` on its type, or a `BREAKING CHANGE:`
+footer — on whatever type fits the change (`fix!` for a corrected defect,
+`feat!` for new behaviour). That marker is what yields the minor bump and the
+changelog note; the type alone does not, since a bare `feat` is a patch while
+prim is pre-1.0. A reviewer who sees such a change in a commit without the
+marker should request it before merge.
 
 ## Non-goals
 
