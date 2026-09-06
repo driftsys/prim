@@ -45,15 +45,23 @@ not yet pushed — which local `main..HEAD` could never see.
 
 **Workspace structure — two crates plus an acceptance crate:**
 
-| Crate       | Role                                                          |
-| ----------- | ------------------------------------------------------------- |
-| `prim-fmt`  | LIBRARY — the formatting engine. Pure, no CLI dependencies.   |
-| `prim-cli`  | BINARY (`prim`) — thin CLI: arg parsing, I/O, mode dispatch.  |
-| `prim-spec` | test-only (`spec/`) — `trycmd` CLI snapshots + install tests. |
+| Crate       | Role                                                            |
+| ----------- | --------------------------------------------------------------- |
+| `prim-fmt`  | LIBRARY — the formatting engine. Pure, no CLI dependencies.     |
+| `prim-cli`  | BINARY (`prim`) + internal lib — thin CLI: args, I/O, dispatch. |
+| `prim-spec` | test-only (`spec/`) — `trycmd` CLI snapshots + install tests.   |
 
 `prim-fmt` is the reusable engine; keep it free of clap/terminal dependencies so
 other crates can consume it. `prim-cli` orchestrates: it reads files or stdin,
 routes them through `prim_fmt::format`, and maps the outcome to an exit code.
+
+`prim-cli` also carries a library target, because Cargo cannot link a benchmark
+or a test against a `[[bin]]` (AD-0020). It is internal: only the modules an
+external caller crosses are `pub` — `app`, `argv`, `cli` and `ui` for `main.rs`,
+`editorconfig` for the resolution benchmark — and the rest are `pub(crate)`.
+Nothing in it is a stable API; the supported surface is the `prim` command line
+and the reusable engine is `prim-fmt`. Keep new modules `pub(crate)` unless
+something outside the crate genuinely needs them.
 
 **Command surface — three formatting verbs (`fmt`/`lint`/`fix`, AD-0007) plus
 three utilities (`init`/`explain`/`lsp`):**

@@ -2,25 +2,8 @@ use std::io::IsTerminal;
 
 use clap::{CommandFactory, Parser};
 
-mod app;
-mod argv;
-mod changed_files;
-mod cli;
-mod diff;
-mod discover;
-mod editorconfig;
-mod explain;
-mod formatting;
-mod init;
-mod lsp;
-mod mdlint_policy;
-mod provenance;
-mod report;
-mod symlink;
-mod ui;
-mod write;
-
-use cli::{Cli, Verb};
+use prim_cli::cli::{Cli, Verb};
+use prim_cli::{app, argv, ui};
 
 fn main() {
     // `args_os`, not `args`: the latter panics on an argument that is not

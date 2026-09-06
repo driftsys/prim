@@ -36,6 +36,11 @@ clap_mangen = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2"
+criterion = { version = "0.5", features = ["html_reports"] }
 jsonschema = "0.33"
 predicates = "3"
 proptest = "1"
+
+[[bench]]
+name = "resolution"
+harness = false

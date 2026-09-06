@@ -66,7 +66,10 @@ impl Resolver {
 
     /// Resolve the whole Markdown lint policy for `path`, reusing the cached
     /// cascade for its directory when one is present.
-    pub fn resolve_mdlint_policy(&mut self, path: &Path) -> crate::mdlint_policy::MdLintPolicy {
+    pub(crate) fn resolve_mdlint_policy(
+        &mut self,
+        path: &Path,
+    ) -> crate::mdlint_policy::MdLintPolicy {
         let props = self.properties_for(path);
         crate::mdlint_policy::policy_from(&props)
     }

@@ -16,11 +16,13 @@ Per-format structured passes (FR-1) will be added inside this crate as future
 milestones; the `match kind { … }` dispatch in `format` is the intended
 extension point.
 
-`prim-cli` is the thin binary crate. Its `[[bin]]` target is named `prim`. It
-owns all I/O: argument parsing (`clap`), file discovery (`ignore`),
-`.editorconfig` resolution (`ec4rs`), atomic writes (`tempfile`), and coloured
-terminal output (`yansi`). It calls into `prim-fmt` exclusively through the
-`format` function. `cargo install prim-cli` is the user-facing install command.
+`prim-cli` is the thin binary crate. Its `[[bin]]` target is named `prim`, and
+it carries an internal library target so benchmarks and tests can link its
+modules (AD-0020). It owns all I/O: argument parsing (`clap`), file discovery
+(`ignore`), `.editorconfig` resolution (`ec4rs`), atomic writes (`tempfile`),
+and coloured terminal output (`yansi`). It calls into `prim-fmt` exclusively
+through the `format` function. `cargo install prim-cli` is the user-facing
+install command.
 
 `spec` (workspace path `spec/`) is a test-only crate (never published). It holds
 `trycmd` CLI-output snapshot tests and shell-based install tests.
@@ -176,6 +178,9 @@ are implemented.
 
 Implemented post-v1: the per-directory `.editorconfig` cascade cache (AD-0002) —
 a 5,000-file tree with a root `.editorconfig` checks ~9% faster by parsing a
-directory's cascade once per resolver instead of once per file.
+directory's cascade once per resolver instead of once per file. That 9% is an
+end-to-end `--check` measurement, where resolution is one cost among many.
+`crates/prim-cli/benches/resolution.rs` measures resolution alone, so it guards
+the mechanism against regression rather than reproducing the 9% (AD-0020).
 
 Deferred (post-v1, not requirements): colorized `--diff` output.
