@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0] (2026-09-12)
+
+### Features
+
+- **prim:** prepare Folio CLI and release contracts ([8c7ac96])
+
+### BREAKING CHANGES
+
+- Explicit --exclude filters named files, and JSON/SARIF operational failures are included in structured reports.
+
+[0.9.0]: https://github.com/driftsys/prim/compare/v0.8.0...v0.9.0
+[8c7ac96]: https://github.com/driftsys/prim/commit/8c7ac96
+
 ## [0.8.0] (2026-09-06)
 
 ### Bug Fixes

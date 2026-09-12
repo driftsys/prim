@@ -719,6 +719,8 @@ UTF-8 is written as it is.
 
 ### Formatting effect plans
 
+Available starting with v0.9.0.
+
 `prim fmt --dry-run --format json FILE...` and
 `prim fix --dry-run --format json FILE...` never write. They emit schema version
 `1` with `operation`, `effects`, and `errors`. Each effect is a whole-file
@@ -744,6 +746,8 @@ because prim has no autofixable content rules; its distinct top-level
 `operation` preserves the caller's requested verb.
 
 ### Diagnostic registry
+
+Available starting with v0.9.0.
 
 `prim registry --format json` prints one deterministic JSON document and exits
 `0`. It never walks files, resolves `.editorconfig`, or applies changed-file or
