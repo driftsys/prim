@@ -24,6 +24,57 @@ const CONVENTION_RULES: [&str; 13] = [
 ];
 
 #[test]
+fn shared_rule_definitions_cover_each_tier_once() {
+    let definitions = markdown_rule_definitions();
+    let codes = definitions
+        .iter()
+        .map(|definition| definition.code)
+        .collect::<Vec<_>>();
+    assert_eq!(codes.len(), 26);
+    assert_eq!(codes.iter().collect::<BTreeSet<_>>().len(), codes.len());
+    assert_eq!(
+        definitions
+            .iter()
+            .filter(|definition| definition.tier == MarkdownTier::Floor)
+            .count(),
+        12
+    );
+    assert_eq!(
+        definitions
+            .iter()
+            .filter(|definition| definition.tier == MarkdownTier::Strict)
+            .count(),
+        13
+    );
+    assert_eq!(
+        definitions
+            .iter()
+            .filter(|definition| definition.tier == MarkdownTier::LineLength)
+            .map(|definition| definition.code)
+            .collect::<Vec<_>>(),
+        ["MD013"]
+    );
+    assert!(
+        definitions
+            .iter()
+            .all(|definition| !definition.description.is_empty())
+    );
+    for definition in definitions {
+        let expected_tier = if DEFECT_RULES.contains(&definition.code) {
+            MarkdownTier::Floor
+        } else if CONVENTION_RULES.contains(&definition.code) {
+            MarkdownTier::Strict
+        } else {
+            assert_eq!(definition.code, "MD013");
+            MarkdownTier::LineLength
+        };
+        assert_eq!(definition.tier, expected_tier, "{}", definition.code);
+        assert!(is_known_rule(definition.code));
+        assert!(is_known_rule(&definition.code.to_ascii_lowercase()));
+    }
+}
+
+#[test]
 fn defect_rules_run_in_both_tiers_and_conventions_only_in_strict() {
     for rule in DEFECT_RULES {
         assert!(is_active(rule, false, None), "{rule} floor");

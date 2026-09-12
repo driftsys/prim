@@ -61,22 +61,48 @@ pub struct MdDiagnostic {
 /// tier chooses *which* rules run, never how loudly they speak.
 #[derive(Debug, Clone, Copy)]
 struct RulePolicy {
-    rule: &'static str,
-    /// `true` when the rule runs in the always-on floor tier, and therefore in
-    /// the strict tier as well.
-    floor: bool,
+    code: &'static str,
+    tier: MarkdownTier,
+}
+
+/// The policy tier that selects a Markdown diagnostic rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkdownTier {
+    /// Always-on rules for objectively broken Markdown.
+    Floor,
+    /// Convention rules enabled by `prim_mdlint_strict`.
+    Strict,
+    /// MD013, enabled independently by `prim_mdlint_report_line_length`.
+    LineLength,
+}
+
+/// Static metadata for one Markdown rule prim can emit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MarkdownRuleDefinition {
+    /// Stable rumdl-compatible rule identifier.
+    pub code: &'static str,
+    /// Description supplied by the pinned rumdl rule implementation.
+    pub description: &'static str,
+    /// Policy tier that selects the rule.
+    pub tier: MarkdownTier,
 }
 
 /// A rule that reports something objectively broken: a dead link, a dangling
 /// reference, a malformed table. Runs in both tiers.
 const fn defect(rule: &'static str) -> RulePolicy {
-    RulePolicy { rule, floor: true }
+    RulePolicy {
+        code: rule,
+        tier: MarkdownTier::Floor,
+    }
 }
 
 /// A rule that reports a documentation convention — decidable, but it fires on
 /// documents that are otherwise fine. Runs only under `prim_mdlint_strict`.
 const fn convention(rule: &'static str) -> RulePolicy {
-    RulePolicy { rule, floor: false }
+    RulePolicy {
+        code: rule,
+        tier: MarkdownTier::Strict,
+    }
 }
 
 /// The one rule outside the tier model. `prim_mdlint_report_line_length`
@@ -88,6 +114,10 @@ const fn convention(rule: &'static str) -> RulePolicy {
 /// the formatter's own line width. MD013 has many more options than that;
 /// the rest keep rumdl's defaults.
 const LINE_LENGTH_RULE: &str = "MD013";
+const LINE_LENGTH_POLICY: RulePolicy = RulePolicy {
+    code: LINE_LENGTH_RULE,
+    tier: MarkdownTier::LineLength,
+};
 
 /// The flavor rumdl parses every document under. `Standard` is also GitHub's
 /// anchor rules, which MD051 and MD080 resolve a heading against (MD073 uses
@@ -136,7 +166,7 @@ fn is_active(rule: &str, strict: bool, line_length: Option<usize>) -> bool {
     }
     ACTIVE_RULES
         .iter()
-        .any(|policy| policy.rule == rule && (policy.floor || strict))
+        .any(|policy| policy.code == rule && (policy.tier == MarkdownTier::Floor || strict))
 }
 
 /// Whether `rule` names a rule prim can run in either tier. Callers validating
@@ -146,7 +176,28 @@ pub fn is_known_rule(rule: &str) -> bool {
     rule.eq_ignore_ascii_case(LINE_LENGTH_RULE)
         || ACTIVE_RULES
             .iter()
-            .any(|policy| policy.rule.eq_ignore_ascii_case(rule))
+            .any(|policy| policy.code.eq_ignore_ascii_case(rule))
+}
+
+/// Every Markdown diagnostic definition prim can emit.
+///
+/// The policy table is the same one used by runtime selection and
+/// [`is_known_rule`]. Descriptions come directly from the pinned rumdl rule
+/// objects so prim carries no second rule inventory.
+pub fn markdown_rule_definitions() -> Vec<MarkdownRuleDefinition> {
+    let config = Config::default();
+    ACTIVE_RULES
+        .iter()
+        .chain(std::iter::once(&LINE_LENGTH_POLICY))
+        .map(|policy| {
+            let rule = build_rule(policy.code, &config);
+            MarkdownRuleDefinition {
+                code: policy.code,
+                description: rule.description(),
+                tier: policy.tier,
+            }
+        })
+        .collect()
 }
 
 /// Whether `rule` was excluded for this file by `prim_mdlint_disable`.
@@ -261,7 +312,7 @@ fn selected_rules(
 ) -> Vec<Box<dyn Rule>> {
     ACTIVE_RULES
         .iter()
-        .map(|policy| policy.rule)
+        .map(|policy| policy.code)
         .chain([LINE_LENGTH_RULE])
         .filter(|name| is_active(name, strict, line_length) && !is_disabled(name, disabled))
         .map(|name| build_rule(name, cfg))

@@ -289,7 +289,8 @@ even when it sits at a path the enclosing repository's `.primignore` names.
 Running prim on the enclosing repository still prunes it, the way a `.gitignore`
 entry would.
 
-`--exclude` globs still apply to directory walks only.
+`--exclude` globs apply to directory walks and explicitly named files, including
+descendants of an excluded directory.
 
 ## Using prim with git-std
 

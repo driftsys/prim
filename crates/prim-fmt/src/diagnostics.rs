@@ -12,6 +12,44 @@
 use crate::position::line_col;
 use crate::style::{Indent, Style};
 
+/// Static metadata for one diagnostic emitted by the formatting engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticDefinition {
+    /// Stable diagnostic identifier.
+    pub code: &'static str,
+    /// Stable human description of what the diagnostic represents.
+    pub description: &'static str,
+}
+
+const BOM: DiagnosticDefinition = DiagnosticDefinition {
+    code: "hygiene::bom",
+    description: "file starts with a UTF-8 byte-order mark",
+};
+const EOL: DiagnosticDefinition = DiagnosticDefinition {
+    code: "hygiene::eol",
+    description: "line ending does not match the configured style",
+};
+const TRAILING_WHITESPACE: DiagnosticDefinition = DiagnosticDefinition {
+    code: "hygiene::trailing-whitespace",
+    description: "line has trailing whitespace",
+};
+const INDENT: DiagnosticDefinition = DiagnosticDefinition {
+    code: "hygiene::indent",
+    description: "indentation does not match the configured style",
+};
+const FINAL_NEWLINE: DiagnosticDefinition = DiagnosticDefinition {
+    code: "hygiene::final-newline",
+    description: "file is missing a configured final newline",
+};
+
+const DEFINITIONS: &[DiagnosticDefinition] =
+    &[BOM, EOL, FINAL_NEWLINE, INDENT, TRAILING_WHITESPACE];
+
+/// Every whitespace-hygiene diagnostic definition the engine can emit.
+pub fn hygiene_diagnostic_definitions() -> &'static [DiagnosticDefinition] {
+    DEFINITIONS
+}
+
 /// One lint finding: a stable code, a human message, and its 1-indexed
 /// position in the source that was scanned.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,7 +149,7 @@ pub fn hygiene_diagnostics(source: &str, style: &Style) -> Vec<Diagnostic> {
 
     if let Some(body) = source.strip_prefix('\u{feff}') {
         diagnostics.push(Diagnostic {
-            code: "hygiene::bom",
+            code: BOM.code,
             line: 1,
             column: 1,
             message: "file starts with a UTF-8 byte-order mark (BOM)".to_string(),
@@ -139,7 +177,7 @@ fn scan_lines(body: &str, style: &Style, diagnostics: &mut Vec<Diagnostic>) {
                 let offset = line.start + trimmed.len();
                 let (row, column) = line_col(body, offset);
                 diagnostics.push(Diagnostic {
-                    code: "hygiene::trailing-whitespace",
+                    code: TRAILING_WHITESPACE.code,
                     line: row,
                     column,
                     message: "trailing whitespace".to_string(),
@@ -167,7 +205,7 @@ fn scan_lines(body: &str, style: &Style, diagnostics: &mut Vec<Diagnostic>) {
                     Indent::Tab => "indentation uses a space; expected a tab",
                 };
                 diagnostics.push(Diagnostic {
-                    code: "hygiene::indent",
+                    code: INDENT.code,
                     line: row,
                     column,
                     message: message.to_string(),
@@ -179,7 +217,7 @@ fn scan_lines(body: &str, style: &Style, diagnostics: &mut Vec<Diagnostic>) {
             Some(terminator) if terminator != canonical_eol => {
                 let (row, column) = line_col(body, line.terminator_offset);
                 diagnostics.push(Diagnostic {
-                    code: "hygiene::eol",
+                    code: EOL.code,
                     line: row,
                     column,
                     message: format!(
@@ -195,7 +233,7 @@ fn scan_lines(body: &str, style: &Style, diagnostics: &mut Vec<Diagnostic>) {
             {
                 let (row, column) = line_col(body, line.terminator_offset);
                 diagnostics.push(Diagnostic {
-                    code: "hygiene::final-newline",
+                    code: FINAL_NEWLINE.code,
                     line: row,
                     column,
                     message: "missing a final newline".to_string(),
@@ -212,6 +250,24 @@ mod tests {
 
     fn codes(diagnostics: &[Diagnostic]) -> Vec<&'static str> {
         diagnostics.iter().map(|d| d.code).collect()
+    }
+
+    #[test]
+    fn every_emitted_hygiene_code_comes_from_the_shared_catalog() {
+        let catalog = hygiene_diagnostic_definitions();
+        let style = Style::default();
+        let emitted = hygiene_diagnostics("\u{feff}\tbad  \r", &style);
+
+        assert_eq!(catalog.len(), 5);
+        for diagnostic in emitted {
+            assert!(
+                catalog
+                    .iter()
+                    .any(|definition| definition.code == diagnostic.code),
+                "{} must resolve in the shared catalog",
+                diagnostic.code
+            );
+        }
     }
 
     #[test]

@@ -14,13 +14,20 @@ pub enum ColorWhen {
     Never,
 }
 
-/// Machine-readable report formats for report-only command modes.
+/// Machine-readable output formats for report and effect-plan modes.
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum OutputFormat {
-    /// Emit a stable JSON document describing findings.
+    /// Emit a stable JSON document describing findings or planned effects.
     Json,
     /// Emit a SARIF 2.1.0 document describing findings.
     Sarif,
+}
+
+/// Machine-readable format for the diagnostic registry.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum RegistryFormat {
+    /// Emit the versioned JSON registry document.
+    Json,
 }
 
 /// prim — opinionated, near-zero-config formatter for a repository's
@@ -89,6 +96,8 @@ pub enum Verb {
     /// Print the `.editorconfig` settings that apply to a single file and
     /// where each came from (a `.editorconfig` section, or prim's default).
     Explain(ExplainArgs),
+    /// Print prim's versioned diagnostic catalog without inspecting files.
+    Registry(RegistryArgs),
     /// Run a Language Server Protocol server over stdin/stdout, exposing
     /// prim's formatter as a format-on-save provider for editors.
     Lsp,
@@ -115,6 +124,14 @@ pub struct WriteArgs {
     #[arg(long)]
     pub diff: bool,
 
+    /// Compute an exact JSON effect plan without writing any file.
+    #[arg(
+        long,
+        requires = "format",
+        conflicts_with_all = ["check", "diff", "stdin_filepath"]
+    )]
+    pub dry_run: bool,
+
     /// Read from stdin and write the formatted result to stdout. The path
     /// names the file so the right formatter is selected (format-on-save).
     /// Mutually exclusive with --check and --diff.
@@ -136,23 +153,21 @@ pub struct FmtArgs {
     #[arg(long, conflicts_with_all = ["check", "diff", "stdin_filepath"])]
     pub check_idempotence: bool,
 
-    /// Machine-readable report format for `--check`.
-    #[arg(
-        long,
-        value_enum,
-        requires = "check",
-        conflicts_with_all = ["diff", "check_idempotence"]
-    )]
+    /// Machine-readable report format for `--check` or `--dry-run`.
+    #[arg(long, value_enum, conflicts_with_all = ["diff", "check_idempotence"])]
     pub format: Option<OutputFormat>,
 }
 
-/// Arguments for `fix`: the same write/check/diff surface as `fmt`, but no
-/// machine-readable report mode yet (story D2 is scoped to `fmt --check`
-/// and `lint` only).
+/// Arguments for `fix`: the same write/check/diff surface as `fmt`, plus the
+/// JSON effect-plan format used by `--dry-run`.
 #[derive(Args, Debug)]
 pub struct FixArgs {
     #[command(flatten)]
     pub write: WriteArgs,
+
+    /// Machine-readable effect-plan format for `--dry-run`.
+    #[arg(long, value_enum, requires = "dry_run")]
+    pub format: Option<OutputFormat>,
 }
 
 /// Arguments for `lint`: report-only, so it has neither `--check` nor
@@ -194,6 +209,14 @@ pub struct ExplainArgs {
     /// classification.
     #[arg(value_name = "PATH")]
     pub path: PathBuf,
+}
+
+/// Arguments for the read-only diagnostic registry.
+#[derive(Args, Debug)]
+pub struct RegistryArgs {
+    /// Registry output format.
+    #[arg(long, value_enum, required = true)]
+    pub format: RegistryFormat,
 }
 
 #[cfg(test)]

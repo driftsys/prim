@@ -62,7 +62,8 @@ fn fmt_check_json_reports_files_that_would_change_without_writing() {
                     "code": "format::drift",
                     "message": "would be reformatted"
                 }
-            ]
+            ],
+            "errors": []
         })
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), original);
@@ -118,6 +119,7 @@ fn lint_json_reports_hygiene_diagnostics_and_structured_format_drift() {
 
     assert_eq!(report["version"], json!(1));
     assert_eq!(report["mode"], json!("lint"));
+    assert_eq!(report["errors"], json!([]));
     assert_eq!(
         findings,
         vec![
@@ -281,17 +283,22 @@ fn a_gate_that_examined_nothing_still_emits_its_report() {
 
         assert_eq!(
             stdout_json(&output),
-            json!({ "version": 1, "mode": mode, "findings": [] }),
+            json!({
+                "version": 1,
+                "mode": mode,
+                "findings": [],
+                "errors": [{
+                    "code": "scope::empty",
+                    "message": "nothing was examined: .primignore, --exclude, or the built-in generated-file list covered every path prim was pointed at"
+                }]
+            }),
             "{verb} must still emit its report"
         );
     }
 }
 
-/// #172 end to end through the report formats. A filename that is not valid
-/// UTF-8 is legal on Linux and cannot exist on APFS or HFS+, so this runs only
-/// where it is reachable — CI's ubuntu runner. The unit tests reach `render`
-/// directly; this is what proves the bytes survive the whole way from
-/// discovery through `app::emit_report`.
+/// #172 end to end through report formats. Undecodable paths cannot exist on
+/// APFS or HFS+, so this route runs on CI's Linux filesystem.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_report_carries_the_exact_bytes_of_an_undecodable_path() {
@@ -331,6 +338,41 @@ fn a_report_carries_the_exact_bytes_of_an_undecodable_path() {
     assert!(
         uri.ends_with("caf%E9.md") && !uri.contains("%EF%BF%BD"),
         "the exact bytes reach the SARIF uri: {uri}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_operational_error_carries_the_exact_bytes_of_an_undecodable_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let odd = OsString::from_vec(b"bad\xe9.json".to_vec());
+    fs::write(dir.path().join(&odd), "{ not valid").unwrap();
+
+    let json_output = prim()
+        .current_dir(dir.path())
+        .args(["lint", "--format", "json"])
+        .arg(&odd)
+        .assert()
+        .code(2);
+    let report = stdout_json(&json_output);
+    assert_eq!(report["errors"][0]["code"], "format::parse");
+    assert_eq!(report["errors"][0]["path"], "bad�.json");
+    assert_eq!(report["errors"][0]["path_encoded"], "bad%E9.json");
+
+    let sarif_output = prim()
+        .current_dir(dir.path())
+        .args(["lint", "--format", "sarif"])
+        .arg(&odd)
+        .assert()
+        .code(2);
+    let log = stdout_json(&sarif_output);
+    validate_sarif(&log);
+    assert_eq!(
+        log["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+        "bad%E9.json"
     );
 }
 

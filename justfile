@@ -28,8 +28,12 @@ bench:
 test-install:
     bash tools/bash_unit spec/install/install_test.sh
 
-# Run all checks (test + install tests + lint)
-check: test test-install lint
+# Test deterministic release packaging and asset names without publishing
+test-release:
+    bash tools/bash_unit spec/install/release_contract_test.sh
+
+# Run all checks (test + install/release contract tests + lint)
+check: test test-install test-release lint
 
 # Assemble + check
 build: assemble check

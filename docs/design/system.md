@@ -103,16 +103,17 @@ the buffer), reports to stderr, and exits 2 (AD-0003).
 
 ## Command surface and exit codes
 
-| Invocation                   | Behaviour                                                     |
-| ---------------------------- | ------------------------------------------------------------- |
-| `prim [PATH]...`             | Format files in place.                                        |
-| `prim --check [PATH]...`     | Exit 1 and list files that would change. Writes nothing.      |
-| `prim --diff [PATH]...`      | Print unified diff (via `similar`) to stdout. Writes nothing. |
-| `prim --stdin-filepath <p>`  | Read stdin, write formatted result to stdout.                 |
-| `prim --completions <shell>` | Print shell completion script to stdout.                      |
+| Invocation                                   | Behaviour                                                     |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| `prim [PATH]...`                             | Format files in place.                                        |
+| `prim --check [PATH]...`                     | Exit 1 and list files that would change. Writes nothing.      |
+| `prim --diff [PATH]...`                      | Print unified diff (via `similar`) to stdout. Writes nothing. |
+| `prim fmt --dry-run --format json [PATH]...` | Emit exact replacement effects. Writes nothing.               |
+| `prim --stdin-filepath <p>`                  | Read stdin, write formatted result to stdout.                 |
+| `prim --completions <shell>`                 | Print shell completion script to stdout.                      |
 
-Exit codes: `0` success · `1` changes needed (–check) · `2` error (parse/IO).
-See FR-5.5.
+Exit codes: `0` success · `1` changes needed (`--check` or `--dry-run`) · `2`
+error (parse/IO/usage or an empty gate scope). See FR-5.5.
 
 ## Engine API
 

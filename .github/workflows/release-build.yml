@@ -1,0 +1,113 @@
+name: Reusable release build
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+      runner:
+        required: true
+        type: string
+      use_cross:
+        required: true
+        type: boolean
+      extension:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      TARGET: ${{ inputs.target }}
+      RELEASE_RUNNER: ${{ inputs.runner }}
+      USE_CROSS: ${{ inputs.use_cross }}
+      EXTENSION: ${{ inputs.extension }}
+      ARCHIVE: prim-${{ inputs.target }}.tar.gz
+    steps:
+      - name: Validate release target
+        run: |
+          case "$TARGET|$RELEASE_RUNNER|$USE_CROSS|$EXTENSION" in
+            x86_64-unknown-linux-musl\|ubuntu-latest\|false\| | \
+            aarch64-unknown-linux-musl\|ubuntu-latest\|true\| | \
+            x86_64-apple-darwin\|macos-latest\|false\| | \
+            aarch64-apple-darwin\|macos-latest\|false\| | \
+            x86_64-pc-windows-msvc\|windows-latest\|false\|.exe) ;;
+            *)
+              printf 'unsupported release build tuple: %s\n' \
+                "$TARGET|$RELEASE_RUNNER|$USE_CROSS|$EXTENSION" >&2
+              exit 2
+              ;;
+          esac
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ inputs.target }}
+      - name: Install musl tools (x86_64)
+        if: inputs.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install cross (aarch64-musl)
+        if: inputs.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5 --locked
+      - name: Build release binary (cross)
+        if: inputs.use_cross
+        run: cross build --locked --release --target "$TARGET" -p prim-cli
+      - name: Build release binary (cargo)
+        if: "!inputs.use_cross"
+        run: cargo build --locked --release --target "$TARGET" -p prim-cli
+      - name: Package archive and checksum
+        run: |
+          set -euo pipefail
+          man_page=$(find "target/$TARGET/release/build" -path '*/out/man/prim.1' -print -quit)
+          test -n "$man_page"
+          tools/release/package.sh \
+            "$TARGET" "target/$TARGET/release/prim$EXTENSION" "$man_page" .
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign archive
+        run: cosign sign-blob --yes --bundle "$ARCHIVE.sigstore.json" "$ARCHIVE"
+      - name: Attest archive provenance
+        id: provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: prim-${{ inputs.target }}.tar.gz
+      - name: Name provenance bundle
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            PROVENANCE_BUNDLE="$(cygpath -u "$PROVENANCE_BUNDLE")"
+          fi
+          cp "$PROVENANCE_BUNDLE" "$ARCHIVE.provenance.sigstore.json"
+      - name: Require all release assets
+        run: |
+          for asset in "$ARCHIVE" "$ARCHIVE.sha256" "$ARCHIVE.sigstore.json" "$ARCHIVE.provenance.sigstore.json"; do
+            test -s "$asset"
+          done
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: prim-${{ inputs.target }}
+          if-no-files-found: error
+          path: |
+            prim-${{ inputs.target }}.tar.gz
+            prim-${{ inputs.target }}.tar.gz.sha256
+            prim-${{ inputs.target }}.tar.gz.sigstore.json
+            prim-${{ inputs.target }}.tar.gz.provenance.sigstore.json

@@ -32,10 +32,15 @@ mod toml;
 mod yaml;
 
 pub use classify::{FileKind, classify};
-pub use diagnostics::{Diagnostic, hygiene_diagnostics};
+pub use diagnostics::{
+    Diagnostic, DiagnosticDefinition, hygiene_diagnostic_definitions, hygiene_diagnostics,
+};
 pub use error::FormatError;
 pub use generated::generated_by;
-pub use mdlint::{MdDiagnostic, is_known_rule, lint as lint_markdown};
+pub use mdlint::{
+    MarkdownRuleDefinition, MarkdownTier, MdDiagnostic, is_known_rule, lint as lint_markdown,
+    markdown_rule_definitions,
+};
 pub use position::line_col;
 pub use style::{Indent, LineEnding, Style};
 

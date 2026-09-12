@@ -46,7 +46,7 @@ fn every_rumdl_rule_is_selected_or_in_one_never_run_group() {
         .collect();
     let selected: BTreeSet<String> = ACTIVE_RULES
         .iter()
-        .map(|policy| policy.rule.to_string())
+        .map(|policy| policy.code.to_string())
         .chain([LINE_LENGTH_RULE.to_string()])
         .collect();
     let groups = [
