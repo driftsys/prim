@@ -222,7 +222,7 @@ fn rule_fixtures_cover_every_active_rule_exactly_once() {
     let mut covered: Vec<&str> = RULE_FIXTURES.iter().map(|f| f.rule).collect();
     covered.sort_unstable();
 
-    let mut active: Vec<&str> = ACTIVE_RULES.iter().map(|p| p.rule).collect();
+    let mut active: Vec<&str> = ACTIVE_RULES.iter().map(|p| p.code).collect();
     active.sort_unstable();
 
     assert_eq!(

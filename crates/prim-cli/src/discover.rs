@@ -99,6 +99,9 @@ pub(crate) enum Error {
 /// `.primignore` covers explicitly named paths too (AD-0009): naming a file
 /// cannot make prim touch something walking to it would leave alone, so the
 /// "left byte-for-byte unchanged" promise holds however prim is invoked. A
+/// `--exclude` glob likewise filters an explicitly named file, so an
+/// orchestrator can pass a candidate batch without changing filter semantics.
+/// A
 /// path matching the built-in generated-file list is dropped the same way
 /// (AD-0011), unless a `.primignore` whitelist entry re-includes it — which it
 /// cannot do while a directory holding the file is excluded (#114). The
@@ -113,6 +116,8 @@ pub fn collect(
     changed_files_scope: &ChangedFilesScope,
 ) -> Result<Discovery, Error> {
     validate_excludes(excludes)?;
+    let exclude_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let explicit_excludes = build_excludes(&exclude_root, excludes)?;
 
     // With no path given, prim is pointed at the working directory. It is
     // judged exactly as a named `.` would be, so the two spellings of the same
@@ -140,6 +145,53 @@ pub fn collect(
 
     for path in pointed_at {
         let is_dir = path.is_dir();
+        // Resolve `..` through the filesystem so directory symlinks retain
+        // their meaning. Lexical ancestors can otherwise name unrelated dirs.
+        let resolved_parents = (!is_dir
+            && !excludes.is_empty()
+            && path
+                .components()
+                .any(|part| part == std::path::Component::ParentDir))
+        .then(|| {
+            path.canonicalize()
+                .ok()
+                .or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
+        })
+        .flatten();
+        let exclusion_path = resolved_parents.as_deref().unwrap_or(path);
+        let matching_path = exclusion_path
+            .strip_prefix(&exclude_root)
+            .ok()
+            .or_else(|| {
+                // The supplied absolute path can spell the cwd through an alias
+                // such as macOS /var versus /private/var. Preserve its suffix.
+                (exclusion_path.is_absolute() && !is_dir && !excludes.is_empty())
+                    .then(|| {
+                        exclusion_path.ancestors().find_map(|ancestor| {
+                            (ancestor.canonicalize().ok().as_deref()
+                                == Some(exclude_root.as_path()))
+                            .then(|| exclusion_path.strip_prefix(ancestor).ok())
+                            .flatten()
+                        })
+                    })
+                    .flatten()
+            })
+            .unwrap_or(exclusion_path);
+        // A walk prunes matching directories before reaching their children.
+        // An explicit descendant must honor that same directory exclusion.
+        if !is_dir
+            && !excludes.is_empty()
+            && matching_path
+                .ancestors()
+                .enumerate()
+                .take_while(|(_, ancestor)| {
+                    !ancestor.as_os_str().is_empty() && *ancestor != explicit_excludes.path()
+                })
+                .any(|(depth, ancestor)| explicit_excludes.matched(ancestor, depth > 0).is_ignore())
+        {
+            skipped += 1;
+            continue;
+        }
         // Each pointed-at path carries its own bound: the repository that
         // holds it. Pointing prim at a nested checkout hands it that
         // checkout's rules, not the enclosing repository's (#110).
@@ -229,6 +281,15 @@ fn validate_excludes(excludes: &[String]) -> Result<(), Error> {
     Ok(())
 }
 
+/// Build the blacklist form used by both explicit paths and directory walks.
+fn build_excludes(root: &Path, excludes: &[String]) -> Result<ignore::overrides::Override, Error> {
+    let mut builder = OverrideBuilder::new(root);
+    for glob in excludes {
+        builder.add(&format!("!{glob}")).map_err(Error::Exclude)?;
+    }
+    builder.build().map_err(Error::Exclude)
+}
+
 /// Walk `root` recursively, adding every regular file with walked provenance.
 /// A path matching `.primignore` (FR-4.4) or the built-in generated-file list
 /// (AD-0011) is dropped from the walk silently; a `.primignore` whitelist
@@ -289,15 +350,10 @@ fn walk_into(
     });
 
     if !excludes.is_empty() {
-        let mut overrides = OverrideBuilder::new(root);
-        for glob in excludes {
-            // In ignore's Override a leading `!` blacklists (ignores) the glob;
-            // with no whitelist globs, everything else stays included.
-            let _ = overrides.add(&format!("!{glob}"));
-        }
-        if let Ok(built) = overrides.build() {
-            walker.overrides(built);
-        }
+        // In ignore's Override a leading `!` blacklists (ignores) the glob;
+        // with no whitelist globs, everything else stays included. The globs
+        // were validated before this walk, so rebuilding them cannot fail.
+        walker.overrides(build_excludes(root, excludes).expect("validated exclude globs"));
     }
 
     for entry in walker.build().flatten() {

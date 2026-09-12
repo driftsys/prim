@@ -70,9 +70,9 @@ round is already visible: `dprint-plugin-json` 0.22.0 carries two live
    echoes nothing and emits its document instead. Emptying an editor buffer
    because a formatter panicked would be a worse outcome than the panic. A
    `--format` run still emits its document, because `--format` changes stdout
-   alone: a pipeline should read a well-formed empty report with the failure
-   carried by the exit code, not an empty stream that parses as a failure of its
-   own.
+   alone. The Folio CLI contract extends that document with an `internal::panic`
+   operational error as well as exit `2`, so a pipeline can identify the failure
+   from structured output.
 6. Containment is written once, generic over the operation, and used at every
    call prim makes into a third-party formatter or linter: the per-file walk,
    the idempotence second pass, the two `--stdin-filepath` routes, the LSP

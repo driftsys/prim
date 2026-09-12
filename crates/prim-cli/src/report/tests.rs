@@ -29,7 +29,8 @@ fn json_report_omits_missing_location_fields() {
                     "code": "format::drift",
                     "message": "would be reformatted"
                 }
-            ]
+            ],
+            "errors": []
         })
     );
 }

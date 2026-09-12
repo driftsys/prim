@@ -18,6 +18,14 @@ use crate::mdlint_policy::{
     self, MDLINT_DISABLE_KEY, MDLINT_REPORT_LINE_LENGTH_KEY, MDLINT_STRICT_KEY, MdLintPolicy,
 };
 
+pub(crate) const END_OF_LINE_KEY: &str = "end_of_line";
+pub(crate) const TRIM_TRAILING_WHITESPACE_KEY: &str = "trim_trailing_whitespace";
+pub(crate) const INSERT_FINAL_NEWLINE_KEY: &str = "insert_final_newline";
+pub(crate) const INDENT_STYLE_KEY: &str = "indent_style";
+pub(crate) const INDENT_SIZE_KEY: &str = "indent_size";
+pub(crate) const TAB_WIDTH_KEY: &str = "tab_width";
+pub(crate) const MAX_LINE_LENGTH_KEY: &str = "max_line_length";
+
 impl Resolver {
     /// Resolve every `.editorconfig`-recognized setting that applies to
     /// `kind` at `path`, alongside where its effective value came from.
@@ -30,36 +38,36 @@ impl Resolver {
 
         let mut settings = vec![
             ResolvedSetting {
-                key: "end_of_line",
+                key: END_OF_LINE_KEY,
                 value: match style.end_of_line {
                     LineEnding::Lf => "lf".to_string(),
                     LineEnding::CrLf => "crlf".to_string(),
                 },
-                origin: origin_of(&props, "end_of_line"),
+                origin: origin_of(&props, END_OF_LINE_KEY),
             },
             ResolvedSetting {
-                key: "trim_trailing_whitespace",
+                key: TRIM_TRAILING_WHITESPACE_KEY,
                 value: style.trim_trailing_whitespace.to_string(),
-                origin: origin_of(&props, "trim_trailing_whitespace"),
+                origin: origin_of(&props, TRIM_TRAILING_WHITESPACE_KEY),
             },
             ResolvedSetting {
-                key: "insert_final_newline",
+                key: INSERT_FINAL_NEWLINE_KEY,
                 value: style.insert_final_newline.to_string(),
-                origin: origin_of(&props, "insert_final_newline"),
+                origin: origin_of(&props, INSERT_FINAL_NEWLINE_KEY),
             },
         ];
 
         if kind != FileKind::Orphan {
             settings.push(ResolvedSetting {
-                key: "indent_style",
+                key: INDENT_STYLE_KEY,
                 value: match style.indent {
                     Indent::Spaces(_) => "space".to_string(),
                     Indent::Tab => "tab".to_string(),
                 },
-                origin: origin_of(&props, "indent_style"),
+                origin: origin_of(&props, INDENT_STYLE_KEY),
             });
             settings.push(ResolvedSetting {
-                key: "indent_size",
+                key: INDENT_SIZE_KEY,
                 value: match style.indent {
                     Indent::Spaces(n) => n.to_string(),
                     Indent::Tab => "n/a (indent_style = tab)".to_string(),
@@ -67,11 +75,11 @@ impl Resolver {
                 origin: indent_size_origin(&props),
             });
             settings.push(ResolvedSetting {
-                key: "max_line_length",
+                key: MAX_LINE_LENGTH_KEY,
                 value: style
                     .max_line_length
                     .map_or_else(|| "unset".to_string(), |n| n.to_string()),
-                origin: origin_of(&props, "max_line_length"),
+                origin: origin_of(&props, MAX_LINE_LENGTH_KEY),
             });
         }
 
@@ -194,8 +202,8 @@ pub(crate) fn origin_of(props: &Properties, key: &str) -> SettingOrigin {
 /// direct source tracking. Attribute the setting to whichever of the two
 /// keys was actually written in `.editorconfig`.
 fn indent_size_origin(props: &Properties) -> SettingOrigin {
-    match origin_of(props, "indent_size") {
-        SettingOrigin::Default => origin_of(props, "tab_width"),
+    match origin_of(props, INDENT_SIZE_KEY) {
+        SettingOrigin::Default => origin_of(props, TAB_WIDTH_KEY),
         direct => direct,
     }
 }

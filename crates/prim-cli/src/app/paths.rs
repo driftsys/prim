@@ -4,16 +4,18 @@
 
 use std::path::Path;
 
+use super::effect_plan::{self, PlannedOperation};
 use super::load::{Loaded, load_and_format};
 use super::{
     EXAMINED_NOTHING, EXIT_ACTIONABLE, EXIT_ERROR, EXIT_OK, FORMAT_CHECK_FINDING,
-    FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING, emit_report,
+    FORMAT_DRIFT_FINDING, emit_report,
 };
 use crate::changed_files::ChangedFilesScope;
 use crate::cli::{LintArgs, OutputFormat, WriteArgs};
 use crate::diff;
 use crate::discover;
 use crate::report::{Finding, ReportMode};
+use crate::run_diagnostic::{FORMAT_DRIFT, RunDiagnostic, SCOPE_EMPTY, SCOPE_RESOLVE};
 use crate::ui;
 use crate::write;
 use prim_fmt::{FileKind, Style};
@@ -28,17 +30,53 @@ pub(super) fn run_fmt_paths(
 ) -> i32 {
     let Loaded {
         files: results,
-        mut had_error,
+        mut errors,
         examined_nothing,
     } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
         Ok(outcome) => outcome,
         Err(err) => {
-            ui::error(&err.to_string());
+            let message = err.to_string();
+            ui::error(&message);
+            let errors = [RunDiagnostic::run_wide(&SCOPE_RESOLVE, message)];
+            if args.dry_run {
+                let operation = if is_fix {
+                    PlannedOperation::Fix
+                } else {
+                    PlannedOperation::Fmt
+                };
+                print!("{}", effect_plan::render(operation, &[], &errors));
+            } else if args.check
+                && let Some(format) = format
+            {
+                emit_report(format, ReportMode::FmtCheck, &[], &errors);
+            }
             return EXIT_ERROR;
         }
     };
 
+    if args.dry_run {
+        if examined_nothing {
+            ui::error(EXAMINED_NOTHING);
+            errors.push(RunDiagnostic::run_wide(&SCOPE_EMPTY, EXAMINED_NOTHING));
+        }
+        let any_would_change = results.iter().any(|file| file.4 != file.5);
+        let operation = if is_fix {
+            PlannedOperation::Fix
+        } else {
+            PlannedOperation::Fmt
+        };
+        print!("{}", effect_plan::render(operation, &results, &errors));
+        return if !errors.is_empty() {
+            EXIT_ERROR
+        } else if any_would_change {
+            EXIT_ACTIONABLE
+        } else {
+            EXIT_OK
+        };
+    }
+
     let mut any_would_change = false;
+    let mut had_error = !errors.is_empty();
     let mut written_to_worktree = 0usize;
     let mut findings = Vec::new();
     for (path, _kind, _style, _markdown_policy, original, formatted) in results {
@@ -49,7 +87,7 @@ pub(super) fn run_fmt_paths(
 
         if args.check {
             if format.is_some() {
-                findings.push(Finding::new(&path, FORMAT_DRIFT_CODE, FORMAT_CHECK_FINDING));
+                findings.push(Finding::new(&path, FORMAT_DRIFT.code, FORMAT_CHECK_FINDING));
             } else {
                 ui::would_reformat(&path);
             }
@@ -69,24 +107,24 @@ pub(super) fn run_fmt_paths(
         ui::warning(&staged_write_warning(written_to_worktree));
     }
 
-    if let Some(format) = format
-        && args.check
-    {
-        emit_report(format, ReportMode::FmtCheck, &findings);
-    }
-
     // AD-0007 §4: `fmt --diff` is always a `0`-exit preview, but `fix
     // --check`/`--diff` share one gated contract — both report whether a
     // fixable finding is pending.
     let gates_on_pending_findings = args.check || (is_fix && args.diff);
 
-    if had_error {
-        EXIT_ERROR
-    } else if gates_on_pending_findings && examined_nothing {
-        // Reported after the (empty) findings report, so `--format` still
-        // changes stdout alone (FR-5.8): the document a pipeline uploads is
-        // emitted either way, and the exit code carries the failure.
+    if gates_on_pending_findings && examined_nothing {
         ui::error(EXAMINED_NOTHING);
+        errors.push(RunDiagnostic::run_wide(&SCOPE_EMPTY, EXAMINED_NOTHING));
+        had_error = true;
+    }
+
+    if let Some(format) = format
+        && args.check
+    {
+        emit_report(format, ReportMode::FmtCheck, &findings, &errors);
+    }
+
+    if had_error {
         EXIT_ERROR
     } else if gates_on_pending_findings && any_would_change {
         EXIT_ACTIONABLE
@@ -137,7 +175,7 @@ pub(super) fn run_check_idempotence_paths(
 ) -> i32 {
     let Loaded {
         files: results,
-        mut had_error,
+        errors,
         examined_nothing,
     } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
         Ok(outcome) => outcome,
@@ -146,6 +184,7 @@ pub(super) fn run_check_idempotence_paths(
             return EXIT_ERROR;
         }
     };
+    let mut had_error = !errors.is_empty();
 
     let mut any_non_idempotent = false;
     for (path, kind, style, _markdown_policy, _original, formatted) in results {
@@ -210,17 +249,23 @@ pub(super) fn run_lint_paths(
 ) -> i32 {
     let Loaded {
         files: results,
-        mut had_error,
+        mut errors,
         examined_nothing,
     } = match load_and_format(&args.paths, excludes, ignores, changed_files_scope) {
         Ok(outcome) => outcome,
         Err(err) => {
-            ui::error(&err.to_string());
+            let message = err.to_string();
+            ui::error(&message);
+            if let Some(format) = args.format {
+                let errors = [RunDiagnostic::run_wide(&SCOPE_RESOLVE, message)];
+                emit_report(format, ReportMode::Lint, &[], &errors);
+            }
             return EXIT_ERROR;
         }
     };
 
     let mut any_error_finding = false;
+    let mut had_error = !errors.is_empty();
     let mut findings = Vec::new();
     let mut unknown_rule_reporter = crate::mdlint_policy::UnknownRuleReporter::new();
     for (path, kind, style, markdown_policy, original, formatted) in results {
@@ -228,9 +273,17 @@ pub(super) fn run_lint_paths(
             // Story B1: itemized, coded, positioned findings for the
             // un-owned-text allowlist — the same set A1's BOM strip covers.
             let Ok(diagnostics) = crate::formatting::contained(&path, || {
+                #[cfg(debug_assertions)]
+                crate::formatting::injected_diagnostic_panic(&path);
                 prim_fmt::hygiene_diagnostics(&original, &style)
             }) else {
-                ui::error(&crate::formatting::panic_message(&path));
+                let message = crate::formatting::panic_message(&path);
+                ui::error(&message);
+                errors.push(RunDiagnostic::at(
+                    &crate::run_diagnostic::INTERNAL_PANIC,
+                    &path,
+                    message,
+                ));
                 had_error = true;
                 continue;
             };
@@ -247,6 +300,8 @@ pub(super) fn run_lint_paths(
         } else if kind == FileKind::Markdown {
             unknown_rule_reporter.report(&markdown_policy);
             let Ok(diagnostics) = crate::formatting::contained(&path, || {
+                #[cfg(debug_assertions)]
+                crate::formatting::injected_diagnostic_panic(&path);
                 prim_fmt::lint_markdown(
                     &original,
                     markdown_policy.strict,
@@ -254,7 +309,13 @@ pub(super) fn run_lint_paths(
                     markdown_policy.report_line_length,
                 )
             }) else {
-                ui::error(&crate::formatting::panic_message(&path));
+                let message = crate::formatting::panic_message(&path);
+                ui::error(&message);
+                errors.push(RunDiagnostic::at(
+                    &crate::run_diagnostic::INTERNAL_PANIC,
+                    &path,
+                    message,
+                ));
                 had_error = true;
                 continue;
             };
@@ -273,24 +334,24 @@ pub(super) fn run_lint_paths(
             // their own content diagnostics land (future story).
             any_error_finding = true;
             if args.format.is_some() {
-                findings.push(Finding::new(&path, FORMAT_DRIFT_CODE, FORMAT_DRIFT_FINDING));
+                findings.push(Finding::new(&path, FORMAT_DRIFT.code, FORMAT_DRIFT_FINDING));
             } else {
                 ui::lint_finding(&path, FORMAT_DRIFT_FINDING);
             }
         }
     }
 
+    if examined_nothing {
+        ui::error(EXAMINED_NOTHING);
+        errors.push(RunDiagnostic::run_wide(&SCOPE_EMPTY, EXAMINED_NOTHING));
+        had_error = true;
+    }
+
     if let Some(format) = args.format {
-        emit_report(format, ReportMode::Lint, &findings);
+        emit_report(format, ReportMode::Lint, &findings, &errors);
     }
 
     if had_error {
-        EXIT_ERROR
-    } else if examined_nothing {
-        // `lint` is report-only, so its exit code is its whole answer:
-        // reporting nothing after examining nothing is the fail-open #112
-        // closed. The report is emitted first, as under `fmt --check`.
-        ui::error(EXAMINED_NOTHING);
         EXIT_ERROR
     } else if any_error_finding {
         EXIT_ACTIONABLE

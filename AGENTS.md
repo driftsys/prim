@@ -64,7 +64,7 @@ and the reusable engine is `prim-fmt`. Keep new modules `pub(crate)` unless
 something outside the crate genuinely needs them.
 
 **Command surface — three formatting verbs (`fmt`/`lint`/`fix`, AD-0007) plus
-three utilities (`init`/`explain`/`lsp`):**
+four utilities (`init`/`explain`/`registry`/`lsp`):**
 
 | Invocation                      | Purpose                                                                                |
 | ------------------------------- | -------------------------------------------------------------------------------------- |
@@ -77,6 +77,7 @@ three utilities (`init`/`explain`/`lsp`):**
 | `prim fmt --stdin-filepath <p>` | Read stdin, write formatted result to stdout (also `lint`/`fix`).                      |
 | `prim init [PATH]`              | Scaffold or minimally merge `.editorconfig`'s Markdown strict-glob map.                |
 | `prim explain <PATH>`           | Print the `.editorconfig` settings that apply to one file and their source.            |
+| `prim registry --format json`   | Print the versioned diagnostic catalog without inspecting repository files.            |
 | `prim lsp`                      | Run an LSP formatting-and-diagnostics server over stdio.                               |
 | `prim --completions <shell>`    | Generate shell completion scripts.                                                     |
 

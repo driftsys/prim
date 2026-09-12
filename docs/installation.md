@@ -63,8 +63,11 @@ without a prebuilt.
 
 ## Manual download
 
-Every release attaches a `prim-<target>.tar.gz` tarball and a matching `.sha256`
-checksum file. To install by hand, verifying the checksum:
+Every release attaches exactly one `prim-<target>.tar.gz` archive and matching
+`prim-<target>.tar.gz.sha256` checksum for each supported target. Those names
+are stable and version-addressable below `releases/download/<tag>/`. The
+checksum file names the archive by its base name, so it can be verified after
+downloading both files into any directory. To install by hand:
 
 ```bash
 VERSION=v1.0.0                  # the release tag you want
@@ -86,6 +89,101 @@ install -m 0755 prim ~/.local/bin/prim
 
 Each tarball also contains prim's man page (`prim.1`); copy it into a `man1`
 directory on your `MANPATH` if you want `man prim`.
+
+## Release signatures, SBOM, and provenance
+
+This contract is **unreleased**. v0.8.0 supplies the five platform archives and
+their checksums; it does not supply the signature, SBOM, or provenance assets
+described below. The first supporting release will be recorded after a tagged
+hosted build passes the verification gate.
+
+Each supporting release contains exactly 22 assets: four per supported target
+and two for the release as a whole.
+
+| Asset                                           | Purpose                                       |
+| ----------------------------------------------- | --------------------------------------------- |
+| `prim-<target>.tar.gz`                          | Binary and man page archive.                  |
+| `prim-<target>.tar.gz.sha256`                   | SHA-256 checksum naming that archive.         |
+| `prim-<target>.tar.gz.sigstore.json`            | Keyless cosign signature bundle.              |
+| `prim-<target>.tar.gz.provenance.sigstore.json` | GitHub SLSA build-provenance bundle.          |
+| `prim-<version>.spdx.json`                      | Release-wide SPDX 2.3 source/dependency SBOM. |
+| `prim-<version>.spdx.json.sigstore.json`        | Keyless signature bundle for the SBOM.        |
+
+`<version>` omits the tag's leading `v`. All assets are directly addressable
+under `https://github.com/driftsys/prim/releases/download/v<version>/`; Folio
+and other pinned-binary consumers do not need to run `install.sh`.
+
+The reusable `release-build.yml` workflow builds, packages, signs, and attests
+each archive. The caller `release.yml` generates the SBOM from the tagged source
+and `Cargo.lock` using Syft v1.51.1, requires `spdxVersion` to equal `SPDX-2.3`,
+and signs it. Consequently archive signatures identify the reusable workflow,
+while the SBOM signature identifies the caller.
+
+To verify an archive from a supporting release, install cosign v3 and the GitHub
+CLI, authenticate `gh`, and run:
+
+```bash
+VERSION=vX.Y.Z                 # replace with a supporting release tag
+TARGET=aarch64-apple-darwin
+ARCHIVE="prim-$TARGET.tar.gz"
+URL="https://github.com/driftsys/prim/releases/download/$VERSION"
+IDENTITY="https://github.com/driftsys/prim/.github/workflows/release-build.yml@refs/tags/$VERSION"
+COMMIT=$(gh api "repos/driftsys/prim/commits/$VERSION" --jq .sha)
+
+for ASSET in "$ARCHIVE" "$ARCHIVE.sha256" "$ARCHIVE.sigstore.json" "$ARCHIVE.provenance.sigstore.json"; do
+  curl -sSfLO "$URL/$ASSET"
+done
+shasum -a 256 -c "$ARCHIVE.sha256"
+cosign verify-blob --bundle "$ARCHIVE.sigstore.json" \
+  --certificate-identity "$IDENTITY" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "$ARCHIVE"
+gh attestation verify "$ARCHIVE" \
+  --bundle "$ARCHIVE.provenance.sigstore.json" \
+  --repo driftsys/prim \
+  --signer-workflow driftsys/prim/.github/workflows/release-build.yml \
+  --source-ref "refs/tags/$VERSION" --source-digest "$COMMIT" \
+  --signer-digest "$COMMIT" --deny-self-hosted-runners \
+  --format json > verified-provenance.json
+DIGEST=$(shasum -a 256 "$ARCHIVE" | cut -d ' ' -f 1)
+jq -e --arg name "$ARCHIVE" --arg digest "$DIGEST" '
+  length > 0 and all(.[];
+    .verificationResult.statement.subject == [{name: $name, digest: {sha256: $digest}}]
+  )' verified-provenance.json
+```
+
+`gh attestation verify` validates SLSA v1 provenance and the archive digest. The
+additional assertion requires the verified statement's subject name and digest
+to match exactly. These checks follow the
+[GitHub CLI verification contract](https://cli.github.com/manual/gh_attestation_verify).
+Verify the release-wide SBOM using its caller identity:
+
+```bash
+SBOM="prim-${VERSION#v}.spdx.json"
+curl -sSfLO "$URL/$SBOM"
+curl -sSfLO "$URL/$SBOM.sigstore.json"
+jq -e '.spdxVersion == "SPDX-2.3"' "$SBOM"
+cosign verify-blob --bundle "$SBOM.sigstore.json" \
+  --certificate-identity "https://github.com/driftsys/prim/.github/workflows/release.yml@refs/tags/$VERSION" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "$SBOM"
+```
+
+The release verifier checks the exact asset set, checksums, signature identities
+and issuer, provenance signer/source commit and tag, verified subjects, and SPDX
+version. It also requires the tag's commit to be an ancestor of `origin/main`.
+Both GitHub Release and crates.io publication depend on this job. GitHub Release
+downloads the verifier's immutable artifact ID and publishes those bytes without
+repackaging them. `install.sh` continues to verify SHA-256 only.
+
+These checks do not by themselves establish SLSA Build Level 3. Protected
+branch, tag, and release ruleset controls must be inspected to establish that
+the tagged commit and reusable workflow were reviewed and cannot be replaced by
+an unreviewed caller. That inspection and the first successful hosted OIDC
+signing and verification run remain external acceptance gates for #55. No SLSA
+level is claimed until those controls and run evidence have been reviewed and
+recorded. The existing pull-request and scheduled `cargo audit` CI gate remains
+in place.
 
 ## From source
 

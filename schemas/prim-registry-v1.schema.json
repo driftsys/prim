@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://driftsys.github.io/prim/schemas/prim-registry-v1.schema.json",
+  "title": "prim diagnostic registry v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "tool", "diagnostics", "aliases", "retired"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "tool": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "prim" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/alias" }
+    },
+    "retired": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/retired" }
+    }
+  },
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "code",
+        "description",
+        "category",
+        "default_severity",
+        "formats",
+        "enabled_by",
+        "configuration_keys",
+        "inline_controls",
+        "can_disable"
+      ],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "category": { "enum": ["format", "hygiene", "markdown", "operation"] },
+        "default_severity": { "const": "error" },
+        "formats": {
+          "type": "array",
+          "items": {
+            "enum": ["markdown", "json", "jsonc", "yaml", "toml", "orphan"]
+          },
+          "uniqueItems": true
+        },
+        "enabled_by": {
+          "enum": [
+            "always",
+            "editorconfig",
+            "prim_mdlint_strict",
+            "prim_mdlint_report_line_length",
+            "runtime"
+          ]
+        },
+        "configuration_keys": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "inline_controls": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "markdownlint-configure-file",
+              "prim-mdlint-strict",
+              "rumdl-disable",
+              "markdownlint-disable"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "can_disable": { "type": "boolean" }
+      }
+    },
+    "alias": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["code", "replacement"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "replacement": { "type": "string", "minLength": 1 }
+      }
+    },
+    "retired": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["code", "description"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

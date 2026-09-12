@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://driftsys.github.io/prim/schemas/prim-effect-plan-v1.schema.json",
+  "title": "prim formatting effect plan v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "tool", "operation", "effects", "errors"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "tool": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "prim" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "operation": { "enum": ["fmt", "fix"] },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "path",
+          "kind",
+          "operation",
+          "before",
+          "after",
+          "configuration"
+        ],
+        "properties": {
+          "path": { "type": "string" },
+          "path_encoded": { "type": "string" },
+          "kind": {
+            "enum": ["markdown", "json", "jsonc", "yaml", "toml", "orphan"]
+          },
+          "operation": { "const": "replace_contents" },
+          "before": { "$ref": "#/$defs/content" },
+          "after": { "$ref": "#/$defs/content" },
+          "configuration": { "$ref": "#/$defs/configuration" }
+        }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/error" }
+    }
+  },
+  "$defs": {
+    "content": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "end_of_line",
+        "trim_trailing_whitespace",
+        "insert_final_newline",
+        "indent_style",
+        "indent_size",
+        "max_line_length"
+      ],
+      "properties": {
+        "end_of_line": { "enum": ["lf", "crlf"] },
+        "trim_trailing_whitespace": { "type": "boolean" },
+        "insert_final_newline": { "type": "boolean" },
+        "indent_style": { "enum": ["space", "tab"] },
+        "indent_size": { "type": ["integer", "null"], "minimum": 0 },
+        "max_line_length": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "path": { "type": "string" },
+        "path_encoded": { "type": "string" }
+      }
+    }
+  }
+}

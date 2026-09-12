@@ -4,8 +4,7 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,91 +12,247 @@ env:
 jobs:
   build:
     name: Build (${{ matrix.target }})
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+            use_cross: false
+            ext: ""
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             use_cross: true
+            ext: ""
           - target: x86_64-apple-darwin
             os: macos-latest
+            use_cross: false
+            ext: ""
           - target: aarch64-apple-darwin
             os: macos-latest
+            use_cross: false
+            ext: ""
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            use_cross: false
             ext: .exe
-    runs-on: ${{ matrix.os }}
+    uses: ./.github/workflows/release-build.yml
+    with:
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.os }}
+      use_cross: ${{ matrix.use_cross }}
+      extension: ${{ matrix.ext }}
+
+  sbom:
+    name: Sign release SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Release metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+          printf 'sbom=prim-%s.spdx.json\n' "${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0.24.2
         with:
-          key: ${{ matrix.target }}
-      - name: Install musl tools (x86_64)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Install cross (aarch64-musl)
-        if: matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5
-      - name: Build release binary (cross)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} -p prim-cli
-      - name: Build release binary (cargo)
-        if: "!matrix.use_cross"
-        run: cargo build --release --target ${{ matrix.target }} -p prim-cli
-      - name: Collect man page
-        shell: bash
+          path: .
+          format: spdx-json
+          syft-version: v1.51.1
+          output-file: ${{ steps.metadata.outputs.sbom }}
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Validate SPDX version
+        env:
+          SBOM: ${{ steps.metadata.outputs.sbom }}
+        run: jq -e '.spdxVersion == "SPDX-2.3"' "$SBOM"
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign SBOM
+        env:
+          SBOM: ${{ steps.metadata.outputs.sbom }}
+        run: cosign sign-blob --yes --bundle "$SBOM.sigstore.json" "$SBOM"
+      - name: Require SBOM assets
+        env:
+          SBOM: ${{ steps.metadata.outputs.sbom }}
         run: |
-          mkdir -p staging
-          cp target/${{ matrix.target }}/release/prim${{ matrix.ext || '' }} staging/
-          find target/ -path '*/build/prim-cli-*/out/man/*.1' -exec cp {} staging/ \;
-      - name: Create tarball
-        shell: bash
-        run: tar czf prim-${{ matrix.target }}.tar.gz -C staging .
-      - name: Generate SHA256 checksum
-        shell: bash
-        run: |
-          f="prim-${{ matrix.target }}.tar.gz"
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$f" > "$f.sha256"
-          else
-            shasum -a 256 "$f" > "$f.sha256"
-          fi
-      - name: Upload artifacts
+          test -s "$SBOM"
+          test -s "$SBOM.sigstore.json"
+      - name: Upload SBOM assets
         uses: actions/upload-artifact@v7
         with:
-          name: prim-${{ matrix.target }}
+          name: prim-sbom
+          if-no-files-found: error
           path: |
-            prim-${{ matrix.target }}.tar.gz
-            prim-${{ matrix.target }}.tar.gz.sha256
+            ${{ steps.metadata.outputs.sbom }}
+            ${{ steps.metadata.outputs.sbom }}.sigstore.json
 
-  release:
-    name: Create GitHub Release
-    needs: build
+  verify:
+    name: Verify release integrity
+    needs: [build, sbom]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: read
+    outputs:
+      artifact_id: ${{ steps.verified.outputs.artifact-id }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
+          path: incoming
+          pattern: prim-*
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Verify release contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = driftsys/prim
+          [[ "$GITHUB_REF" == refs/tags/v* ]]
+          release_commit=$(git rev-parse "$GITHUB_REF^{commit}")
+          test "$release_commit" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$release_commit"
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$release_commit" origin/main
+
+          build_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release-build.yml@$GITHUB_REF"
+          sbom_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF"
+          sbom="prim-${GITHUB_REF_NAME#v}.spdx.json"
+          targets=(
+            x86_64-unknown-linux-musl
+            aarch64-unknown-linux-musl
+            x86_64-apple-darwin
+            aarch64-apple-darwin
+            x86_64-pc-windows-msvc
+          )
+
+          for target in "${targets[@]}"; do
+            printf 'prim-%s\n' "$target"
+          done > "$RUNNER_TEMP/expected-artifacts.txt"
+          printf 'prim-sbom\n' >> "$RUNNER_TEMP/expected-artifacts.txt"
+          LC_ALL=C sort -o "$RUNNER_TEMP/expected-artifacts.txt" "$RUNNER_TEMP/expected-artifacts.txt"
+          test -z "$(find incoming -mindepth 1 -maxdepth 1 ! -type d -print -quit)"
+          find incoming -mindepth 1 -maxdepth 1 -type d -exec basename {} \; \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-artifacts.txt"
+          diff -u "$RUNNER_TEMP/expected-artifacts.txt" "$RUNNER_TEMP/actual-artifacts.txt"
+
+          mkdir dist
+          for target in "${targets[@]}"; do
+            archive="prim-$target.tar.gz"
+            source="incoming/prim-$target"
+            printf '%s\n' "$archive" "$archive.sha256" "$archive.sigstore.json" "$archive.provenance.sigstore.json" \
+              | LC_ALL=C sort > "$RUNNER_TEMP/expected-source-assets.txt"
+            test -z "$(find "$source" -mindepth 1 ! -type f -print -quit)"
+            find "$source" -maxdepth 1 -type f -exec basename {} \; \
+              | LC_ALL=C sort > "$RUNNER_TEMP/actual-source-assets.txt"
+            diff -u "$RUNNER_TEMP/expected-source-assets.txt" "$RUNNER_TEMP/actual-source-assets.txt"
+            cp "$source"/* dist/
+          done
+          source=incoming/prim-sbom
+          printf '%s\n' "$sbom" "$sbom.sigstore.json" \
+            | LC_ALL=C sort > "$RUNNER_TEMP/expected-source-assets.txt"
+          test -z "$(find "$source" -mindepth 1 ! -type f -print -quit)"
+          find "$source" -maxdepth 1 -type f -exec basename {} \; \
+            | LC_ALL=C sort > "$RUNNER_TEMP/actual-source-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-source-assets.txt" "$RUNNER_TEMP/actual-source-assets.txt"
+          cp "$source"/* dist/
+
+          for target in "${targets[@]}"; do
+            archive="prim-$target.tar.gz"
+            printf '%s\n' "$archive" "$archive.sha256" "$archive.sigstore.json" "$archive.provenance.sigstore.json"
+          done > "$RUNNER_TEMP/expected-assets.txt"
+          printf '%s\n' "$sbom" "$sbom.sigstore.json" >> "$RUNNER_TEMP/expected-assets.txt"
+          LC_ALL=C sort -o "$RUNNER_TEMP/expected-assets.txt" "$RUNNER_TEMP/expected-assets.txt"
+
+          cd dist
+          test -z "$(find . -mindepth 1 ! -type f -print -quit)"
+          find . -type f | sed 's#^./##' | LC_ALL=C sort > "$RUNNER_TEMP/actual-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-assets.txt" "$RUNNER_TEMP/actual-assets.txt"
+          for target in "${targets[@]}"; do
+            archive="prim-$target.tar.gz"
+            # Pin the checksum's subject as well as its digest before invoking -c.
+            test "$(cat "$archive.sha256")" = "$(sha256sum "$archive")"
+            sha256sum -c "$archive.sha256"
+            cosign verify-blob --bundle "$archive.sigstore.json" \
+              --certificate-identity "$build_identity" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "$archive"
+            gh attestation verify "$archive" \
+              --bundle "$archive.provenance.sigstore.json" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow driftsys/prim/.github/workflows/release-build.yml \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              --signer-digest "$release_commit" \
+              --source-ref "$GITHUB_REF" --source-digest "$release_commit" \
+              --deny-self-hosted-runners --format json > "$RUNNER_TEMP/verified-attestation.json"
+            digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
+            jq -e --arg name "$archive" --arg digest "$digest" '
+              length > 0 and all(.[];
+                .verificationResult.statement.predicateType == "https://slsa.dev/provenance/v1" and
+                .verificationResult.statement.subject == [{name: $name, digest: {sha256: $digest}}]
+              )' "$RUNNER_TEMP/verified-attestation.json"
+          done
+          jq -e '.spdxVersion == "SPDX-2.3"' "$sbom"
+          cosign verify-blob --bundle "$sbom.sigstore.json" \
+            --certificate-identity "$sbom_identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "$sbom"
+      - name: Upload verified release assets
+        id: verified
+        uses: actions/upload-artifact@v7
+        with:
+          name: verified-release-assets-${{ github.run_attempt }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          path: dist
           merge-multiple: true
       - name: Create release
         uses: softprops/action-gh-release@v3
         with:
           name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
           files: |
-            prim-*.tar.gz
-            prim-*.tar.gz.sha256
+            dist/*
 
   publish:
     name: Publish to crates.io
-    needs: build
+    needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Publish crates

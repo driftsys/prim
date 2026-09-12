@@ -19,8 +19,8 @@ single static binary that tidies the files no other formatter owns.
 > prose-wrap guardrails), `fmt`/`lint`/`fix` verbs (with `--check` / `--diff` /
 > `--stdin-filepath` as deprecated top-level sugar), and atomic writes. Beyond
 > v1: Markdown content lint (JSON/SARIF output), `prim init`, `prim explain`,
-> and `prim lsp` (an LSP formatting-and-diagnostics server). See
-> [docs/SPEC.md](docs/SPEC.md).
+> `prim registry`, and `prim lsp` (an LSP formatting-and-diagnostics server).
+> See [docs/SPEC.md](docs/SPEC.md).
 
 ## Install
 
@@ -43,9 +43,11 @@ with checksum verification, and building from source, see
 prim README.md config.yaml     # format files in place (bare alias for `fmt`)
 prim fmt --check .             # CI gate: non-zero if anything would change
 prim fmt --diff config.toml    # preview pending changes
+prim fmt --dry-run --format json FILE... # exact no-write replacement plan
 prim fmt --stdin-filepath x.md # editor format-on-save (stdin → stdout)
 prim lint .                    # report-only: hygiene + content violations
 prim explain config.toml       # show resolved .editorconfig settings + source
+prim registry --format json    # print the versioned diagnostic catalog
 prim lsp                       # LSP formatting-and-diagnostics server
 ```
 

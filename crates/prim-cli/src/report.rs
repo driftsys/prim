@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::cli::OutputFormat;
+use crate::run_diagnostic::{MachineDiagnostic, RunDiagnostic};
 
 const SARIF_SCHEMA_URI: &str =
     "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json";
@@ -81,7 +82,7 @@ impl Finding {
     /// The path as a reader sees it. Lossy for a name that is not valid UTF-8,
     /// which is what [`Self::encoded_path`] exists to sit beside.
     fn display_path(&self) -> String {
-        self.path.display().to_string()
+        crate::machine_path::display(&self.path)
     }
 
     /// The path's bytes percent-encoded, and `None` when there is nothing to
@@ -91,68 +92,30 @@ impl Finding {
     /// every path on a platform whose filenames are Unicode, and nearly every
     /// path elsewhere, renders exactly as it did before (#172).
     fn encoded_path(&self) -> Option<String> {
-        if self.path.to_str().is_some() {
-            return None;
-        }
-
-        Some(percent_encode(path_bytes(&self.path)?))
+        crate::machine_path::encoded(&self.path)
     }
-}
-
-/// The bytes a path is made of, where the platform has them.
-///
-/// On unix a path is an arbitrary byte string, so the bytes are the name.
-/// Elsewhere a path is Unicode: one that is not valid UTF-8 cannot be
-/// represented at all, so there is no exact form to offer and the caller adds
-/// no field. Encoding `Path::display`'s output there would percent-encode the
-/// U+FFFD this split exists to avoid, and promise a round-trip it cannot keep.
-#[cfg(unix)]
-fn path_bytes(path: &Path) -> Option<&[u8]> {
-    use std::os::unix::ffi::OsStrExt;
-
-    Some(path.as_os_str().as_bytes())
-}
-
-#[cfg(not(unix))]
-fn path_bytes(_path: &Path) -> Option<&[u8]> {
-    None
-}
-
-/// Percent-encode `bytes` so a name that is not valid UTF-8 survives a format
-/// whose strings must be.
-///
-/// `/` is left as itself so the result still reads as a path — a unix filename
-/// component cannot contain one — and every byte outside the unreserved set of
-/// RFC 3986 is escaped, `%` included, so the encoding round-trips.
-fn percent_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-
-    let mut encoded = String::with_capacity(bytes.len());
-    for &byte in bytes {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => {
-                encoded.push(char::from(byte));
-            }
-            _ => {
-                encoded.push('%');
-                encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-                encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-            }
-        }
-    }
-
-    encoded
 }
 
 /// Render `findings` in the requested machine-readable `format`.
+#[cfg(test)]
 pub fn render(format: OutputFormat, mode: ReportMode, findings: &[Finding]) -> String {
+    render_with_errors(format, mode, findings, &[])
+}
+
+/// Render findings plus operational failures in the requested machine format.
+pub(crate) fn render_with_errors(
+    format: OutputFormat,
+    mode: ReportMode,
+    findings: &[Finding],
+    errors: &[RunDiagnostic],
+) -> String {
     match format {
-        OutputFormat::Json => render_json(mode, findings),
-        OutputFormat::Sarif => render_sarif(findings),
+        OutputFormat::Json => render_json(mode, findings, errors),
+        OutputFormat::Sarif => render_sarif(findings, errors),
     }
 }
 
-fn render_json(mode: ReportMode, findings: &[Finding]) -> String {
+fn render_json(mode: ReportMode, findings: &[Finding], errors: &[RunDiagnostic]) -> String {
     let report = JsonReport {
         version: 1,
         mode: mode.as_str(),
@@ -167,20 +130,27 @@ fn render_json(mode: ReportMode, findings: &[Finding]) -> String {
                 column: finding.column,
             })
             .collect(),
+        errors: errors.iter().map(RunDiagnostic::machine).collect(),
     };
 
     serde_json::to_string_pretty(&report).expect("JSON report serialization should succeed") + "\n"
 }
 
-fn render_sarif(findings: &[Finding]) -> String {
-    let rules = findings
+fn render_sarif(findings: &[Finding], errors: &[RunDiagnostic]) -> String {
+    let rules = errors
         .iter()
-        .fold(BTreeMap::new(), |mut rules, finding| {
-            rules
-                .entry(finding.code.as_str())
-                .or_insert(&finding.message);
-            rules
-        })
+        .fold(
+            findings.iter().fold(BTreeMap::new(), |mut rules, finding| {
+                rules
+                    .entry(finding.code.as_str())
+                    .or_insert(finding.message.as_str());
+                rules
+            }),
+            |mut rules, error| {
+                rules.entry(error.code).or_insert(error.description());
+                rules
+            },
+        )
         .into_iter()
         .map(|(code, message)| SarifRule {
             id: code,
@@ -188,14 +158,10 @@ fn render_sarif(findings: &[Finding]) -> String {
             short_description: SarifMessage { text: message },
         })
         .collect();
-    let results = findings
+    let mut results = findings
         .iter()
         .map(|finding| SarifResult {
             rule_id: &finding.code,
-            // The "warning" arm is unreachable today: every `Finding` sets
-            // `is_error: true` (see `Finding::new`/`diagnostic`/`markdown`
-            // above, and AD-0012). Kept for a future non-Markdown content
-            // rule that might legitimately report a warning.
             level: if finding.is_error { "error" } else { "warning" },
             message: SarifMessage {
                 text: &finding.message,
@@ -203,9 +169,6 @@ fn render_sarif(findings: &[Finding]) -> String {
             locations: vec![SarifLocation {
                 physical_location: SarifPhysicalLocation {
                     artifact_location: SarifArtifactLocation {
-                        // A SARIF uri is a URI reference, so the encoded form
-                        // is the one the format wants for a path that cannot
-                        // be a Unicode string (#172).
                         uri: finding
                             .encoded_path()
                             .unwrap_or_else(|| finding.display_path()),
@@ -220,7 +183,31 @@ fn render_sarif(findings: &[Finding]) -> String {
                 },
             }],
         })
-        .collect();
+        .collect::<Vec<_>>();
+    results.extend(errors.iter().map(|error| {
+        SarifResult {
+            rule_id: error.code,
+            level: "error",
+            message: SarifMessage {
+                text: &error.message,
+            },
+            locations: error
+                .path
+                .as_deref()
+                .map(|path| {
+                    vec![SarifLocation {
+                        physical_location: SarifPhysicalLocation {
+                            artifact_location: SarifArtifactLocation {
+                                uri: crate::machine_path::encoded(path)
+                                    .unwrap_or_else(|| crate::machine_path::display(path)),
+                            },
+                            region: None,
+                        },
+                    }]
+                })
+                .unwrap_or_default(),
+        }
+    }));
     let report = SarifLog {
         schema: SARIF_SCHEMA_URI,
         version: SARIF_VERSION,
@@ -245,6 +232,7 @@ struct JsonReport<'a> {
     version: u8,
     mode: &'a str,
     findings: Vec<JsonFinding<'a>>,
+    errors: Vec<MachineDiagnostic<'a>>,
 }
 
 #[derive(Serialize)]
@@ -305,6 +293,7 @@ struct SarifResult<'a> {
     rule_id: &'a str,
     level: &'a str,
     message: SarifMessage<'a>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     locations: Vec<SarifLocation>,
 }
 

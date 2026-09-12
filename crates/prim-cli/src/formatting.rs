@@ -72,11 +72,22 @@ pub(crate) fn contained<T>(path: &Path, op: impl FnOnce() -> T) -> Result<T, Pan
 /// is about the run continuing.
 #[cfg(debug_assertions)]
 fn injected_panic(path: &Path) {
-    if let Some(marker) = std::env::var_os("PRIM_PANIC_INJECT")
+    injected_panic_from(path, "PRIM_PANIC_INJECT");
+}
+
+/// Inject a diagnostic-stage fault after formatting has succeeded.
+#[cfg(debug_assertions)]
+pub(crate) fn injected_diagnostic_panic(path: &Path) {
+    injected_panic_from(path, "PRIM_DIAGNOSTIC_PANIC_INJECT");
+}
+
+#[cfg(debug_assertions)]
+fn injected_panic_from(path: &Path, variable: &str) {
+    if let Some(marker) = std::env::var_os(variable)
         && !marker.is_empty()
         && path.to_string_lossy().contains(&*marker.to_string_lossy())
     {
-        panic!("PRIM_PANIC_INJECT: deliberate panic for {}", path.display());
+        panic!("{variable}: deliberate panic for {}", path.display());
     }
 }
 

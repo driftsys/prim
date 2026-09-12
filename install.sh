@@ -57,6 +57,12 @@ sha256_check() {
   fi
 }
 
+release_asset_url() {
+  local version="$1" target="$2"
+  printf 'https://github.com/%s/releases/download/%s/prim-%s.tar.gz\n' \
+    "$REPO" "$version" "$target"
+}
+
 detect_target() {
   local os arch
   os="$(uname -s)"
@@ -95,7 +101,7 @@ main() {
   printf 'latest version: %s\n' "$version"
 
   base="prim-$target"
-  download_url="https://github.com/$REPO/releases/download/$version/$base.tar.gz"
+  download_url="$(release_asset_url "$version" "$target")"
   printf 'downloading %s\n' "$download_url"
 
   tmp_dir="$(mktemp -d)"

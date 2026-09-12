@@ -381,6 +381,20 @@ source-code formatter and has **no plugin system**.
   not descend into a symlinked directory in either case (FR-2.4), so naming one
   and walking past it answer about different trees. The answer follows what prim
   was pointed at — the same rule FR-4.4b applies to a nested checkout.
+- **FR-4.7** A caller may delegate an explicit file list with
+  `prim fmt
+  FILE...`, `prim fmt --check --format json FILE...`,
+  `prim lint --format json
+  FILE...`, or `prim fix FILE...`. prim shall process
+  only those arguments; it shall not search their parents or add sibling files.
+  A directory argument deliberately requests prim's standalone recursive
+  discovery and is therefore not an explicit-file delegation. All normal
+  ownership and safety rules still apply to a named file: `.primignore`,
+  `--exclude`, generated-file protection, symlink refusal, and unsupported-type
+  handling are not bypassed. Shell files remain unowned. Style is resolved
+  independently for each accepted path from the `.editorconfig` cascade visible
+  at invocation time. Relative and absolute paths, including paths containing
+  spaces, are supported.
 
 ## FR-5 — Operating modes (CLI)
 
@@ -411,6 +425,21 @@ default, format-in-place action.
   `0` when every second pass is stable (`2` when it examined nothing, FR-4.4c),
   and uses the normal discovery/classify rules (structured formats plus the
   orphan hygiene allowlist only).
+- **FR-5.3b** `prim fmt --dry-run --format json PATH...` and
+  `prim fix --dry-run --format json PATH...` shall emit a versioned, exact,
+  no-write effect plan. Each effect is a whole-file `replace_contents` operation
+  containing its path and file kind, before/after SHA-256 digest and byte
+  length, and the six resolved EditorConfig values that affect output. Version 1
+  promises no file creation, deletion, rename, permission or index change,
+  command execution, or Markdown content-rule autofix. Applying the equivalent
+  explicit `fmt` or `fix` invocation shall produce every planned `after` digest
+  and length when the input bytes and effective EditorConfig remain unchanged.
+  No effects exits `0`, one or more replacements exits `1`, and an operational
+  error exits `2` while retaining effects computed for other inputs. Errors use
+  FR-5.8a's stable codes. The document shall conform to
+  `schemas/prim-effect-plan-v1.schema.json`; consumers shall tolerate additive
+  fields in schema version 1, while removing or redefining a field requires a
+  new schema version.
 - **FR-5.4** With `--stdin-filepath <path>` (valid on `fmt`, `lint`, and `fix`),
   prim shall read stdin and, for `fmt`/`fix`, write the formatted result to
   stdout. The flag is mutually exclusive with `--check` and `--diff`.
@@ -513,9 +542,10 @@ default, format-in-place action.
     surface is the strict boolean plus these two inline mechanisms, never a
     per-rule matrix.
 - **FR-5.6** _(exit codes)_ `0` = nothing to do / already clean · `1` =
-  actionable — format drift (`fmt`/`fix --check`) or a lint finding · `2` = prim
-  could not do its job (parse/IO/usage error, or a gate that examined nothing —
-  FR-4.4c). Warnings never raise the exit code; only errors do.
+  actionable — format drift (`fmt`/`fix --check`), a planned replacement
+  (`fmt`/`fix --dry-run`), or a lint finding · `2` = prim could not do its job
+  (parse/IO/usage error, or a gate that examined nothing — FR-4.4c). Warnings
+  never raise the exit code; only errors do.
 - **FR-5.6a** _(argv survives a byte prim cannot decode)_ prim shall read its
   command line with `std::env::args_os`, so a **path** that is not valid UTF-8
   reaches the filesystem as the bytes prim was given — satisfying FR-2.5 for a
@@ -541,33 +571,46 @@ default, format-in-place action.
   deprecation warning to stderr. They are scheduled for removal in v2.0; the
   bare alias itself is not deprecated.
 - **FR-5.8** _(machine-readable reports, story D2)_ `--format <json|sarif>`
-  shall be accepted only on `prim fmt --check` and `prim lint`. It changes only
-  stdout for those report-only modes: write behaviour and exit codes are
-  unchanged, and warnings/errors remain on stderr. Without `--format`, the
-  existing plain-text stdout for `fmt --check` and `lint` remains unchanged.
+  shall be accepted on `prim fmt --check` and `prim lint`. In addition,
+  `--format json` is required by `prim fmt --dry-run` and `prim fix --dry-run`;
+  SARIF is not an effect-plan format. Machine format changes only stdout for
+  these no-write modes: write behaviour and exit codes are unchanged, and
+  warnings/errors remain on stderr. Without `--format`, the existing plain-text
+  stdout for `fmt --check` and `lint` remains unchanged.
   - **FR-5.8a** `--format json` shall emit a stable JSON document of the form
-    `{ "version": 1, "mode": "fmt-check"|"lint", "findings": [...] }`. A finding
-    may gain a field within a version — a consumer shall ignore one it does not
-    know, rather than reject the document — and the version rises only when an
+    `{ "version": 1, "mode": "fmt-check"|"lint", "findings": [...], "errors":
+    [...] }`.
+    Both arrays are required, including when empty. A finding or error may gain
+    a field within a version — a consumer shall ignore one it does not know,
+    rather than reject the document — and the version rises only when an
     existing field changes shape or meaning. Each finding includes `path`,
     `code`, and `message`; positioned findings also include 1-indexed `line` and
-    `column`. A finding whose path is not valid UTF-8 also includes
-    `path_encoded`, the path's bytes percent-encoded (FR-5.9), on a platform
-    whose filenames are byte strings; the field is absent for every other
-    finding, and absent everywhere on a platform whose filenames are Unicode,
-    which has no bytes to offer. A decodable path therefore renders exactly as
-    it did before. `fmt --check` reports one `format::drift` finding per file
-    that would change, with the message `"would be reformatted"`. `prim lint`
-    reports the existing coarse structured format drift as `format::drift`, plus
-    the B1 hygiene diagnostics for orphan files with their stable `hygiene::*`
-    codes and positions.
+    `column`. Each operational error includes a stable `code` and `message`,
+    plus `path` when the error belongs to a file. A finding or error whose path
+    is not valid UTF-8 also includes `path_encoded`, the path's bytes
+    percent-encoded (FR-5.9), on a platform whose filenames are byte strings;
+    the field is absent for every other finding, and absent everywhere on a
+    platform whose filenames are Unicode, which has no bytes to offer. A
+    decodable path therefore renders exactly as it did before. `fmt --check`
+    reports one `format::drift` finding per file that would change, with the
+    message `"would be reformatted"`. `prim lint` reports the existing coarse
+    structured format drift as `format::drift`, plus the B1 hygiene diagnostics
+    for orphan files with their stable `hygiene::*` codes and positions.
+    Operational failures use the stable `input::read`, `format::parse`,
+    `internal::panic`, `scope::empty`, or `scope::resolve` code. A partial
+    failure preserves findings from files prim could examine; a full failure
+    still emits one complete document with an empty `findings` array. Both exit
+    `2`.
   - **FR-5.8b** `--format sarif` shall emit a valid SARIF 2.1.0 log with one
-    result per finding. Each result's `ruleId` shall match the stable `code`,
-    `artifactLocation.uri` shall be the reported file path — percent-encoded
-    when that path is not valid UTF-8 and the platform has its bytes, which a
-    SARIF uri requires and which leaves every decodable path unchanged (FR-5.9)
-    — and `region.startLine` / `region.startColumn` shall be present whenever
-    the finding has a known position.
+    result per finding or operational error. Each result's `ruleId` shall match
+    the stable `code`, `artifactLocation.uri` shall be the reported file path —
+    percent-encoded when that path is not valid UTF-8 and the platform has its
+    bytes, which a SARIF uri requires and which leaves every decodable path
+    unchanged (FR-5.9) — and `region.startLine` / `region.startColumn` shall be
+    present whenever the finding has a known position. Operational errors have
+    level `error`; file errors carry a location and run-wide scope errors do
+    not. As in JSON, partial and full failures emit a complete SARIF log and
+    exit `2`.
 - **FR-5.9** _(the machine-readable stream names files that open)_ On a platform
   whose filenames are byte strings, prim shall write a path to stdout as the
   bytes the filesystem holds in three places: the `fmt --check` list, the same
@@ -583,6 +626,29 @@ default, format-in-place action.
   percent-encoded `artifactLocation.uri` in SARIF (FR-5.8b). Human-facing output
   on stderr stays lossy — it is prose for a reader, and a terminal cannot render
   an undecodable byte.
+- **FR-5.10** _(diagnostic registry)_ `prim registry --format json` shall emit
+  one deterministic JSON document and exit `0`, without walking files, resolving
+  repository configuration, or applying file-selection flags. A missing format
+  or any format other than JSON is a usage error (exit `2`).
+  - **FR-5.10a** The document shall conform to
+    `schemas/prim-registry-v1.schema.json` and contain `schema_version: 1`, the
+    running tool name and version, a `diagnostics` array sorted by stable code,
+    and required `aliases` and `retired` arrays. The latter two start empty.
+  - **FR-5.10b** Each diagnostic shall identify its code, description, category,
+    default severity, applicable formats, enabling policy, configuration keys,
+    applicable inline controls, and whether it can be disabled. The inventory
+    shall cover `format::drift`, every whitespace hygiene and selected Markdown
+    code, and every operational error code from FR-5.8a.
+  - **FR-5.10c** Hygiene codes shall come from the same definitions their
+    constructors use. Markdown codes, tiers, and descriptions shall be derived
+    from the same rule-policy table and pinned rumdl rule objects used by lint
+    selection and `prim_mdlint_disable` validation. Registry configuration keys
+    shall share definitions with `prim explain`; the CLI shall not maintain a
+    second rule inventory.
+  - **FR-5.10d** Consumers shall tolerate additive metadata within registry
+    schema version `1`. Removing or redefining a code or field requires a new
+    schema version; a renamed code is recorded in `aliases`, and a code that no
+    longer emits is recorded in `retired`.
 
 ## FR-6 — Correctness & safety
 
@@ -606,6 +672,45 @@ default, format-in-place action.
   unchanged and report them under FR-6.3's grading: an error (exit `2`) when the
   path was named, a warning that leaves the exit code alone when the file was
   reached by a directory walk.
+
+## Release integrity (unreleased)
+
+- **RI-1** Each release shall retain the five supported target archives and
+  matching SHA-256 files documented in [Installation](installation.md). It shall
+  add a keyless cosign bundle and a SLSA v1 build-provenance bundle for every
+  archive, plus one release-wide SPDX JSON SBOM and its keyless signature:
+  exactly 22 assets. Archive names remain `prim-<target>.tar.gz`; the companion
+  suffixes are `.sha256`, `.sigstore.json`, and `.provenance.sigstore.json`. The
+  SBOM is `prim-<version>.spdx.json`, where the version excludes the tag's
+  leading `v`.
+- **RI-2** The reusable `.github/workflows/release-build.yml` shall build,
+  package, sign, and attest the archive in the same job. The caller
+  `.github/workflows/release.yml` shall generate the SBOM from the tagged source
+  and `Cargo.lock`, using Syft v1.51.1 `spdx-json` output, require
+  `spdxVersion == "SPDX-2.3"`, and sign the SBOM. Uploads shall fail when any
+  expected asset is missing.
+- **RI-3** Before either GitHub Release or crates.io publication, a blocking
+  verifier shall download the build and SBOM artifacts and require the exact
+  asset set, matching checksum names and digests, valid cosign bundles with the
+  GitHub Actions OIDC issuer and exact workflow/tag identities, valid provenance
+  bundles scoped to `driftsys/prim` and the reusable signer workflow, and exact
+  verified subject names and SHA-256 digests. Archive cosign certificates shall
+  identify `release-build.yml`; the SBOM certificate shall identify
+  `release.yml`. Provenance shall bind the source tag and source/signer commit
+  and reject self-hosted runners. The verifier shall require the release tag's
+  commit to be contained by `origin/main` and require SPDX 2.3.
+- **RI-4** GitHub Release shall consume the verifier's immutable artifact ID and
+  publish the verified bytes without transforming archives. Signing and
+  attestation permissions shall be scoped to their jobs; only GitHub Release
+  publication shall receive `contents: write`. crates.io publication shall
+  retain its idempotent version checks and existing package credential. The
+  pull-request and scheduled `cargo audit` gate shall remain unchanged.
+- **RI-5** Attestation generation alone shall not be presented as evidence of
+  SLSA Build Level 3. Protected branch/tag/release ruleset inspection and the
+  first successful hosted OIDC signing and verification run remain external
+  acceptance gates for #55. The repository shall not claim that level until
+  reviewed controls and run evidence establish it. These release-integrity
+  assets are unreleased; v0.8.0 establishes only archive/checksum availability.
 
 ## NFR — non-functional (targets, tunable)
 

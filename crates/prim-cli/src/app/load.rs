@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rayon::prelude::*;
 
 use crate::changed_files::ChangedFilesScope;
 use crate::mdlint_policy::MdLintPolicy;
+use crate::run_diagnostic::{FORMAT_PARSE, INPUT_READ, INTERNAL_PANIC, RunDiagnostic};
 use crate::{discover, editorconfig, formatting, symlink, ui};
 use prim_fmt::{FileKind, Style};
 
@@ -15,7 +16,7 @@ pub(super) struct Loaded {
     pub(super) files: Vec<FormattedFile>,
     /// A named path could not be read or parsed (exit `2`). A failed write is
     /// the caller's to add: it happens after this pass.
-    pub(super) had_error: bool,
+    pub(super) errors: Vec<RunDiagnostic>,
     /// Every path prim was pointed at was skipped, so nothing was examined
     /// (FR-4.4c). The gate modes report it as an error; the writing modes
     /// treat it as the no-op it is.
@@ -32,6 +33,7 @@ enum LoadMessageKind {
 struct LoadMessage {
     kind: LoadMessageKind,
     text: String,
+    diagnostic: Option<RunDiagnostic>,
 }
 
 enum LoadOutcome {
@@ -67,11 +69,11 @@ pub(super) fn load_and_format(
         ui::warning(&message);
     }
     let outcomes = load_discovered(discovery.files);
-    let (results, messages, had_error) = summarize_outcomes(outcomes);
+    let (results, messages, errors) = summarize_outcomes(outcomes);
     emit_messages(&messages);
     Ok(Loaded {
         files: results,
-        had_error,
+        errors,
         examined_nothing: discovery.examined_nothing,
     })
 }
@@ -109,7 +111,11 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
                     file.path.display()
                 ))
             } else {
-                error(format!("{}: no such file", file.path.display()))
+                error(
+                    &INPUT_READ,
+                    &file.path,
+                    format!("{}: no such file", file.path.display()),
+                )
             }
         } else {
             LoadOutcome::Skipped
@@ -121,7 +127,7 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
         Err(err) => {
             let message = format!("{}: {err}", file.path.display());
             return if file.explicit {
-                error(message)
+                error(&INPUT_READ, &file.path, message)
             } else {
                 warning(message)
             };
@@ -135,7 +141,7 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
             Ok(Err(err)) => {
                 let message = format!("{}: {err}", file.path.display());
                 return if file.explicit {
-                    error(message)
+                    error(&FORMAT_PARSE, &file.path, message)
                 } else {
                     warning(message)
                 };
@@ -143,7 +149,13 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
             // A dependency panicked. Always an error, walked or named: unlike an
             // unparseable file, this is prim's bug and never the caller's, so it
             // is not something a walk should pass over quietly (AD-0017).
-            Err(_) => return error(formatting::panic_message(&file.path)),
+            Err(_) => {
+                return error(
+                    &INTERNAL_PANIC,
+                    &file.path,
+                    formatting::panic_message(&file.path),
+                );
+            }
         };
 
     let markdown_policy = if kind == FileKind::Markdown {
@@ -162,8 +174,10 @@ fn load_one(resolver: &mut editorconfig::Resolver, file: discover::Discovered) -
     )))
 }
 
-fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<LoadMessage>, bool) {
-    let mut had_error = false;
+fn summarize_outcomes(
+    outcomes: Vec<LoadOutcome>,
+) -> (Vec<FormattedFile>, Vec<LoadMessage>, Vec<RunDiagnostic>) {
+    let mut errors = Vec::new();
     let mut messages = Vec::new();
     let mut results = Vec::new();
 
@@ -171,14 +185,16 @@ fn summarize_outcomes(outcomes: Vec<LoadOutcome>) -> (Vec<FormattedFile>, Vec<Lo
         match outcome {
             LoadOutcome::Formatted(file) => results.push(*file),
             LoadOutcome::Message(message) => {
-                had_error |= message.kind == LoadMessageKind::Error;
+                if let Some(diagnostic) = &message.diagnostic {
+                    errors.push(diagnostic.clone());
+                }
                 messages.push(message);
             }
             LoadOutcome::Skipped => {}
         }
     }
 
-    (results, messages, had_error)
+    (results, messages, errors)
 }
 
 fn emit_messages(messages: &[LoadMessage]) {
@@ -194,12 +210,18 @@ fn warning(text: String) -> LoadOutcome {
     LoadOutcome::Message(LoadMessage {
         kind: LoadMessageKind::Warning,
         text,
+        diagnostic: None,
     })
 }
 
-fn error(text: String) -> LoadOutcome {
+fn error(
+    definition: &'static crate::run_diagnostic::Definition,
+    path: &Path,
+    text: String,
+) -> LoadOutcome {
     LoadOutcome::Message(LoadMessage {
         kind: LoadMessageKind::Error,
+        diagnostic: Some(RunDiagnostic::at(definition, path, text.clone())),
         text,
     })
 }
@@ -271,11 +293,11 @@ mod tests {
             .build()
             .unwrap()
             .install(|| load_discovered(discovered));
-        let (results, messages, had_error) = summarize_outcomes(outcomes);
+        let (results, messages, errors) = summarize_outcomes(outcomes);
 
         assert_eq!(file_names(&results), expected);
         assert!(messages.is_empty());
-        assert!(!had_error);
+        assert!(errors.is_empty());
     }
 
     #[test]
@@ -297,9 +319,10 @@ mod tests {
             .build()
             .unwrap()
             .install(|| load_discovered(discovered));
-        let (_results, messages, had_error) = summarize_outcomes(outcomes);
+        let (_results, messages, errors) = summarize_outcomes(outcomes);
 
-        assert!(had_error);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code, INPUT_READ.code);
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].kind, LoadMessageKind::Warning);
         assert!(

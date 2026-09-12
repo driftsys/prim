@@ -4,28 +4,59 @@
 prim [fmt|lint|fix] [OPTIONS] [PATH]...
 prim init [PATH]
 prim explain <PATH>
+prim registry --format json
 prim lsp
 ```
 
-prim exposes three formatting verbs (AD-0007) plus three utilities: `init` (repo
-setup), `explain` (config introspection), and `lsp` (a format-on-save language
-server). Bare `prim [PATH]...` is a permanent alias for `prim fmt [PATH]...` —
-no verb is required for the common case.
+prim exposes three formatting verbs (AD-0007) plus four utilities: `init` (repo
+setup), `explain` (config introspection), `registry` (diagnostic introspection),
+and `lsp` (a format-on-save language server). Bare `prim [PATH]...` is a
+permanent alias for `prim fmt [PATH]...` — no verb is required for the common
+case.
 
-| Command   | Writes?               | Purpose                                                                                    |
-| --------- | --------------------- | ------------------------------------------------------------------------------------------ |
-| `fmt`     | yes (in place)        | Format the parsed formats + whitespace hygiene. Default action.                            |
-| `lint`    | never                 | Report hygiene and content violations only.                                                |
-| `fix`     | yes (in place)        | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
-| `init`    | `.editorconfig` only  | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
-| `explain` | never                 | Print the `.editorconfig` settings that apply to one file, and where each came from.       |
-| `lsp`     | never (returns edits) | Run an LSP formatting server over stdio for editor format-on-save.                         |
+| Command    | Writes?               | Purpose                                                                                    |
+| ---------- | --------------------- | ------------------------------------------------------------------------------------------ |
+| `fmt`      | yes (in place)        | Format the parsed formats + whitespace hygiene. Default action.                            |
+| `lint`     | never                 | Report hygiene and content violations only.                                                |
+| `fix`      | yes (in place)        | `fmt` plus autofixable content rules (none yet, so `fix` is currently identical to `fmt`). |
+| `init`     | `.editorconfig` only  | Scaffold or minimally merge prim's Markdown strict-glob map.                               |
+| `explain`  | never                 | Print the `.editorconfig` settings that apply to one file, and where each came from.       |
+| `registry` | never                 | Print the versioned diagnostic catalog as JSON without inspecting files.                   |
+| `lsp`      | never (returns edits) | Run an LSP formatting server over stdio for editor format-on-save.                         |
 
 ## Arguments
 
 | Argument    | Description                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `[PATH]...` | Files or directories to process. Directories are searched recursively (honoring `.gitignore`/`.git/info/exclude`/global gitignore/`.ignore`/`.primignore` by default); defaults to the current directory when omitted. |
+
+### Explicit-file delegation
+
+An orchestrator that already owns repository walking and file selection can pass
+its exact batch to `prim`:
+
+```console
+prim fmt FILE...
+prim fmt --check --format json FILE...
+prim fmt --dry-run --format json FILE...
+prim lint --format json FILE...
+prim fix FILE...
+prim fix --dry-run --format json FILE...
+```
+
+For file arguments, prim processes only the named paths; it does not search a
+file's parent or add siblings. Passing a directory is different: it explicitly
+asks prim to perform its normal recursive discovery. Relative and absolute file
+paths are accepted, including paths containing spaces.
+
+Delegation does not bypass prim's safety boundary. `.primignore`, `--exclude`,
+generated-file protection, and symlink refusal still apply. Unsupported files
+are skipped, so shell files are never formatted or linted by prim. A named,
+owned file that is malformed or unreadable is left byte-for-byte unchanged and
+makes the command exit `2`. The effective `.editorconfig` style is resolved for
+each accepted path at invocation time; a caller that needs reproducible output
+must keep both the input bytes and that configuration unchanged between a
+preview and a write.
 
 ## Options
 
@@ -34,7 +65,8 @@ no verb is required for the common case.
 | `--check`                       | `fmt`, `fix`          | Write nothing; exit non-zero if any file would change, and list it.                                                                                                                                       |
 | `--diff`                        | `fmt`, `fix`          | Print a unified diff of pending changes; write nothing. Exit `0` on `fmt` regardless of pending changes; exit non-zero on `fix` if a fixable finding is pending (shares `fix --check`'s gated contract).  |
 | `--check-idempotence`           | `fmt`                 | Write nothing; for each matched prim-owned file, format it in memory twice with the resolved `.editorconfig` style and exit non-zero if the second pass still changes bytes.                              |
-| `--format <json\|sarif>`        | `fmt --check`, `lint` | Emit machine-readable findings to stdout instead of the default plain-text report. Valid only on `fmt --check` and `lint`.                                                                                |
+| `--dry-run`                     | `fmt`, `fix`          | Write nothing and emit an exact whole-file replacement plan. Requires `--format json`.                                                                                                                    |
+| `--format <json\|sarif>`        | `fmt --check`, `lint` | Emit machine-readable findings to stdout instead of the default plain-text report. `--dry-run` and `registry` accept JSON only.                                                                           |
 | `--stdin-filepath <PATH>`       | `fmt`, `lint`, `fix`  | Read stdin and process it (format-on-save for `fmt`/`fix`; report for `lint`). Mutually exclusive with `--check`/`--diff`.                                                                                |
 | `--exclude <GLOB>`              | all                   | Exclude paths matching the glob (repeatable). A malformed glob is a usage error.                                                                                                                          |
 | `--no-ignore`                   | `fmt`, `lint`, `fix`  | Disable only VCS ignore files (`.gitignore`, global gitignore, `.git/info/exclude`). `.primignore`, `--exclude`, and the `.git/` directory prune still apply.                                             |
@@ -53,11 +85,11 @@ for removal in v2.0 — the bare `fmt` alias itself is not deprecated.
 
 ## Exit codes
 
-| Code | Meaning                                                             |
-| ---- | ------------------------------------------------------------------- |
-| `0`  | Nothing to do, or already clean.                                    |
-| `1`  | Actionable: format drift (`fmt`/`fix --check`) or a `lint` finding. |
-| `2`  | prim could not do its job (parse, I/O, or usage error).             |
+| Code | Meaning                                                               |
+| ---- | --------------------------------------------------------------------- |
+| `0`  | Nothing to do, or already clean.                                      |
+| `1`  | Actionable: format drift, a planned replacement, or a `lint` finding. |
+| `2`  | prim could not do its job (parse, I/O, or usage error).               |
 
 Warnings never raise the exit code; only errors do. A gate that was pointed only
 at skipped paths examined nothing, and exits `2` rather than `0` (FR-4.4c).
@@ -600,10 +632,10 @@ Add prim as a formatter-only language server and select it per language in
 
 ## Machine-readable output
 
-`--format json` and `--format sarif` are available only on `prim fmt --check`
-and `prim lint`. They change only stdout; warnings, parse errors, missing-path
-errors, and deprecation warnings still go to stderr exactly as they do in the
-default plain-text modes.
+`--format json` and `--format sarif` are available on `prim fmt --check` and
+`prim lint`. JSON is also the required format for `prim fmt --dry-run`,
+`prim fix --dry-run`, and `prim registry`. These modes change only stdout;
+warnings, errors, and deprecation notices still go to stderr.
 
 ### JSON schema
 
@@ -626,13 +658,18 @@ prim's JSON report is intentionally small and stable:
       "line": 1,
       "column": 6
     }
-  ]
+  ],
+  "errors": []
 }
 ```
 
 - `version` is the report-schema version, starting at `1`.
 - `mode` is `fmt-check` or `lint`.
 - `findings` contains one object per reported finding.
+- `errors` is always present. Operational failures use stable codes:
+  `input::read`, `format::parse`, `internal::panic`, `scope::empty`, and
+  `scope::resolve`. File failures include `path`; run-wide scope failures do
+  not.
 - `line` and `column` appear only when prim has a concrete source position.
 - `path_encoded` appears only when the path is not valid UTF-8: it carries the
   path's bytes percent-encoded, because JSON strings cannot hold them and `path`
@@ -643,11 +680,13 @@ prim's JSON report is intentionally small and stable:
 
 ### SARIF 2.1.0
 
-`--format sarif` emits a SARIF 2.1.0 log for the same findings. `ruleId` matches
-prim's stable finding code, `artifactLocation.uri` is the reported path, and
-`region.startLine` / `region.startColumn` are included when prim has a
-positioned finding. A path that is not valid UTF-8 is percent-encoded, which is
-the form a SARIF uri calls for; a path that is valid UTF-8 is written as it is.
+`--format sarif` emits a SARIF 2.1.0 log for the same findings and operational
+errors. `ruleId` matches prim's stable code, `artifactLocation.uri` is the
+reported path, and `region.startLine` / `region.startColumn` are included when
+prim has a positioned finding. Operational errors have level `error`; a run-wide
+error has no invented location. A path that is not valid UTF-8 is
+percent-encoded, which is the form a SARIF uri calls for; a path that is valid
+UTF-8 is written as it is.
 
 ```json
 {
@@ -677,6 +716,65 @@ the form a SARIF uri calls for; a path that is valid UTF-8 is written as it is.
   ]
 }
 ```
+
+### Formatting effect plans
+
+`prim fmt --dry-run --format json FILE...` and
+`prim fix --dry-run --format json FILE...` never write. They emit schema version
+`1` with `operation`, `effects`, and `errors`. Each effect is a whole-file
+`replace_contents` operation carrying:
+
+- `path` and, only for a non-UTF-8 name, `path_encoded`;
+- the classified `kind`;
+- `before` and `after` SHA-256 digests and byte lengths;
+- the exact resolved formatting configuration: `end_of_line`,
+  `trim_trailing_whitespace`, `insert_final_newline`, `indent_style`,
+  `indent_size`, and `max_line_length`.
+
+An empty effect list exits `0`; pending replacements exit `1`; operational
+failure exits `2` while preserving any effects computed for other inputs. The
+schema is
+[`schemas/prim-effect-plan-v1.schema.json`](../schemas/prim-effect-plan-v1.schema.json).
+Applying the equivalent `prim fmt FILE...` or `prim fix FILE...` invocation with
+unchanged inputs and configuration produces the exact planned `after` bytes. The
+v1 plan supports only whole-file content replacement. It does not describe file
+creation, deletion, rename, permission or index changes, command execution, or
+Markdown content-rule autofixes. `fix` currently plans the same bytes as `fmt`
+because prim has no autofixable content rules; its distinct top-level
+`operation` preserves the caller's requested verb.
+
+### Diagnostic registry
+
+`prim registry --format json` prints one deterministic JSON document and exits
+`0`. It never walks files, resolves `.editorconfig`, or applies changed-file or
+exclude filters. The v1 document contains:
+
+- `schema_version` and the `tool` name/version;
+- one `diagnostics` entry per code prim can emit, sorted by `code`;
+- empty but required `aliases` and `retired` arrays, reserving explicit places
+  for future code migration.
+
+Each diagnostic entry includes `code`, `description`, `category`,
+`default_severity`, applicable `formats`, `enabled_by`, `configuration_keys`,
+`inline_controls`, and `can_disable`. The Markdown entries and their
+descriptions are generated from the same rule-policy table and pinned rumdl
+objects used by `lint`; hygiene entries come from the same definitions used by
+the engine. The schema is
+[`schemas/prim-registry-v1.schema.json`](../schemas/prim-registry-v1.schema.json).
+
+`enabled_by` is one of `always`, `editorconfig`, `prim_mdlint_strict`,
+`prim_mdlint_report_line_length`, or `runtime`. Inline-control names refer to:
+
+| Name                          | Syntax and scope                                                                                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prim-mdlint-strict`          | A standalone `<!-- prim-mdlint-strict: true\|false -->` line; last occurrence selects the file tier.                                                    |
+| `rumdl-disable`               | rumdl `disable`/`enable` directives with file, block, line, and next-line forms.                                                                        |
+| `markdownlint-disable`        | markdownlint-compatible `disable`/`enable` directives with the same scopes.                                                                             |
+| `markdownlint-configure-file` | An HTML comment containing this name followed by a JSON rule-options map, such as `{"MD041":{"level":2}}`; affects rules already selected for the file. |
+
+Within registry schema version `1`, consumers must tolerate additive fields.
+Removing or redefining a field or diagnostic code requires a new schema version;
+code replacements go in `aliases`, and codes that stop emitting go in `retired`.
 
 ### GitHub Actions integration
 

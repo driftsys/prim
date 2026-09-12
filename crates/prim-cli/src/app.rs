@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+mod effect_plan;
 mod load;
 mod paths;
 mod stdin;
@@ -16,13 +17,16 @@ use crate::explain;
 use crate::init;
 use crate::lsp;
 use crate::provenance;
+use crate::registry;
 use crate::report::{self, Finding, ReportMode};
+use crate::run_diagnostic::RunDiagnostic;
 use crate::ui;
 
 /// Exit codes (AD-0007 §4): `0` nothing to do / already clean, `1`
-/// actionable — format drift (`fmt`/`fix` `--check`) or a lint finding, `2`
-/// prim could not do its job (parse/IO/usage error, or a gate that examined
-/// nothing — FR-4.4c). Warnings never raise the exit code; only errors do.
+/// actionable — format drift (`fmt`/`fix` `--check`), a planned replacement
+/// (`fmt`/`fix` `--dry-run`), or a lint finding, `2` prim could not do its job
+/// (parse/IO/usage error, or a gate that examined nothing — FR-4.4c). Warnings
+/// never raise the exit code; only errors do.
 const EXIT_OK: i32 = 0;
 const EXIT_ACTIONABLE: i32 = 1;
 const EXIT_ERROR: i32 = 2;
@@ -33,7 +37,6 @@ const EXIT_ERROR: i32 = 2;
 /// diagnostics (story B1). The `_CODE`/`_FINDING` split feeds both the
 /// plain-text (`ui::lint_finding`) and machine-readable (`Finding::new`,
 /// story D2) report paths.
-const FORMAT_DRIFT_CODE: &str = "format::drift";
 const FORMAT_CHECK_FINDING: &str = "would be reformatted";
 const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run `prim fmt` to fix)";
 
@@ -41,7 +44,7 @@ const FORMAT_DRIFT_FINDING: &str = "does not match prim's canonical format (run 
 /// (FR-4.4c). `0` there would claim a clean run over files prim never looked
 /// at; the run failed to answer the question, so it is an error, not a
 /// finding.
-const EXAMINED_NOTHING: &str = "nothing was examined: .primignore or the built-in generated-file list covered every path prim was pointed at";
+const EXAMINED_NOTHING: &str = "nothing was examined: .primignore, --exclude, or the built-in generated-file list covered every path prim was pointed at";
 
 /// Process the parsed CLI and return the process exit code.
 pub fn run(cli: &Cli) -> i32 {
@@ -73,6 +76,10 @@ pub fn run(cli: &Cli) -> i32 {
         ),
         Verb::Init(args) => run_init(args),
         Verb::Explain(args) => run_explain(args),
+        Verb::Registry(_) => {
+            print!("{}", registry::render());
+            EXIT_OK
+        }
         Verb::Lsp => lsp::run(),
     }
 }
@@ -100,6 +107,9 @@ fn run_fmt(
     ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
+    if !valid_write_format(&args.write, args.format, true) {
+        return EXIT_ERROR;
+    }
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
@@ -122,17 +132,36 @@ fn run_fix(
     ignores: discover::IgnoreSettings,
     changed_files_scope: &ChangedFilesScope,
 ) -> i32 {
+    if !valid_write_format(&args.write, args.format, false) {
+        return EXIT_ERROR;
+    }
     if let Some(path) = args.write.stdin_filepath.as_deref() {
         return run_fmt_stdin(path);
     }
     run_fmt_paths(
         &args.write,
-        None,
+        args.format,
         excludes,
         true,
         ignores,
         changed_files_scope,
     )
+}
+
+fn valid_write_format(
+    args: &crate::cli::WriteArgs,
+    format: Option<OutputFormat>,
+    is_fmt: bool,
+) -> bool {
+    if args.dry_run && !matches!(format, Some(OutputFormat::Json)) {
+        ui::error("--dry-run requires --format json");
+        return false;
+    }
+    if format.is_some() && !args.dry_run && !(is_fmt && args.check) {
+        ui::error("--format is valid only with --check or --dry-run");
+        return false;
+    }
+    true
 }
 
 fn run_lint(
@@ -196,6 +225,14 @@ fn run_explain(args: &ExplainArgs) -> i32 {
     }
 }
 
-fn emit_report(format: OutputFormat, mode: ReportMode, findings: &[Finding]) {
-    print!("{}", report::render(format, mode, findings));
+fn emit_report(
+    format: OutputFormat,
+    mode: ReportMode,
+    findings: &[Finding],
+    errors: &[RunDiagnostic],
+) {
+    print!(
+        "{}",
+        report::render_with_errors(format, mode, findings, errors)
+    );
 }
