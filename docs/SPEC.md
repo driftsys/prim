@@ -673,7 +673,7 @@ default, format-in-place action.
   path was named, a warning that leaves the exit code alone when the file was
   reached by a directory walk.
 
-## Release integrity (unreleased)
+## Release integrity (v0.9.0)
 
 - **RI-1** Each release shall retain the five supported target archives and
   matching SHA-256 files documented in [Installation](installation.md). It shall
@@ -707,10 +707,11 @@ default, format-in-place action.
   pull-request and scheduled `cargo audit` gate shall remain unchanged.
 - **RI-5** Attestation generation alone shall not be presented as evidence of
   SLSA Build Level 3. Protected branch/tag/release ruleset inspection and the
-  first successful hosted OIDC signing and verification run remain external
+  successful hosted OIDC signing and verification evidence are separate
   acceptance gates for #55. The repository shall not claim that level until
   reviewed controls and run evidence establish it. These release-integrity
-  assets are unreleased; v0.8.0 establishes only archive/checksum availability.
+  assets are introduced in v0.9.0; v0.8.0 establishes only archive/checksum
+  availability.
 
 ## NFR — non-functional (targets, tunable)
 

@@ -92,10 +92,10 @@ directory on your `MANPATH` if you want `man prim`.
 
 ## Release signatures, SBOM, and provenance
 
-This contract is **unreleased**. v0.8.0 supplies the five platform archives and
-their checksums; it does not supply the signature, SBOM, or provenance assets
-described below. The first supporting release will be recorded after a tagged
-hosted build passes the verification gate.
+Starting with **v0.9.0**, releases use this contract. v0.8.0 supplies the five
+platform archives and their checksums; it does not supply the signature, SBOM,
+or provenance assets described below. A supporting release is published only
+after its tagged hosted build passes the verification gate.
 
 Each supporting release contains exactly 22 assets: four per supported target
 and two for the release as a whole.
@@ -179,8 +179,8 @@ repackaging them. `install.sh` continues to verify SHA-256 only.
 These checks do not by themselves establish SLSA Build Level 3. Protected
 branch, tag, and release ruleset controls must be inspected to establish that
 the tagged commit and reusable workflow were reviewed and cannot be replaced by
-an unreviewed caller. That inspection and the first successful hosted OIDC
-signing and verification run remain external acceptance gates for #55. No SLSA
+an unreviewed caller. That inspection, together with hosted OIDC signing and
+verification evidence, is required to establish #55's provenance level. No SLSA
 level is claimed until those controls and run evidence have been reviewed and
 recorded. The existing pull-request and scheduled `cargo audit` CI gate remains
 in place.
