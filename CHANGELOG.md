@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.1] (2026-09-20)
+
+### Bug Fixes
+
+- **prim:** update Criterion benchmark black boxes ([#204]) ([aed7ab5])
+
+[0.9.1]: https://github.com/driftsys/prim/compare/v0.9.0...v0.9.1
+[aed7ab5]: https://github.com/driftsys/prim/commit/aed7ab5
+[#204]: https://github.com/driftsys/prim/issues/204
+
 ## [0.9.0] (2026-09-12)
 
 ### Features
