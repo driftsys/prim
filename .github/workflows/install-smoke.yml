@@ -1,0 +1,73 @@
+name: Installation smoke tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ci.yml
+      - .github/workflows/install-smoke.yml
+      - .github/workflows/release.yml
+      - .github/workflows/release-build.yml
+      - install.sh
+      - spec/install/**
+      - tools/release/**
+  pull_request:
+    paths:
+      - .github/workflows/ci.yml
+      - .github/workflows/install-smoke.yml
+      - .github/workflows/release.yml
+      - .github/workflows/release-build.yml
+      - install.sh
+      - spec/install/**
+      - tools/release/**
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  smoke:
+    name: Smoke install (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            extension: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            extension: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            extension: .exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: install-smoke-${{ matrix.target }}
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build release binary
+        run: cargo build --locked --release --target "${{ matrix.target }}" -p prim-cli
+      - name: Package archive and checksum
+        run: |
+          set -euo pipefail
+          man_page=$(find "target/${{ matrix.target }}/release/build" -path '*/out/man/prim.1' -print -quit)
+          test -n "$man_page"
+          tools/release/package.sh \
+            "${{ matrix.target }}" \
+            "target/${{ matrix.target }}/release/prim${{ matrix.extension }}" \
+            "$man_page" .
+      - name: Run installation smoke test
+        run: bash tools/release/smoke-test.sh "prim-${{ matrix.target }}.tar.gz" "prim-${{ matrix.target }}.tar.gz.sha256"

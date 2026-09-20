@@ -232,7 +232,7 @@ check(jobs.fetch("publish").fetch("permissions") == {"contents" => "read"}, "cra
 
 %w[release publish].each do |job_name|
   publication = jobs.fetch(job_name)
-  check(publication.fetch("needs") == "verify", "#{job_name} bypasses verifier")
+  check(publication.fetch("needs") == %w[verify smoke], "#{job_name} bypasses verifier or smoke test")
   check(!publication.key?("if"), "#{job_name} overrides successful dependency gating")
   check(!publication.key?("continue-on-error"), "#{job_name} tolerates publication failure")
   check(publication.fetch("steps").none? { |candidate| candidate.key?("continue-on-error") }, "#{job_name} contains a failure-tolerant step")
@@ -246,7 +246,49 @@ check(step(jobs.fetch("release"), "Create release").fetch("with").fetch("files")
 check(step(jobs.fetch("publish"), "Publish crates").fetch("run").include?("cargo publish"), "crates.io publication disappeared")
 check(step(jobs.fetch("publish"), "Publish crates").fetch("run").include?('if [ "$pkg_version" = "$published" ]; then'), "crates.io publication is not idempotent")
 check(jobs.fetch("publish").fetch("steps").none? { |candidate| candidate.fetch("uses", "").start_with?("actions/download-artifact@") }, "crates.io job downloads release archives")
-[build_job, sbom, verify, jobs.fetch("publish")].each do |job|
+
+smoke = workflow(".github/workflows/install-smoke.yml")
+check(smoke.fetch(true).fetch("push").fetch("branches") == ["main"], "install smoke workflow runs outside main pushes")
+check(smoke.fetch(true).fetch("pull_request").fetch("paths").sort == [
+  ".github/workflows/ci.yml",
+  ".github/workflows/install-smoke.yml",
+  ".github/workflows/release-build.yml",
+  ".github/workflows/release.yml",
+  "install.sh",
+  "spec/install/**",
+  "tools/release/**"
+].sort, "install smoke workflow paths changed")
+check(smoke.fetch(true).fetch("push").fetch("paths").sort == [
+  ".github/workflows/ci.yml",
+  ".github/workflows/install-smoke.yml",
+  ".github/workflows/release-build.yml",
+  ".github/workflows/release.yml",
+  "install.sh",
+  "spec/install/**",
+  "tools/release/**"
+].sort, "install smoke workflow push paths changed")
+smoke_job = smoke.fetch("jobs").fetch("smoke")
+check(smoke_job.fetch("strategy").fetch("matrix").fetch("include").map { |entry| entry.fetch("os") } == %w[
+  ubuntu-latest macos-latest windows-latest
+], "install smoke workflow does not cover all supported platforms")
+smoke_run = smoke_job.fetch("steps").find { |candidate| candidate["name"] == "Run installation smoke test" }
+check(smoke_run.fetch("run") == "bash tools/release/smoke-test.sh \"prim-${{ matrix.target }}.tar.gz\" \"prim-${{ matrix.target }}.tar.gz.sha256\"", "install smoke command changed")
+
+release_smoke = jobs.fetch("smoke")
+check(release_smoke.fetch("needs") == "build", "release smoke test does not wait for exact producer artifacts")
+check(release_smoke.fetch("strategy").fetch("matrix").fetch("include").map { |entry| entry.fetch("target") } == targets, "release smoke matrix changed")
+check(release_smoke.fetch("strategy").fetch("matrix").fetch("include").map { |entry| [entry.fetch("target"), entry.fetch("os")] } == [
+  ["x86_64-unknown-linux-musl", "ubuntu-latest"],
+  ["aarch64-unknown-linux-musl", "ubuntu-24.04-arm"],
+  ["x86_64-apple-darwin", "macos-13"],
+  ["aarch64-apple-darwin", "macos-latest"],
+  ["x86_64-pc-windows-msvc", "windows-latest"]
+], "release smoke runners do not match artifact architectures")
+check(release_smoke.fetch("steps").any? { |candidate| candidate["uses"] == "actions/download-artifact@v8" }, "release smoke test does not download build artifacts")
+check(release_smoke.fetch("steps").any? { |candidate| candidate.fetch("name", "") == "Run installation smoke test" && candidate.fetch("run", "").include?("tools/release/smoke-test.sh") }, "release smoke test does not execute the shared smoke test")
+check(jobs.fetch("release").fetch("needs") == %w[verify smoke], "release publication bypasses installation smoke tests")
+check(jobs.fetch("publish").fetch("needs") == %w[verify smoke], "crate publication bypasses installation smoke tests")
+[build_job, sbom, verify, release_smoke, jobs.fetch("publish")].each do |job|
   checkout = job.fetch("steps").find { |candidate| candidate["uses"] == "actions/checkout@v7" }
   check(checkout.fetch("with").fetch("ref") == '${{ github.sha }}', "release source checkout is mutable")
   check(checkout.fetch("with").fetch("persist-credentials") == false, "checkout retains a repository credential")
@@ -292,6 +334,8 @@ check(audit.fetch("steps").none? { |candidate| candidate.key?("continue-on-error
 check(ci_jobs.fetch("ci").fetch("needs").include?("audit"), "cargo audit no longer gates CI")
 release_contract = ci_jobs.fetch("release-contract-test")
 check(release_contract.fetch("steps").any? { |candidate| candidate["run"] == "bash tools/bash_unit spec/install/release_contract_test.sh" }, "release contract CI job depends on an unavailable command")
+install_test = ci_jobs.fetch("install-test")
+check(install_test.fetch("steps").any? { |candidate| candidate["run"] == "bash tools/bash_unit spec/install/smoke_test.sh" }, "install CI job does not run the artifact smoke test")
 
 # Execute the actual gate with controlled trust-service responses. These tests
 # exercise rejection and argument wiring, not hosted OIDC or cryptographic trust.
