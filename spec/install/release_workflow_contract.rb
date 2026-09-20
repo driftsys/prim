@@ -286,7 +286,9 @@ check(release_smoke.fetch("strategy").fetch("matrix").fetch("include").map { |en
   ["aarch64-apple-darwin", "macos-latest"],
   ["x86_64-pc-windows-msvc", "windows-latest"]
 ], "release smoke runners do not match artifact architectures")
-check(step(release_smoke, "Download artifact").fetch("with") == {
+release_download = step(release_smoke, "Download artifact")
+check(release_download["uses"] == "actions/download-artifact@v8", "release smoke test changed its artifact download action")
+check(release_download.fetch("with") == {
   "name" => "prim-${{ matrix.target }}",
   "path" => "incoming"
 }, "release smoke test does not download the exact producer artifact")
