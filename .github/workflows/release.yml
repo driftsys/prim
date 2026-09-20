@@ -221,9 +221,45 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  smoke:
+    name: Smoke install (${{ matrix.target }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: prim-${{ matrix.target }}
+          path: incoming
+      - name: Run installation smoke test
+        run: bash tools/release/smoke-test.sh "incoming/prim-${{ matrix.target }}.tar.gz" "incoming/prim-${{ matrix.target }}.tar.gz.sha256"
+
   release:
     name: Create GitHub Release
-    needs: verify
+    needs: [verify, smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -244,7 +280,7 @@ jobs:
 
   publish:
     name: Publish to crates.io
-    needs: verify
+    needs: [verify, smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: read

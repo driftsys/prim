@@ -90,6 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: bash tools/bash_unit spec/install/install_test.sh
+      - run: bash tools/bash_unit spec/install/smoke_test.sh
 
   release-contract-test:
     name: Release contract tests
