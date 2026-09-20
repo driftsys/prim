@@ -17,6 +17,17 @@ checksum="$2"
 
 archive_directory="$(cd "$(dirname "$archive")" && pwd)"
 checksum_path="$(cd "$(dirname "$checksum")" && pwd)/$(basename "$checksum")"
+archive_name="$(basename "$archive")"
+if command -v sha256sum >/dev/null 2>&1; then
+  expected_digest="$(sha256sum "$archive" | awk '{print $1}')"
+else
+  expected_digest="$(shasum -a 256 "$archive" | awk '{print $1}')"
+fi
+manifest_digest="$(awk 'NF {print $1; exit}' "$checksum_path")"
+manifest_subject="$(awk 'NF {print $2; exit}' "$checksum_path")"
+[ "$manifest_digest" = "$expected_digest" ] || die "checksum does not match $archive"
+[ "$manifest_subject" = "$archive_name" ] || die "checksum does not name $archive"
+
 if command -v sha256sum >/dev/null 2>&1; then
   (cd "$archive_directory" && sha256sum -c "$checksum_path")
 else

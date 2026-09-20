@@ -56,3 +56,15 @@ test_smoke_test_rejects_a_tampered_archive() {
 
     rm -rf "$scratch"
 }
+
+test_smoke_test_rejects_a_checksum_for_another_file() {
+    local scratch
+    scratch="$(mktemp -d)"
+    make_archive "$scratch"
+    cp "$scratch/prim-test.tar.gz" "$scratch/other.tar.gz"
+    (cd "$scratch" && sha256sum other.tar.gz > prim-test.tar.gz.sha256)
+
+    assert_fails "bash '$SMOKE' '$scratch/prim-test.tar.gz' '$scratch/prim-test.tar.gz.sha256'"
+
+    rm -rf "$scratch"
+}
