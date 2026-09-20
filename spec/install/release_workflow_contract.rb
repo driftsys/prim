@@ -276,16 +276,21 @@ check(smoke_run.fetch("run") == "bash tools/release/smoke-test.sh \"prim-${{ mat
 
 release_smoke = jobs.fetch("smoke")
 check(release_smoke.fetch("needs") == "build", "release smoke test does not wait for exact producer artifacts")
+check(!release_smoke.key?("if") && !release_smoke.key?("continue-on-error"), "release smoke may skip or fail open")
+check(release_smoke.fetch("steps").none? { |candidate| candidate.key?("if") || candidate.key?("continue-on-error") }, "release smoke step may skip or fail open")
 check(release_smoke.fetch("strategy").fetch("matrix").fetch("include").map { |entry| entry.fetch("target") } == targets, "release smoke matrix changed")
 check(release_smoke.fetch("strategy").fetch("matrix").fetch("include").map { |entry| [entry.fetch("target"), entry.fetch("os")] } == [
   ["x86_64-unknown-linux-musl", "ubuntu-latest"],
   ["aarch64-unknown-linux-musl", "ubuntu-24.04-arm"],
-  ["x86_64-apple-darwin", "macos-13"],
+  ["x86_64-apple-darwin", "macos-15-intel"],
   ["aarch64-apple-darwin", "macos-latest"],
   ["x86_64-pc-windows-msvc", "windows-latest"]
 ], "release smoke runners do not match artifact architectures")
-check(release_smoke.fetch("steps").any? { |candidate| candidate["uses"] == "actions/download-artifact@v8" }, "release smoke test does not download build artifacts")
-check(release_smoke.fetch("steps").any? { |candidate| candidate.fetch("name", "") == "Run installation smoke test" && candidate.fetch("run", "").include?("tools/release/smoke-test.sh") }, "release smoke test does not execute the shared smoke test")
+check(step(release_smoke, "Download artifact").fetch("with") == {
+  "name" => "prim-${{ matrix.target }}",
+  "path" => "incoming"
+}, "release smoke test does not download the exact producer artifact")
+check(step(release_smoke, "Run installation smoke test").fetch("run") == "bash tools/release/smoke-test.sh \"incoming/prim-${{ matrix.target }}.tar.gz\" \"incoming/prim-${{ matrix.target }}.tar.gz.sha256\"", "release smoke test does not verify the exact downloaded artifact")
 check(jobs.fetch("release").fetch("needs") == %w[verify smoke], "release publication bypasses installation smoke tests")
 check(jobs.fetch("publish").fetch("needs") == %w[verify smoke], "crate publication bypasses installation smoke tests")
 [build_job, sbom, verify, release_smoke, jobs.fetch("publish")].each do |job|
