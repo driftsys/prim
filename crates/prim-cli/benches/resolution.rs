@@ -9,9 +9,10 @@
 //! It does not reproduce the end-to-end `--check` figure AD-0002 quotes. That
 //! number came from a full run, where resolution is one cost among many.
 
+use std::hint::black_box;
 use std::path::PathBuf;
 
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use prim_cli::editorconfig;
 
 /// A tree shaped like a repository: a root `.editorconfig`, a nested override
