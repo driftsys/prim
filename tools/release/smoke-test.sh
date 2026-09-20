@@ -25,6 +25,7 @@ else
 fi
 manifest_digest="$(awk 'NF {print $1; exit}' "$checksum_path")"
 manifest_subject="$(awk 'NF {print $2; exit}' "$checksum_path")"
+[ "$(awk 'NF {count++} END {print count + 0}' "$checksum_path")" -eq 1 ] || die "checksum must contain exactly one entry"
 [ "$manifest_digest" = "$expected_digest" ] || die "checksum does not match $archive"
 [ "$manifest_subject" = "$archive_name" ] || die "checksum does not name $archive"
 

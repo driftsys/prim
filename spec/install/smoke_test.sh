@@ -68,3 +68,14 @@ test_smoke_test_rejects_a_checksum_for_another_file() {
 
     rm -rf "$scratch"
 }
+
+test_smoke_test_rejects_a_checksum_with_extra_entries() {
+    local scratch
+    scratch="$(mktemp -d)"
+    make_archive "$scratch"
+    printf '%s  %s\n' "$(awk '{print $1}' "$scratch/prim-test.tar.gz.sha256")" other.tar.gz >> "$scratch/prim-test.tar.gz.sha256"
+
+    assert_fails "bash '$SMOKE' '$scratch/prim-test.tar.gz' '$scratch/prim-test.tar.gz.sha256'"
+
+    rm -rf "$scratch"
+}
