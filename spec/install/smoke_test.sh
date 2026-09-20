@@ -70,12 +70,15 @@ test_smoke_test_rejects_a_checksum_for_another_file() {
 }
 
 test_smoke_test_rejects_a_checksum_with_extra_entries() {
-    local scratch
+    local scratch output
     scratch="$(mktemp -d)"
     make_archive "$scratch"
-    printf '%s  %s\n' "$(awk '{print $1}' "$scratch/prim-test.tar.gz.sha256")" other.tar.gz >> "$scratch/prim-test.tar.gz.sha256"
+    cp "$scratch/prim-test.tar.gz" "$scratch/other.tar.gz"
+    (cd "$scratch" && sha256sum other.tar.gz >> prim-test.tar.gz.sha256)
 
-    assert_fails "bash '$SMOKE' '$scratch/prim-test.tar.gz' '$scratch/prim-test.tar.gz.sha256'"
+    output="$(bash "$SMOKE" "$scratch/prim-test.tar.gz" "$scratch/prim-test.tar.gz.sha256" 2>&1 || true)"
+    assert_matches 'checksum must contain exactly one entry' "$output"
+    assert_fails "bash '$SMOKE' '$scratch/prim-test.tar.gz' '$scratch/prim-test.tar.gz.sha256' >/dev/null 2>&1"
 
     rm -rf "$scratch"
 }
