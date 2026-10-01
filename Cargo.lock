@@ -586,9 +586,9 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.68.5"
+version = "0.69.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ace8a07022e292c498f9568c6859f73e40721fa18c4c0760cdc56220f4b99040"
+checksum = "67359cea061dd052fca921d3589a9ce59bc16fa23bfb9d06d5c669a1dbd23915"
 dependencies = [
  "bumpalo",
  "hashbrown 0.15.5",
@@ -610,13 +610,13 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-json"
-version = "0.23.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d6ea7c6e725594aef11d5c74e3c20a253b06cd2384c652aadf8baf09c276e97"
+checksum = "b1986867f5ac06dee1a32721aec08dd8fe447d97fd234396fb1e1eaa4f5b5c47"
 dependencies = [
- "dprint-core 0.68.5",
+ "dprint-core 0.69.1",
  "dprint-core-macros",
- "jsonc-parser",
+ "jsonc-parser 0.34.0",
  "serde",
  "text_lines",
  "thiserror 2.0.20",
@@ -1416,6 +1416,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.34.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ecded084f9b9a718d39668a42657c32253663d1f6afb3fbb9134f0305f73f48"
+dependencies = [
  "unicode-width 0.2.2",
 ]
 
@@ -2177,7 +2185,7 @@ dependencies = [
  "criterion",
  "dprint-plugin-json",
  "dprint-plugin-markdown",
- "jsonc-parser",
+ "jsonc-parser 0.33.1",
  "pretty_yaml",
  "rumdl",
  "serde_json",
