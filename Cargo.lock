@@ -571,21 +571,6 @@ dependencies = [
 
 [[package]]
 name = "dprint-core"
-version = "0.67.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c1d827947704a9495f705d6aeed270fa21a67f825f22902c28f38dc3af7a9ae"
-dependencies = [
- "anyhow",
- "bumpalo",
- "hashbrown 0.15.5",
- "indexmap",
- "rustc-hash 2.1.2",
- "serde",
- "unicode-width 0.2.2",
-]
-
-[[package]]
-name = "dprint-core"
 version = "0.68.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ace8a07022e292c498f9568c6859f73e40721fa18c4c0760cdc56220f4b99040"
@@ -595,7 +580,21 @@ dependencies = [
  "indexmap",
  "rustc-hash 2.1.2",
  "serde",
- "unicode-width 0.2.2",
+ "unicode-width",
+]
+
+[[package]]
+name = "dprint-core"
+version = "0.69.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67359cea061dd052fca921d3589a9ce59bc16fa23bfb9d06d5c669a1dbd23915"
+dependencies = [
+ "bumpalo",
+ "hashbrown 0.15.5",
+ "indexmap",
+ "rustc-hash 2.1.2",
+ "serde",
+ "unicode-width",
 ]
 
 [[package]]
@@ -624,17 +623,15 @@ dependencies = [
 
 [[package]]
 name = "dprint-plugin-markdown"
-version = "0.22.1"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a049a298ecf0d4579d1cc8875bd5c5861633006e0106c99a7c366b12c331b3d0"
+checksum = "13bd5c410ba8bc62ad8e94278b931a06b1fb163dc2ec9e1e12df3d4843534dce"
 dependencies = [
- "anyhow",
- "dprint-core 0.67.4",
+ "dprint-core 0.69.1",
  "dprint-core-macros",
- "pulldown-cmark 0.11.3",
- "regex",
  "serde",
- "unicode-width 0.1.14",
+ "thiserror 2.0.20",
+ "unicode-width",
 ]
 
 [[package]]
@@ -1416,7 +1413,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0560e3f9a9a03ea6b6e90b41138c5db9e21526c99eb192c1a26c68176593285"
 dependencies = [
  "serde",
- "unicode-width 0.2.2",
+ "unicode-width",
 ]
 
 [[package]]
@@ -1755,7 +1752,7 @@ dependencies = [
  "textwrap",
  "thiserror 2.0.20",
  "unicode-segmentation",
- "unicode-width 0.2.2",
+ "unicode-width",
 ]
 
 [[package]]
@@ -2227,17 +2224,6 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "679341d22c78c6c649893cbd6c3278dcbe9fc4faa62fea3a9296ae2b50c14625"
-dependencies = [
- "bitflags",
- "memchr",
- "unicase",
-]
-
-[[package]]
-name = "pulldown-cmark"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
@@ -2525,7 +2511,7 @@ dependencies = [
  "oxc_parser",
  "oxc_span",
  "percent-encoding",
- "pulldown-cmark 0.13.4",
+ "pulldown-cmark",
  "regex",
  "schemars",
  "serde",
@@ -2536,7 +2522,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "unicode-normalization",
- "unicode-width 0.2.2",
+ "unicode-width",
  "windows-sys 0.61.2",
 ]
 
@@ -3104,7 +3090,7 @@ checksum = "b81c0cb5fce14f53e49c1d4da0c508334ff12040221bb8ab01b2dabd91d04b6e"
 dependencies = [
  "icu_segmenter",
  "smawk",
- "unicode-width 0.2.2",
+ "unicode-width",
 ]
 
 [[package]]
@@ -3487,12 +3473,6 @@ name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
-
-[[package]]
-name = "unicode-width"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
 name = "unicode-width"
