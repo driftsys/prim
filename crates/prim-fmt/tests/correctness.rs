@@ -126,7 +126,8 @@ fn formatted_markdown_never_reports_its_own_line_length() {
     //
     // At the floor tier nothing prim produced may be reported. At the strict
     // tier a long heading may be, and only a heading: prim cannot wrap one, so
-    // it is the one construct the formatter knowingly leaves over the limit.
+    // it is the one construct the formatter cannot wrap. (A definition-list line is
+    // also left over the limit, because prim keeps it as written, AD-0021.)
     for (kind, case) in load_cases() {
         if kind != FileKind::Markdown {
             continue;

@@ -194,19 +194,23 @@ fn rebase(original: &str, first_original: &str, sentinel_prefix: &str) -> String
 }
 
 /// The index just past the last line of the paragraph that starts at `start`.
-/// A paragraph ends at a blank line, a change of quote depth, or a line that
-/// starts another block: a fence, an ATX heading, a thematic break or a list
-/// item. A first line that is itself a heading or a thematic break is a
-/// paragraph of one line.
+/// A paragraph ends at a blank line, a change of quote depth, a setext
+/// underline (which is its last line), or a line that starts another block: a
+/// fence, an ATX heading, a thematic break or a list item. A first line that is
+/// itself a heading or a thematic break is a paragraph of one line.
 fn paragraph_end(lines: &[&str], start: usize, base: usize) -> usize {
     let first = trim_line_ending(lines[start]);
     if is_heading_or_break(first) {
         return start + 1;
     }
     let depth = quote_depth(first);
+    let content_column = container_prefix_len(first);
     let mut end = start + 1;
     while end < lines.len() {
         let body = trim_line_ending(lines[end]);
+        if indent(body) < base + 4 && quote_depth(body) == depth && is_setext_underline(body) {
+            return end + 1;
+        }
         // An indented line continues the paragraph, whatever it looks like.
         let is_code = indent(body) >= base + 4;
         if is_blank(body)
@@ -214,7 +218,7 @@ fn paragraph_end(lines: &[&str], start: usize, base: usize) -> usize {
             || (!is_code
                 && (opens_fence(body).is_some()
                     || is_heading_or_break(body)
-                    || interrupts_with_list_marker(body)))
+                    || interrupts_with_list_marker(body, content_column)))
         {
             break;
         }
@@ -226,7 +230,10 @@ fn paragraph_end(lines: &[&str], start: usize, base: usize) -> usize {
 /// True when the paragraph has a term line followed by a `: ` definition line.
 fn has_definition_line(paragraph: &[&str]) -> bool {
     let first = paragraph[0];
-    if first.trim_start_matches([' ', '>']).starts_with(": ") {
+    // A setext heading is a heading, not a term and its definitions.
+    if first.trim_start_matches([' ', '>']).starts_with(": ")
+        || is_setext_underline(paragraph[paragraph.len() - 1])
+    {
         return false;
     }
     paragraph[1..]
@@ -256,17 +263,29 @@ fn marker_column(line: &str) -> Option<usize> {
     (container_prefix_len(line) > before_marker).then_some(before_marker)
 }
 
-/// A list marker that may interrupt a paragraph: a bullet, or an ordered
-/// marker numbered 1 (CommonMark).
-fn interrupts_with_list_marker(line: &str) -> bool {
+/// A list marker that ends a paragraph whose content starts at `content_column`:
+/// a marker left of that column belongs to a sibling or an enclosing item, so it
+/// ends the paragraph whatever its number. Further right, the marker starts a
+/// list inside the paragraph only if it is a bullet or an ordered marker
+/// numbered 1 (CommonMark).
+fn interrupts_with_list_marker(line: &str, content_column: usize) -> bool {
     let Some(column) = marker_column(line) else {
         return false;
     };
     let marker = line[column..container_prefix_len(line)].trim_end();
-    match marker.strip_suffix(['.', ')']) {
-        Some(number) => number.parse::<u64>() == Ok(1),
-        None => true,
-    }
+    column < content_column
+        || match marker.strip_suffix(['.', ')']) {
+            Some(number) => number.parse::<u64>() == Ok(1),
+            None => true,
+        }
+}
+
+/// A line of only `=` or only `-`: the underline that turns the paragraph above
+/// it into a setext heading.
+fn is_setext_underline(line: &str) -> bool {
+    let content = line.trim_start_matches([' ', '\t', '>']).trim_end();
+    !content.is_empty()
+        && (content.bytes().all(|c| c == b'=') || content.bytes().all(|c| c == b'-'))
 }
 
 fn is_heading_or_break(line: &str) -> bool {
@@ -410,6 +429,20 @@ mod tests {
     fn a_sibling_list_item_stays_a_sibling() {
         let out = fmt("- a\n- Term\n  : def\n- b\n\nx  y\n");
         assert_eq!(out, "- a\n- Term\n  : def\n- b\n\nx y\n");
+    }
+
+    #[test]
+    fn a_sibling_ordered_item_stays_a_sibling() {
+        let src = "1. x\n2. Term\n   : d\n3. y\n\nx  y\n";
+        assert_eq!(fmt(src), "1. x\n2. Term\n   : d\n3. y\n\nx y\n");
+    }
+
+    #[test]
+    fn a_setext_underline_makes_a_heading_not_a_definition_list() {
+        let out = fmt("Term\n: x\n---\n");
+        assert!(out.starts_with("## Term"), "{out:?}");
+        assert!(!out.contains("prim-guard"), "{out:?}");
+        assert_eq!(fmt(&out), out);
     }
 
     #[test]

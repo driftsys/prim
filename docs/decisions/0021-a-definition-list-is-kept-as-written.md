@@ -44,12 +44,15 @@ re-indented to the container prefix dprint gave the sentinel line. A two-space
 hard break inside the paragraph is written back as a trailing backslash, as
 dprint does for prose, because whitespace hygiene would strip the spaces.
 
-The paragraph ends where CommonMark ends one: at a blank line, a fence, an ATX
-heading, a thematic break, a list item (a bullet, or an ordered item numbered
-1), or a change of blockquote depth. Fenced code and indented code are never
-inspected; a line indented four columns past the innermost list item is code.
-The sentinel carries a nonce, as the fence-language guard does, so it cannot
-match text the author wrote.
+The paragraph ends where a block ends it: at a blank line, a fence, an ATX
+heading, a thematic break, a change of blockquote depth, or a list item. A
+bullet or an ordered item numbered 1 ends it at any position. A marker to the
+left of the paragraph's content column is a sibling or enclosing item and ends
+it whatever its number. A setext underline (`---` or `===`) makes the paragraph
+a heading, so the guard leaves it to dprint. Fenced code and indented code are
+never inspected; a line indented four columns past the innermost list item is
+code. The sentinel carries a nonce, as the fence-language guard does, so it
+cannot match text the author wrote.
 
 ## Consequences
 
@@ -59,8 +62,8 @@ match text the author wrote.
   `prim fmt`. With `prim_mdlint_report_line_length` on, `prim lint` reports
   MD013 on it, so a repository that formats with prim can still see that finding
   there. This is the second exception beside headings.
-- A paragraph that starts with a list marker or a quote marker and holds a
-  definition line is kept as written as a whole.
+- The guarded text is one list item, one quote run or one plain paragraph. The
+  items and paragraphs around it are formatted as before.
 - A definition line after a blank line is a separate paragraph and is wrapped as
   prose.
 - The result is stable under repeated formatting.
