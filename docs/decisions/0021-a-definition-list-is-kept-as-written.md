@@ -45,11 +45,12 @@ hard break inside the paragraph is written back as a trailing backslash, as
 dprint does for prose, because whitespace hygiene would strip the spaces.
 
 The paragraph ends where a block ends it: at a blank line, a fence, an ATX
-heading, a thematic break, a change of blockquote depth, or a list item. A
-bullet or an ordered item numbered 1 ends it at any position. A marker to the
-left of the paragraph's content column is a sibling or enclosing item and ends
-it whatever its number. A setext underline (`---` or `===`) makes the paragraph
-a heading, so the guard leaves it to dprint. Fenced code and indented code are
+heading, a thematic break, a deeper blockquote, or a list item. A line with
+fewer quote markers is a lazy continuation and stays in the paragraph. A bullet
+or an ordered item numbered 1 ends it at any position. A marker to the left of
+the paragraph's content column is a sibling or enclosing item and ends it
+whatever its number. A setext underline (`---` or `===`) makes the paragraph a
+heading, so the guard leaves it to dprint. Fenced code and indented code are
 never inspected; a line indented four columns past the innermost list item is
 code. The sentinel carries a nonce, as the fence-language guard does, so it
 cannot match text the author wrote.

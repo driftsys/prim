@@ -136,7 +136,7 @@ impl Guarded {
             let body = trim_line_ending(line);
             let ending = &line[body.len()..];
             match self.sentinel_in(body) {
-                Some((start, paragraph)) => {
+                Some((start, paragraph, joined)) => {
                     let prefix = &body[..start];
                     let last = paragraph.len() - 1;
                     for (position, original) in paragraph.iter().enumerate() {
@@ -148,6 +148,13 @@ impl Guarded {
                         out.push_str(&hard_break_to_backslash(restored, position < last));
                         out.push_str(if ending.is_empty() { "\n" } else { ending });
                     }
+                    // Text a formatter joined onto the sentinel line goes on a
+                    // line of its own, so no text is ever lost.
+                    if !joined.trim().is_empty() {
+                        out.push_str(&rebase_indent(prefix));
+                        out.push_str(joined.trim());
+                        out.push_str(if ending.is_empty() { "\n" } else { ending });
+                    }
                 }
                 None => out.push_str(line),
             }
@@ -156,11 +163,12 @@ impl Guarded {
     }
 
     /// The offset of the sentinel in `line` and the paragraph it stands for.
-    fn sentinel_in(&self, line: &str) -> Option<(usize, &[String])> {
+    fn sentinel_in<'a>(&'a self, line: &'a str) -> Option<(usize, &'a [String], &'a str)> {
         let start = line.find(&self.stem)?;
-        let digits = &line[start + self.stem.len()..];
-        let number: usize = digits.parse().ok()?;
-        Some((start, self.paragraphs.get(number)?))
+        let after = &line[start + self.stem.len()..];
+        let digits_len = after.bytes().take_while(u8::is_ascii_digit).count();
+        let number: usize = after[..digits_len].parse().ok()?;
+        Some((start, self.paragraphs.get(number)?, &after[digits_len..]))
     }
 }
 
@@ -186,15 +194,25 @@ fn rebase(original: &str, first_original: &str, sentinel_prefix: &str) -> String
         .take_while(|(_, c)| matches!(c, ' ' | '\t' | '>'))
         .last()
         .map_or(0, |(offset, c)| offset + c.len_utf8());
-    let indent: String = sentinel_prefix
+    format!(
+        "{}{}",
+        rebase_indent(sentinel_prefix),
+        &original[own_prefix_len..]
+    )
+}
+
+/// A continuation prefix for `sentinel_prefix`: quote markers stay, every other
+/// marker becomes a space.
+fn rebase_indent(sentinel_prefix: &str) -> String {
+    sentinel_prefix
         .chars()
         .map(|c| if c == '>' || c == '\t' { c } else { ' ' })
-        .collect();
-    format!("{indent}{}", &original[own_prefix_len..])
+        .collect()
 }
 
 /// The index just past the last line of the paragraph that starts at `start`.
-/// A paragraph ends at a blank line, a change of quote depth, a setext
+/// A paragraph ends at a blank line, a deeper quote (a line with fewer quote
+/// markers is a lazy continuation and stays), a setext
 /// underline (which is its last line), or a line that starts another block: a
 /// fence, an ATX heading, a thematic break or a list item. A first line that is
 /// itself a heading or a thematic break is a paragraph of one line.
@@ -208,13 +226,13 @@ fn paragraph_end(lines: &[&str], start: usize, base: usize) -> usize {
     let mut end = start + 1;
     while end < lines.len() {
         let body = trim_line_ending(lines[end]);
-        if indent(body) < base + 4 && quote_depth(body) == depth && is_setext_underline(body) {
+        if indent(body) < base + 4 && quote_depth(body) <= depth && is_setext_underline(body) {
             return end + 1;
         }
         // An indented line continues the paragraph, whatever it looks like.
         let is_code = indent(body) >= base + 4;
         if is_blank(body)
-            || quote_depth(body) != depth
+            || quote_depth(body) > depth
             || (!is_code
                 && (opens_fence(body).is_some()
                     || is_heading_or_break(body)
@@ -356,8 +374,15 @@ mod tests {
     use crate::markdown::format;
     use crate::{LineEnding, Style};
 
+    /// Format `src`, and check that a second run changes nothing.
     fn fmt(src: &str) -> String {
-        format(src, &Style::default()).unwrap()
+        let once = format(src, &Style::default()).unwrap();
+        assert_eq!(
+            format(&once, &Style::default()).unwrap(),
+            once,
+            "not idempotent"
+        );
+        once
     }
 
     /// The input is not canonical elsewhere, so dprint rewrites the document
@@ -429,6 +454,79 @@ mod tests {
     fn a_sibling_list_item_stays_a_sibling() {
         let out = fmt("- a\n- Term\n  : def\n- b\n\nx  y\n");
         assert_eq!(out, "- a\n- Term\n  : def\n- b\n\nx y\n");
+    }
+
+    #[test]
+    fn a_lazy_continuation_line_stays_in_the_blockquote_definition() {
+        let out = fmt("> Term\n> : def\nlazy   line\n");
+        assert!(!out.contains("prim-guard"), "{out:?}");
+        assert_eq!(out, "> Term\n> : def\n> lazy   line\n");
+        let out = fmt("> > Term\n> > : def\n> lazy\n");
+        assert!(!out.contains("prim-guard"), "{out:?}");
+        assert_eq!(out, ">> Term\n>> : def\n>> lazy\n");
+    }
+
+    #[test]
+    fn a_thematic_break_after_a_definition_ends_it() {
+        let out = fmt("Term\n: def\n***\n");
+        assert_eq!(out, "Term\n: def\n\n---\n");
+    }
+
+    #[test]
+    fn an_indented_line_continues_the_definition() {
+        assert_kept("Term\n: def\n    # not   heading\n");
+    }
+
+    #[test]
+    fn only_an_ordered_item_numbered_one_interrupts_a_definition() {
+        assert_kept("Term\n: def\n2. x   y\n");
+        let out = fmt("Term\n: def\n1. x   y\n");
+        assert_eq!(out, "Term\n: def\n\n1. x y\n");
+    }
+
+    #[test]
+    fn indented_code_after_a_list_is_not_a_fence() {
+        assert_kept("- item\n\npara\n\n    ```\n    code\n\nTerm\n: d   e\n");
+    }
+
+    #[test]
+    fn a_closing_fence_carries_no_info_string() {
+        // dprint lengthens the outer fence; the definition is what matters.
+        let out = fmt("```\n```text\n```\n\nTerm\n: d   e\n");
+        assert!(out.ends_with("Term\n: d   e\n"), "{out:?}");
+    }
+
+    #[test]
+    fn a_backtick_fence_has_no_backtick_in_its_info_string() {
+        assert_kept("``` a`b\nTerm\n: d   e\n");
+    }
+
+    #[test]
+    fn trailing_spaces_on_the_last_definition_line_are_dropped() {
+        assert_eq!(fmt("Term\n: a\nb  \n"), "Term\n: a\nb\n");
+    }
+
+    #[test]
+    fn a_heading_directly_before_a_term_is_formatted() {
+        assert_eq!(fmt("#   H\nTerm\n: d\n"), "# H\n\nTerm\n: d\n");
+    }
+
+    #[test]
+    fn a_fence_directly_after_a_definition_is_separate() {
+        assert_eq!(
+            fmt("Term\n: def\n```\ncode\n```\n"),
+            "Term\n: def\n\n```\ncode\n```\n"
+        );
+    }
+
+    #[test]
+    fn text_joined_onto_a_sentinel_is_kept_on_its_own_line() {
+        let guarded = super::guard("Term\n: d\n");
+        let joined = format!(
+            "{}0 trailing\n",
+            guarded.text.trim_end().trim_end_matches('0')
+        );
+        assert_eq!(guarded.restore(&joined), "Term\n: d\ntrailing\n");
     }
 
     #[test]
