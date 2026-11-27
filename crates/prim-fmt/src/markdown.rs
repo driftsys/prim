@@ -15,7 +15,8 @@ use crate::{FormatError, Style};
 ///
 /// Prose is hard-wrapped to `style.max_line_length` (else 80) with the FR-1.1a
 /// guardrails honored by dprint (inline code atomic, links not split, tables and
-/// fenced code not wrapped, hard breaks preserved). Fenced code-block contents
+/// fenced code not wrapped, hard breaks preserved). A definition list is kept
+/// as written by prim's own guard (`definition_list`). Fenced code-block contents
 /// are preserved verbatim (FR-1.6): the `format_code_block_text` callback returns
 /// `Ok(None)`, so dprint never reformats embedded code.
 pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
@@ -40,7 +41,11 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
             let restored = definition_lists.restore(&restored);
             Ok(hygiene(&unjoin_html_comments(&restored, source), style))
         }
-        Ok(None) => Ok(hygiene(source, style)),
+        // dprint changed nothing: only the definition-list restore can differ.
+        Ok(None) => Ok(hygiene(
+            &definition_lists.restore(&definition_lists.text),
+            style,
+        )),
         Err(err) => Err(FormatError::Parse(err.to_string())),
     }
 }
@@ -533,62 +538,5 @@ mod tests {
         let once = format(src, &Style::default()).unwrap();
         let twice = format(&once, &Style::default()).unwrap();
         assert_eq!(once, twice);
-    }
-
-    #[test]
-    fn keeps_a_definition_list_on_separate_lines() {
-        let src = "Term\n: first line\nsecond line.\n";
-        assert_eq!(format(src, &Style::default()).unwrap(), src);
-    }
-
-    #[test]
-    fn keeps_several_definitions_and_a_long_definition_as_written() {
-        let src = "Term two\n: a definition that is quite long and goes on and on past the eighty column wrap width\n: second definition\n";
-        assert_eq!(format(src, &Style::default()).unwrap(), src);
-    }
-
-    #[test]
-    fn keeps_a_definition_list_inside_a_list_item() {
-        let src = "- [SRS_X_0001] Title\n\n  Term\n  : first line\n  second line.\n";
-        assert_eq!(format(src, &Style::default()).unwrap(), src);
-    }
-
-    #[test]
-    fn keeps_a_definition_list_inside_a_blockquote() {
-        let src = "> Term\n> : first line\n> second line.\n";
-        assert_eq!(format(src, &Style::default()).unwrap(), src);
-    }
-
-    #[test]
-    fn still_formats_the_text_around_a_definition_list() {
-        let src = "#   Title\n\nTerm\n: first line\n\nA  paragraph   with   odd spacing.\n";
-        let out = format(src, &Style::default()).unwrap();
-        assert_eq!(
-            out,
-            "# Title\n\nTerm\n: first line\n\nA paragraph with odd spacing.\n"
-        );
-    }
-
-    #[test]
-    fn leaves_a_colon_line_in_a_fenced_block_to_the_fence_rule() {
-        let src = "```text\nTerm\n: not a definition\n```\n";
-        assert_eq!(format(src, &Style::default()).unwrap(), src);
-    }
-
-    #[test]
-    fn keeps_crlf_endings_around_a_definition_list() {
-        let style = Style {
-            end_of_line: LineEnding::CrLf,
-            ..Style::default()
-        };
-        let out = format("Term\r\n: first line\r\nsecond line.\r\n", &style).unwrap();
-        assert_eq!(out, "Term\r\n: first line\r\nsecond line.\r\n");
-    }
-
-    #[test]
-    fn is_idempotent_with_a_definition_list() {
-        let src = "Term\n: first line\nsecond line.\n\n- item\n\n  Other\n  : def\n";
-        let once = format(src, &Style::default()).unwrap();
-        assert_eq!(format(&once, &Style::default()).unwrap(), once);
     }
 }

@@ -26,6 +26,36 @@ pub(super) struct Guarded {
     paragraphs: Vec<Vec<String>>,
 }
 
+/// Where a line sits: the open fenced block, and the content column of each
+/// open list item. A line indented four columns past the innermost item is an
+/// indented code block.
+#[derive(Default)]
+struct Context {
+    open_fence: Option<(u8, usize)>,
+    columns: Vec<usize>,
+}
+
+impl Context {
+    fn base(&self) -> usize {
+        self.columns.last().copied().unwrap_or(0)
+    }
+
+    fn is_code(&self, line: &str) -> bool {
+        indent(line) >= self.base() + 4
+    }
+
+    /// Update the list-item columns for a non-blank line outside a fence.
+    fn enter(&mut self, line: &str) {
+        let column = marker_column(line).unwrap_or_else(|| indent(line));
+        while self.columns.last().is_some_and(|&top| top > column) {
+            self.columns.pop();
+        }
+        if !self.is_code(line) && marker_column(line).is_some() {
+            self.columns.push(container_prefix_len(line));
+        }
+    }
+}
+
 /// Replace every paragraph of `source` that holds a definition-list line with a
 /// sentinel paragraph. Fenced code and indented code are never inspected.
 pub(super) fn guard(source: &str) -> Guarded {
@@ -33,27 +63,42 @@ pub(super) fn guard(source: &str) -> Guarded {
     let lines: Vec<&str> = source.split_inclusive('\n').collect();
     let mut text = String::with_capacity(source.len());
     let mut paragraphs: Vec<Vec<String>> = Vec::new();
-    let mut open_fence: Option<(u8, usize)> = None;
+    let mut context = Context::default();
     let mut index = 0;
 
     while index < lines.len() {
         let line = lines[index];
         let body = trim_line_ending(line);
 
-        if let Some(fence) = fence_marker(body) {
-            open_fence = match open_fence {
-                None => Some(fence),
-                Some((open_char, open_len)) if fence.0 == open_char && fence.1 >= open_len => None,
-                keep => keep,
-            };
+        if let Some((fence_char, open_len)) = context.open_fence {
+            if closes_fence(body, fence_char, open_len) {
+                context.open_fence = None;
+            }
+            text.push_str(line);
+            index += 1;
+            continue;
         }
-        if open_fence.is_some() || is_blank(body) || fence_marker(body).is_some() {
+        if is_blank(body) {
             text.push_str(line);
             index += 1;
             continue;
         }
 
-        let end = paragraph_end(&lines, index);
+        context.enter(body);
+        if context.is_code(body) {
+            // An indented code block is not prose; copy its lines through.
+            text.push_str(line);
+            index += 1;
+            continue;
+        }
+        if let Some(fence) = opens_fence(body) {
+            context.open_fence = Some(fence);
+            text.push_str(line);
+            index += 1;
+            continue;
+        }
+
+        let end = paragraph_end(&lines, index, context.base());
         let paragraph: Vec<&str> = lines[index..end]
             .iter()
             .map(|line| trim_line_ending(line))
@@ -93,13 +138,14 @@ impl Guarded {
             match self.sentinel_in(body) {
                 Some((start, paragraph)) => {
                     let prefix = &body[..start];
+                    let last = paragraph.len() - 1;
                     for (position, original) in paragraph.iter().enumerate() {
-                        if position == 0 {
-                            out.push_str(prefix);
-                            out.push_str(&original[container_prefix_len(original)..]);
+                        let restored = if position == 0 {
+                            format!("{prefix}{}", &original[container_prefix_len(original)..])
                         } else {
-                            out.push_str(&rebase(original, &paragraph[0], prefix));
-                        }
+                            rebase(original, &paragraph[0], prefix)
+                        };
+                        out.push_str(&hard_break_to_backslash(restored, position < last));
                         out.push_str(if ending.is_empty() { "\n" } else { ending });
                     }
                 }
@@ -115,6 +161,17 @@ impl Guarded {
         let digits = &line[start + self.stem.len()..];
         let number: usize = digits.parse().ok()?;
         Some((start, self.paragraphs.get(number)?))
+    }
+}
+
+/// Spell a two-space hard break as a trailing backslash, as dprint does for
+/// prose. Whitespace hygiene strips trailing spaces after this pass, so a break
+/// written with spaces would otherwise be lost.
+fn hard_break_to_backslash(line: String, is_inside_paragraph: bool) -> String {
+    if is_inside_paragraph && line.ends_with("  ") && !line.trim().is_empty() {
+        format!("{}\\", line.trim_end())
+    } else {
+        line
     }
 }
 
@@ -137,12 +194,28 @@ fn rebase(original: &str, first_original: &str, sentinel_prefix: &str) -> String
 }
 
 /// The index just past the last line of the paragraph that starts at `start`.
-/// A paragraph ends at a blank line or at a line that opens a fenced block.
-fn paragraph_end(lines: &[&str], start: usize) -> usize {
+/// A paragraph ends at a blank line, a change of quote depth, or a line that
+/// starts another block: a fence, an ATX heading, a thematic break or a list
+/// item. A first line that is itself a heading or a thematic break is a
+/// paragraph of one line.
+fn paragraph_end(lines: &[&str], start: usize, base: usize) -> usize {
+    let first = trim_line_ending(lines[start]);
+    if is_heading_or_break(first) {
+        return start + 1;
+    }
+    let depth = quote_depth(first);
     let mut end = start + 1;
     while end < lines.len() {
         let body = trim_line_ending(lines[end]);
-        if is_blank(body) || fence_marker(body).is_some() {
+        // An indented line continues the paragraph, whatever it looks like.
+        let is_code = indent(body) >= base + 4;
+        if is_blank(body)
+            || quote_depth(body) != depth
+            || (!is_code
+                && (opens_fence(body).is_some()
+                    || is_heading_or_break(body)
+                    || interrupts_with_list_marker(body)))
+        {
             break;
         }
         end += 1;
@@ -150,11 +223,10 @@ fn paragraph_end(lines: &[&str], start: usize) -> usize {
     end
 }
 
-/// True when the paragraph has a term line followed by a `: ` definition line,
-/// and does not start as indented code.
+/// True when the paragraph has a term line followed by a `: ` definition line.
 fn has_definition_line(paragraph: &[&str]) -> bool {
     let first = paragraph[0];
-    if is_indented_code(first) || first.trim_start_matches([' ', '>']).starts_with(": ") {
+    if first.trim_start_matches([' ', '>']).starts_with(": ") {
         return false;
     }
     paragraph[1..]
@@ -162,24 +234,81 @@ fn has_definition_line(paragraph: &[&str]) -> bool {
         .any(|line| line.trim_start_matches([' ', '\t', '>']).starts_with(": "))
 }
 
-/// Four or more columns of indentation with no list or quote marker: an
-/// indented code block, whose contents are not prose.
-fn is_indented_code(line: &str) -> bool {
-    let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
-    let starts_wide = line.starts_with('\t') || indent >= 4;
-    starts_wide && container_prefix_len(line) == indent
+/// Columns of leading whitespace, a tab counting as four.
+fn indent(line: &str) -> usize {
+    line.chars()
+        .take_while(|c| matches!(c, ' ' | '\t'))
+        .map(|c| if c == '\t' { 4 } else { 1 })
+        .sum()
 }
 
-/// The fence character and run length when `line` opens or closes a fenced
-/// code block, after indentation and quote markers.
-fn fence_marker(line: &str) -> Option<(u8, usize)> {
+fn quote_depth(line: &str) -> usize {
+    line.chars()
+        .take_while(|c| matches!(c, ' ' | '\t' | '>'))
+        .filter(|&c| c == '>')
+        .count()
+}
+
+/// The byte column of a list marker, when the line holds one after any
+/// indentation and quote markers.
+fn marker_column(line: &str) -> Option<usize> {
+    let before_marker = line.len() - line.trim_start_matches([' ', '\t', '>']).len();
+    (container_prefix_len(line) > before_marker).then_some(before_marker)
+}
+
+/// A list marker that may interrupt a paragraph: a bullet, or an ordered
+/// marker numbered 1 (CommonMark).
+fn interrupts_with_list_marker(line: &str) -> bool {
+    let Some(column) = marker_column(line) else {
+        return false;
+    };
+    let marker = line[column..container_prefix_len(line)].trim_end();
+    match marker.strip_suffix(['.', ')']) {
+        Some(number) => number.parse::<u64>() == Ok(1),
+        None => true,
+    }
+}
+
+fn is_heading_or_break(line: &str) -> bool {
     let content = line.trim_start_matches([' ', '\t', '>']);
+    let hashes = content.chars().take_while(|&c| c == '#').count();
+    let is_heading = (1..=6).contains(&hashes)
+        && content[hashes..]
+            .chars()
+            .next()
+            .is_none_or(char::is_whitespace);
+    let marks: Vec<char> = content.chars().filter(|c| !c.is_whitespace()).collect();
+    let is_break = marks.len() >= 3
+        && matches!(marks[0], '-' | '*' | '_')
+        && marks.iter().all(|&c| c == marks[0]);
+    is_heading || is_break
+}
+
+/// The fence character and run length when `line` opens a fenced code block,
+/// after indentation, quote markers and one list marker. A backtick fence
+/// cannot carry a backtick in its info string.
+fn opens_fence(line: &str) -> Option<(u8, usize)> {
+    let (fence_char, length, info) = fence_parts(line)?;
+    (fence_char != b'`' || !info.contains('`')).then_some((fence_char, length))
+}
+
+/// True when `line` closes a fence opened with `open_char` x `open_len`: the
+/// same character, at least as long, and nothing after the run.
+fn closes_fence(line: &str, open_char: u8, open_len: usize) -> bool {
+    fence_parts(line).is_some_and(|(c, length, info)| {
+        c == open_char && length >= open_len && info.trim().is_empty()
+    })
+}
+
+/// The fence character, the run length and the text after the run.
+fn fence_parts(line: &str) -> Option<(u8, usize, &str)> {
+    let content = &line[container_prefix_len(line)..];
     let fence_char = *content
         .as_bytes()
         .first()
         .filter(|c| matches!(c, b'`' | b'~'))?;
     let length = content.bytes().take_while(|&c| c == fence_char).count();
-    (length >= 3).then_some((fence_char, length))
+    (length >= 3).then(|| (fence_char, length, &content[length..]))
 }
 
 fn is_blank(line: &str) -> bool {
@@ -200,5 +329,141 @@ fn sentinel_stem(source: &str) -> String {
             return stem;
         }
         nonce += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::markdown::format;
+    use crate::{LineEnding, Style};
+
+    fn fmt(src: &str) -> String {
+        format(src, &Style::default()).unwrap()
+    }
+
+    /// The input is not canonical elsewhere, so dprint rewrites the document
+    /// and the restore step has to run.
+    fn forcing_restore(src: &str) -> String {
+        format!("{src}\nx  y\n")
+    }
+
+    fn assert_kept(src: &str) {
+        let out = fmt(&forcing_restore(src));
+        assert_eq!(out, format!("{src}\nx y\n"), "definition list changed");
+        assert_eq!(fmt(&out), out, "not idempotent");
+    }
+
+    #[test]
+    fn keeps_a_definition_list_on_separate_lines() {
+        assert_kept("Term\n: first line\nsecond line.\n");
+    }
+
+    #[test]
+    fn keeps_several_definitions_and_a_long_definition_as_written() {
+        assert_kept(
+            "Term two\n: a definition that is quite long and goes on and on past the eighty column wrap width\n: second definition\n",
+        );
+    }
+
+    #[test]
+    fn restores_two_guarded_paragraphs_in_order() {
+        assert_kept("A\n: one\n\nB\n: two\n");
+    }
+
+    #[test]
+    fn keeps_a_definition_list_inside_a_list_item() {
+        assert_kept("- [SRS_X_0001] Title\n\n  Term\n  : first line\n  second line.\n");
+    }
+
+    #[test]
+    fn re_indents_a_definition_list_when_dprint_renormalises_the_marker() {
+        let out = fmt("-   Term\n    : first\n    second\n");
+        assert_eq!(out, "- Term\n  : first\n  second\n");
+    }
+
+    #[test]
+    fn keeps_a_definition_list_inside_a_blockquote() {
+        assert_kept("> Term\n> : first line\n> second line.\n");
+    }
+
+    #[test]
+    fn keeps_a_definition_list_indented_four_columns_inside_a_list_item() {
+        // dprint re-indents the item's content to two columns; the definition
+        // keeps its lines and is not rewrapped.
+        let out = fmt("- item\n\n    Term\n    : first\n    second line   is   here\n");
+        assert_eq!(
+            out,
+            "- item\n\n  Term\n  : first\n  second line   is   here\n"
+        );
+    }
+
+    #[test]
+    fn still_formats_the_text_around_a_definition_list() {
+        let out = fmt("#   Title\n\nTerm\n: first line\n\nA  paragraph   with   odd spacing.\n");
+        assert_eq!(
+            out,
+            "# Title\n\nTerm\n: first line\n\nA paragraph with odd spacing.\n"
+        );
+    }
+
+    #[test]
+    fn a_sibling_list_item_stays_a_sibling() {
+        let out = fmt("- a\n- Term\n  : def\n- b\n\nx  y\n");
+        assert_eq!(out, "- a\n- Term\n  : def\n- b\n\nx y\n");
+    }
+
+    #[test]
+    fn a_heading_after_a_definition_is_still_formatted() {
+        let out = fmt("Term\n: def\n#   Heading\n");
+        assert!(out.contains("# Heading\n"), "{out:?}");
+        assert!(out.starts_with("Term\n: def\n"), "{out:?}");
+    }
+
+    #[test]
+    fn a_blockquote_after_a_definition_is_still_formatted() {
+        let out = fmt("Term\n: def\n> a   b\n");
+        assert!(out.starts_with("Term\n: def\n"), "{out:?}");
+        assert!(out.contains("> a b\n"), "{out:?}");
+    }
+
+    #[test]
+    fn a_colon_line_after_a_blank_line_is_wrapped_as_prose() {
+        let out = fmt("Term\n\n: a   b\n: c   d\n");
+        assert_eq!(out, "Term\n\n: a b : c d\n");
+    }
+
+    #[test]
+    fn a_colon_line_in_a_fenced_block_is_left_to_the_fence_rule() {
+        let src = "```text\nTerm\n: not a definition\n```\n";
+        assert_eq!(fmt(src), src);
+        let src = "- ```text\n  Term\n  : definition\n  ```\n";
+        assert_eq!(fmt(src), src);
+    }
+
+    #[test]
+    fn a_fence_inside_indented_code_does_not_switch_the_guard_off() {
+        assert_kept("para\n\n    ```\n    code\n\nTerm\n: d   e\n");
+    }
+
+    #[test]
+    fn keeps_a_two_space_hard_break_inside_a_definition() {
+        let out = fmt("Term\n: a  \nb\n");
+        assert_eq!(out, "Term\n: a\\\nb\n");
+    }
+
+    #[test]
+    fn keeps_crlf_endings_around_a_definition_list() {
+        let style = Style {
+            end_of_line: LineEnding::CrLf,
+            ..Style::default()
+        };
+        let src = "Term\r\n: first line\r\nsecond line.\r\n";
+        assert_eq!(format(src, &style).unwrap(), src);
+    }
+
+    #[test]
+    fn a_sentinel_like_text_in_the_source_is_not_replaced() {
+        let src = "Term\n: d\n\nprim-guard-0-deflist-0\n\nx  y\n";
+        assert_eq!(fmt(src), "Term\n: d\n\nprim-guard-0-deflist-0\n\nx y\n");
     }
 }

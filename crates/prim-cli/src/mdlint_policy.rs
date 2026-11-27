@@ -29,7 +29,8 @@ pub(crate) fn strict_from(props: &Properties) -> bool {
 /// The limit is the same `max_line_length` the formatter wraps prose to, so
 /// enabling the key cannot make prim report a line prim itself produced —
 /// except a heading, which the formatter cannot wrap and the strict tier
-/// reports on purpose. The
+/// reports on purpose, and a definition-list line, which the formatter keeps
+/// as written (AD-0021). The
 /// `unwrap_or(80)` matches the formatter's own fallback for an unset key.
 pub(crate) fn report_line_length_from(props: &Properties) -> Option<usize> {
     if editorconfig::prim_bool_from(props, MDLINT_REPORT_LINE_LENGTH_KEY).unwrap_or(false) {

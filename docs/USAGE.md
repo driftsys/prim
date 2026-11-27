@@ -225,9 +225,10 @@ panic also prints its own message, which is what to include in a bug report.
 
       prim reports only the long lines that can actually be shortened. A long
       prose line is reported — `prim fmt` wraps prose to the same limit, so a
-      repository that formats with prim sees no prose findings. Table rows,
-      fenced code, and an inline code span with no internal space are never
-      reported: a line break cannot be inserted into any of them without
+      repository that formats with prim sees no prose findings, except for the
+      lines of a definition list, which prim keeps as written (AD-0021). Table
+      rows, fenced code, and an inline code span with no internal space are
+      never reported: a line break cannot be inserted into any of them without
       changing what the document means, so there is nothing to fix.
 
       Headings are the one case decided by the tier. prim cannot wrap a heading
@@ -949,7 +950,8 @@ Scope notes:
   options — prim sets those itself, and one of them varies by tier. The limit is
   the same `max_line_length` the formatter wraps to, so enabling the key cannot
   make prim report a line prim itself produced, except a heading the formatter
-  was never able to wrap.
+  was never able to wrap and a definition-list line it keeps as written
+  (AD-0021).
 - `prim_mdlint_disable` resolves through the same per-glob cascade as
   `prim_mdlint_strict`: EditorConfig's ordinary last-match-wins resolution
   applies per section, so a narrower section's value **replaces** a wider
