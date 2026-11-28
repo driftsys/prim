@@ -32,7 +32,7 @@ toml = "1"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 jsonc-parser = { version = "0.33", features = ["serde"] }
 serde_json = "1"
-yaml-rust2 = "0.11"
+yaml-rust2 = "0.13"
 
 [[bench]]
 name = "format"
