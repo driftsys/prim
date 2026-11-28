@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.0] (2026-11-28)
+
+### Bug Fixes
+
+- **prim-fmt:** keep a Markdown definition list as written ([#230]) ([6c913d7]),
+  closes [#229]
+
+### BREAKING CHANGES
+
+- prim fmt leaves a definition list unchanged instead of
+joining it into one paragraph.
+
+[0.10.0]: https://github.com/driftsys/prim/compare/v0.9.1...v0.10.0
+[6c913d7]: https://github.com/driftsys/prim/commit/6c913d7
+[#230]: https://github.com/driftsys/prim/issues/230
+[#229]: https://github.com/driftsys/prim/issues/229
+
 ## [0.9.1] (2026-09-20)
 
 ### Bug Fixes
