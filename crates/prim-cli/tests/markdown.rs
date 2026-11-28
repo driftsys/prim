@@ -126,3 +126,19 @@ fn whitespace_inside_a_word_does_not_panic() {
 
     assert_eq!(fs::read(&file).unwrap(), content.as_bytes());
 }
+
+#[test]
+fn check_passes_on_a_definition_list() {
+    // Issue #229: dprint rewraps `Term` / `: definition` into one paragraph, so
+    // a file kept as written by `markspec fmt` failed the gate.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("d.md");
+    fs::write(&file, "# T\n\nTerm\n: first line\nsecond line.\n").unwrap();
+
+    prim().arg("fmt").arg("--check").arg(&file).assert().code(0);
+    prim().arg("fmt").arg(&file).assert().code(0);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "# T\n\nTerm\n: first line\nsecond line.\n"
+    );
+}

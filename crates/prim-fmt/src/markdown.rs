@@ -5,6 +5,8 @@ use std::collections::BTreeSet;
 use dprint_plugin_markdown::configuration::{ConfigurationBuilder, TextWrap};
 use dprint_plugin_markdown::format_text;
 
+mod definition_list;
+
 use crate::hygiene::hygiene;
 use crate::{FormatError, Style};
 
@@ -13,7 +15,8 @@ use crate::{FormatError, Style};
 ///
 /// Prose is hard-wrapped to `style.max_line_length` (else 80) with the FR-1.1a
 /// guardrails honored by dprint (inline code atomic, links not split, tables and
-/// fenced code not wrapped, hard breaks preserved). Fenced code-block contents
+/// fenced code not wrapped, hard breaks preserved). A definition list is kept
+/// as written by prim's own guard (`definition_list`). Fenced code-block contents
 /// are preserved verbatim (FR-1.6): the `format_code_block_text` callback returns
 /// `Ok(None)`, so dprint never reformats embedded code.
 pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
@@ -23,7 +26,8 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
         .build();
 
     let (guard_markdown, guard_md) = fence_sentinels(source);
-    let guarded = guard_markdown_fences(source, &guard_markdown, &guard_md);
+    let definition_lists = definition_list::guard(source);
+    let guarded = guard_markdown_fences(&definition_lists.text, &guard_markdown, &guard_md);
     let result = format_text(&guarded, &config, |_, _, _| Ok(None));
     match result {
         Ok(Some(formatted)) => {
@@ -34,9 +38,14 @@ pub fn format(source: &str, style: &Style) -> Result<String, FormatError> {
             let restored = formatted
                 .replace(&guard_markdown, "markdown")
                 .replace(&guard_md, "md");
+            let restored = definition_lists.restore(&restored);
             Ok(hygiene(&unjoin_html_comments(&restored, source), style))
         }
-        Ok(None) => Ok(hygiene(source, style)),
+        // dprint changed nothing: only the definition-list restore can differ.
+        Ok(None) => Ok(hygiene(
+            &definition_lists.restore(&definition_lists.text),
+            style,
+        )),
         Err(err) => Err(FormatError::Parse(err.to_string())),
     }
 }
